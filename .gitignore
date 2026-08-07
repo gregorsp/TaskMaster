@@ -1,0 +1,11 @@
+node_modules/
+dist/
+server/public/
+*.db
+*.db-wal
+*.db-shm
+*.tsbuildinfo
+.env
+.env.local
+.DS_Store
+Thumbs.db

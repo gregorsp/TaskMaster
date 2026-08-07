@@ -1,0 +1,24 @@
+# Abhängigkeiten & Build-Artefakte
+node_modules/
+server/node_modules/
+web/node_modules/
+server/dist/
+server/data/
+web/dist/
+
+# Git & Metadaten
+.git/
+.github/
+.vscode/
+
+# Konfiguration mit Geheimnissen
+.env
+.env.*
+*.db
+*.db-wal
+*.db-shm
+
+# Dokumentation (wird nicht im Image benötigt)
+*.md
+LICENSE
+CONTRIBUTING.md

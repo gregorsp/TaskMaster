@@ -1,0 +1,74 @@
+# ============================================================
+# TaskMaster – Docker-Compose für den Homelab-Betrieb
+# ------------------------------------------------------------
+# Zwei Betriebsarten:
+#   1. Fertiges Image ziehen (Standard, empfohlen auf dem Raspberry Pi):
+#        docker compose up -d
+#      → zieht ghcr.io/gregorsp/taskmaster:latest (Multi-Arch arm64/amd64,
+#        wird automatisch von GitHub Actions nach jedem Push gebaut).
+#   2. Aus dem Quellcode bauen (Entwicklung / vor erstem CI-Build):
+#        docker compose up -d --build
+#      → baut das Image lokal aus dem Dockerfile im Repo-Stamm.
+#
+# Unter CasaOS: Dieses Compose-File über "Meine Apps" importieren oder den
+# Inhalt als eigene App definieren. Danach wird der Container per UI gestartet.
+# ============================================================
+
+services:
+  taskmaster:
+    # Image im Container-Registry. Vor dem ersten CI-Build (oder offline)
+    # mit `--build` lokal bauen – siehe `build`-Abschnitt unten.
+    image: ghcr.io/gregorsp/taskmaster:latest
+
+    # Lokaler Build-Fallback. Nur relevant, wenn oben kein Image existiert
+    # oder `--build` übergeben wird. Produziert dasselbe Image (gleicher Tag).
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: taskmaster
+
+    # Port-Mapping: [Host]:[Container].
+    # Auf einem Raspi mit CasaOS einen freien Host-Port wählen (z. B. 8080).
+    # Achtung: der HTTP-Port sollte später hinter einem Reverse-Proxy
+    # (Caddy/Traefik) mit TLS laufen – siehe README "Deployment".
+    ports:
+      - "8080:8080"
+
+    # SQLite-Datenbank als Named Volume persistieren, damit alle Daten
+    # Container-Neustarts und Updates überleben.
+    volumes:
+      - taskmaster_data:/app/data
+
+    # Umgebungsvariablen – Werte kommen aus einer .env-Datei im selben
+    # Verzeichnis (siehe .env.example) oder aus den CasaOS-App-Einstellungen.
+    environment:
+      # WICHTIG: In Produktion auf einen langen, zufälligen Wert setzen!
+      # Erzeugen mit: openssl rand -hex 32
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      # Lebensdauern der Tokens (optional, Defaults sind vernünftig):
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
+      # Pfad zur SQLite-Datei (innerhalb des Volumes):
+      DB_PATH: /app/data/taskmaster.db
+      # Initialer Admin-User – wird nur beim ERSTEN Start angelegt,
+      # wenn noch keine Nutzer existieren. Danach ignoriert.
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@taskmaster.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      NODE_ENV: production
+
+    # Healthcheck: prüft den /api/health-Endpunkt. CasaOS/Docker starten den
+    # Container nach einem Crash automatisch neu (siehe restart).
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    # Automatischer Neustart bei Abstürzen und nach System-Reboot.
+    restart: unless-stopped
+
+# Persistenter Speicher für die SQLite-Datei. Backup-Hinweis:
+# `docker run --rm -v taskmaster_data:/app/data -v $(pwd):/backup alpine tar czf /backup/taskmaster-backup.tgz -C /app/data .`
+volumes:
+  taskmaster_data:
