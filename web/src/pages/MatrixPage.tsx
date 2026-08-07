@@ -53,7 +53,7 @@ export function MatrixPage() {
         <CircularProgress />
       ) : (
         <DndContext onDragEnd={handleDragEnd} sensors={sensors}>
-          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}>
             {QUADRANTS.map((q) => (
               <Droppable key={`${q.important}-${q.urgent}`} id={`${q.important}-${q.urgent}`} label={q.label} count={getQuadrantTasks(q.important, q.urgent).length}>
                 {getQuadrantTasks(q.important, q.urgent).map((task) => (
