@@ -68,6 +68,7 @@ export interface UpdateTaskInput {
   description?: string | null;
   dueAt?: string | null;
   isImportant?: boolean;
+  isUrgent?: boolean;
   isPrivate?: boolean;
   urgencyMode?: "never" | "always" | "before_days" | "before_percent";
   urgencyValue?: number | null;

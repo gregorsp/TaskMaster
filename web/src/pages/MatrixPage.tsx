@@ -38,8 +38,8 @@ export function MatrixPage() {
     if (!over) return;
     const taskId = String(active.id);
     const [imp, urg] = over.id.toString().split("-").map((v) => v === "true");
-    await updateTask(taskId, { isImportant: imp });
-    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, isImportant: imp } : t));
+    await updateTask(taskId, { isImportant: imp, isUrgent: urg });
+    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, isImportant: imp, isUrgent: urg } : t));
   };
 
   const sensors = useSensors(

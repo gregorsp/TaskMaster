@@ -128,10 +128,15 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
             </Stack>
 
             <Typography variant="subtitle2" mb={1}>Priorität</Typography>
-            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.5, width: 160, mb: 3 }}>
-              {[["Wichtig + Dringend", true], ["Wichtig", true], ["Normal", false]].map(([label, imp]) => (
-                <Paper key={label as string} variant="outlined" sx={{ p: 1, textAlign: "center", fontSize: 12, cursor: "pointer", bgcolor: task.isImportant === imp ? "primary.main" : "transparent", color: task.isImportant === imp ? "white" : "text.secondary" }}
-                  onClick={() => safeCall(async () => { await updateTask(taskId, { isImportant: !!imp }); setTask({ ...task, isImportant: !!imp }); })}>
+            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.5, width: 220, mb: 3 }}>
+              {[
+                ["Wichtig + Dringend", true, true],
+                ["Wichtig + Nicht Dringend", true, false],
+                ["Nicht Wichtig + Dringend", false, true],
+                ["Nicht Wichtig + Nicht Dringend", false, false],
+              ].map(([label, imp, urg]) => (
+                <Paper key={label as string} variant="outlined" sx={{ p: 1, textAlign: "center", fontSize: 12, cursor: "pointer", bgcolor: task.isImportant === imp && task.isUrgent === urg ? "primary.main" : "transparent", color: task.isImportant === imp && task.isUrgent === urg ? "white" : "text.secondary" }}
+                  onClick={() => safeCall(async () => { await updateTask(taskId, { isImportant: !!imp, isUrgent: !!urg }); setTask({ ...task, isImportant: !!imp, isUrgent: !!urg }); })}>
                   {label as string}
                 </Paper>
               ))}
