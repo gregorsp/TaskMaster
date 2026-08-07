@@ -66,7 +66,7 @@ export async function tasksRoutes(app: FastifyInstance) {
     if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
     const input = commentSchema.parse(request.body);
-    const evt = addTaskComment(id, p.id, input.content);
+    const evt = await addTaskComment(id, p.id, input.content);
     return reply.status(201).send(evt);
   });
 

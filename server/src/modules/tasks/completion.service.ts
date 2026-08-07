@@ -118,14 +118,27 @@ export function getTaskEvents(taskId: string) {
 
 export function addTaskComment(taskId: string, userId: string, content: string) {
   const db = getDb();
+  const createdAt = new Date();
   const evt = {
     id: uuid(),
     taskId,
     userId,
     type: "comment" as const,
     content,
-    createdAt: new Date(),
+    createdAt,
   };
   db.insert(taskEvents).values(evt).run();
-  return evt;
+  const row = db.select({
+    id: taskEvents.id,
+    taskId: taskEvents.taskId,
+    userId: taskEvents.userId,
+    type: taskEvents.type,
+    content: taskEvents.content,
+    createdAt: taskEvents.createdAt,
+    displayName: users.displayName,
+  }).from(taskEvents)
+    .leftJoin(users, eq(taskEvents.userId, users.id))
+    .where(eq(taskEvents.id, evt.id))
+    .get();
+  return row || { ...evt, displayName: null };
 }

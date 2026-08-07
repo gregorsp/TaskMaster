@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog, DialogContent, Box, Typography, Chip, IconButton, Stack,
   Button, Divider, TextField, Paper, DialogTitle, DialogActions, Autocomplete,
@@ -17,7 +17,7 @@ import { useNotify } from "../../context/NotifyContext";
 import client from "../../api/client";
 
 interface Props { taskId: string; open: boolean; onClose: () => void; onUpdated: () => void; }
-interface TaskEvent { id: string; taskId: string; userId: string; type: string; content: string | null; createdAt: string; }
+interface TaskEvent { id: string; taskId: string; userId: string; type: string; content: string | null; createdAt: string; displayName?: string | null; }
 
 function safeCall(fn: () => Promise<unknown>) {
   fn().catch(e => console.error("TaskCard async error:", e));
@@ -36,23 +36,30 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
   const [commentText, setCommentText] = useState("");
   const [completeDialog, setCompleteDialog] = useState(false);
   const [completeNote, setCompleteNote] = useState("");
+  const eventsRef = useRef<HTMLDivElement | null>(null);
   const notify = useNotify();
 
   const load = async () => {
     try {
-      const [t, cats, usrs] = await Promise.all([
+      const [t, cats, usrs, evts] = await Promise.all([
         getTask(taskId),
         listCategories().catch(() => []),
         listUsersPicker().catch(() => []),
+        client.get(`/tasks/${taskId}/events`).then(r => Array.isArray(r.data) ? r.data : []).catch(() => []),
       ]);
       setTask(t);
       setAllCats(cats);
       setAllUsers(usrs);
-      client.get(`/tasks/${taskId}/events`).then(r => setEvents(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+      setEvents(evts);
     } catch (e) { console.error("TaskCard load error:", e); }
   };
 
   useEffect(() => { if (open) load(); }, [open, taskId]);
+  useEffect(() => {
+    const node = eventsRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [events, open]);
 
   const handleComplete = async (nextDueAt?: string) => {
     try { await completeTask(taskId, nextDueAt, completeNote || undefined); notify("Aufgabe erledigt"); setCompleteDialog(false); setCompleteNote(""); setNextDueOpen(false); load(); onUpdated(); }
@@ -63,8 +70,9 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
     catch (e) { console.error(e); notify("Fehler beim Löschen", "error"); }
   };
   const handleSendComment = async () => {
-    if (!commentText.trim()) return;
-    try { await client.post(`/tasks/${taskId}/comment`, { content: commentText.trim() }); setCommentText(""); load(); }
+    const content = commentText.trim();
+    if (!content) return;
+    try { await client.post(`/tasks/${taskId}/comment`, { content }); setCommentText(""); load(); }
     catch (e) { console.error(e); notify("Fehler beim Senden", "error"); }
   };
 
@@ -167,9 +175,9 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
 
           <Box sx={{ width: { xs: "100%", md: 280 }, borderLeft: { xs: 0, md: 1 }, borderColor: "divider", p: { xs: 2, md: 3 }, bgcolor: "background.paper", display: "flex", flexDirection: "column", maxHeight: { md: "70vh" } }}>
             <Typography variant="subtitle2" fontWeight={600} mb={1}>Verlauf</Typography>
-            <Box sx={{ flex: 1, overflowY: "auto", mb: 1 }}>
+            <Box ref={eventsRef} sx={{ flex: 1, overflowY: "auto", mb: 1 }}>
               {events.length === 0 && <Typography variant="caption" color="text.secondary">Noch keine Einträge.</Typography>}
-              {events.map((evt: { id: string; type: string; content: string | null; createdAt: string; displayName?: string }) => (
+              {events.map((evt) => (
                 <Box key={evt.id} sx={{ mb: 1.5, pb: 1, borderBottom: "1px solid", borderColor: "divider" }}>
                   <Stack direction="row" justifyContent="space-between">
                     <Typography variant="caption" fontWeight={600}>

@@ -131,6 +131,31 @@ describe("Tasks CRUD", () => {
     expect(res.json().ok).toBe(true);
   });
 
+  it("adds a task comment", async () => {
+    const res = await app.inject({
+      method: "POST", url: `/api/tasks/${taskId}/comment`,
+      headers: headers(adminToken),
+      payload: { content: "Kommentar Test" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().type).toBe("comment");
+    expect(res.json().content).toBe("Kommentar Test");
+    expect(res.json().displayName).toBe("Admin 2");
+  });
+
+  it("returns task events including comments", async () => {
+    const res = await app.inject({
+      method: "GET", url: `/api/tasks/${taskId}/events`,
+      headers: headers(adminToken),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body)).toBe(true);
+    const hasComment = body.some((evt: { type: string; content: string | null }) =>
+      evt.type === "comment" && evt.content === "Kommentar Test");
+    expect(hasComment).toBe(true);
+  });
+
   it("deletes a task", async () => {
     const res = await app.inject({
       method: "DELETE", url: `/api/tasks/${taskId}`,
