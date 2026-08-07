@@ -15,6 +15,12 @@ export interface UserPickerItem {
   displayName: string;
 }
 
+export interface DbMigrationStatus {
+  requiresMigration: boolean;
+  currentVersion: number;
+  targetVersion: number;
+}
+
 export async function listUsers(): Promise<User[]> {
   const { data } = await client.get<User[]>("/users");
   return data;
@@ -43,4 +49,14 @@ export async function updateUser(id: string, input: {
 
 export async function deleteUser(id: string): Promise<void> {
   await client.delete(`/users/${id}`);
+}
+
+export async function getDbMigrationStatus(): Promise<DbMigrationStatus> {
+  const { data } = await client.get<DbMigrationStatus>("/users/bootstrap/db-migration");
+  return data;
+}
+
+export async function runDbMigration(): Promise<{ backupPath: string | null; status: DbMigrationStatus }> {
+  const { data } = await client.post<{ backupPath: string | null; status: DbMigrationStatus }>("/users/bootstrap/db-migration");
+  return data;
 }

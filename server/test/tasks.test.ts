@@ -232,6 +232,37 @@ describe("Users admin", () => {
     });
     expect(res.statusCode).toBe(403);
   });
+
+  it("returns DB migration status for admin", async () => {
+    const res = await app.inject({
+      method: "GET", url: "/api/users/bootstrap/db-migration",
+      headers: headers(adminToken),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.requiresMigration).toBe(false);
+    expect(body.currentVersion).toBe(body.targetVersion);
+  });
+
+  it("non-admin cannot access DB migration status", async () => {
+    const res = await app.inject({
+      method: "GET", url: "/api/users/bootstrap/db-migration",
+      headers: headers(userToken),
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("runs DB migration endpoint safely when nothing is pending", async () => {
+    const res = await app.inject({
+      method: "POST", url: "/api/users/bootstrap/db-migration",
+      headers: headers(adminToken),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.backupPath).toBeNull();
+    expect(body.status.requiresMigration).toBe(false);
+    expect(body.status.currentVersion).toBe(body.status.targetVersion);
+  });
 });
 
 describe("Calendar", () => {

@@ -37,6 +37,11 @@ export function getDb(): SQLJsDatabase {
   return db;
 }
 
+export function getSql(): SqlJsDatabase {
+  if (!sql) throw new Error("Database not initialized. Call initDb() first.");
+  return sql;
+}
+
 export function saveDb(): void {
   if (!sql) return;
   if (config.dbPath === ":memory:") return;
@@ -64,6 +69,7 @@ export function stopAutoSave(): void {
 }
 
 export function closeDb(): void {
+  if (!sql) return;
   saveDb();
   sql.close();
 }

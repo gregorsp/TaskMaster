@@ -1,11 +1,12 @@
 import { buildApp } from "./app.js";
 import { initDb, getDb, saveDb, closeDb, startAutoSave, stopAutoSave } from "./db/client.js";
-import { migrate } from "drizzle-orm/sql-js/migrator";
 import { config } from "./config.js";
 import { users } from "./db/schema.js";
 import { eq } from "drizzle-orm";
 import { scrypt, randomBytes } from "node:crypto";
 import { v7 as uuid } from "uuid";
+import { existsSync } from "node:fs";
+import { getDbMigrationStatus, migrateDatabaseWithBackup } from "./db/bootstrap.js";
 
 const KEYLEN = 64;
 
@@ -39,9 +40,21 @@ async function seedAdmin() {
 }
 
 async function main() {
+  const hasExistingDbFile = config.dbPath !== ":memory:" && existsSync(config.dbPath);
   await initDb();
 
-  migrate(getDb(), { migrationsFolder: "./src/db/migrations" });
+  if (!hasExistingDbFile) {
+    migrateDatabaseWithBackup();
+  }
+
+  const migrationStatus = getDbMigrationStatus();
+  if (migrationStatus.requiresMigration) {
+    console.warn(
+      `Database migration required: current version ${migrationStatus.currentVersion}, target version ${migrationStatus.targetVersion}. ` +
+      "Please migrate in the admin area before regular use."
+    );
+  }
+
   await seedAdmin();
   startAutoSave();
 

@@ -1,17 +1,29 @@
 import { useState, useEffect } from "react";
 import {
   Box, Typography, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Paper, IconButton, Switch, Chip,
+  TableHead, TableRow, Paper, IconButton, Switch, Chip, Alert, Button, Stack,
 } from "@mui/material";
 import { Delete as DeleteIcon } from "@mui/icons-material";
-import { listUsers, updateUser, deleteUser, type User } from "../api/usersApi";
+import {
+  listUsers,
+  updateUser,
+  deleteUser,
+  getDbMigrationStatus,
+  runDbMigration,
+  type User,
+  type DbMigrationStatus,
+} from "../api/usersApi";
 
 export function AdminPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [migrationStatus, setMigrationStatus] = useState<DbMigrationStatus | null>(null);
+  const [migrationBackupPath, setMigrationBackupPath] = useState<string | null>(null);
+  const [isMigrating, setIsMigrating] = useState(false);
 
   const load = async () => {
-    const data = await listUsers();
-    setUsers(data);
+    const [usersData, migrationData] = await Promise.all([listUsers(), getDbMigrationStatus()]);
+    setUsers(usersData);
+    setMigrationStatus(migrationData);
   };
 
   useEffect(() => { load(); }, []);
@@ -27,9 +39,44 @@ export function AdminPage() {
     setUsers((prev) => prev.filter((u) => u.id !== id));
   };
 
+  const handleRunMigration = async () => {
+    setIsMigrating(true);
+    try {
+      const result = await runDbMigration();
+      setMigrationBackupPath(result.backupPath);
+      setMigrationStatus(result.status);
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
   return (
     <Box>
       <Typography variant="h4" mb={2}>Administration</Typography>
+
+      {migrationStatus?.requiresMigration && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <Stack spacing={1}>
+            <Typography fontWeight={600}>
+              Datenbank-Migration erforderlich ({migrationStatus.currentVersion} → {migrationStatus.targetVersion})
+            </Typography>
+            <Typography variant="body2">
+              Bitte vor der weiteren Nutzung eine Migration starten. Vor der Migration wird automatisch ein Backup erstellt.
+            </Typography>
+            <Box>
+              <Button variant="contained" onClick={handleRunMigration} disabled={isMigrating}>
+                {isMigrating ? "Migration läuft..." : "Migration jetzt ausführen"}
+              </Button>
+            </Box>
+          </Stack>
+        </Alert>
+      )}
+
+      {!migrationStatus?.requiresMigration && migrationBackupPath && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          Migration erfolgreich. Backup: {migrationBackupPath}
+        </Alert>
+      )}
 
       <TableContainer component={Paper}>
         <Table>

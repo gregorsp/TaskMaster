@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authGuard, adminGuard } from "../../middleware/auth.hooks.js";
 import { listUsers, getUser, updateUser, deleteUser } from "./users.service.js";
+import { getDbMigrationStatus, migrateDatabaseWithBackup } from "../../db/bootstrap.js";
 
 const updateUserSchema = z.object({
   username: z.string().min(3).max(50).optional(),
@@ -16,6 +17,14 @@ export async function usersRoutes(app: FastifyInstance) {
 
   app.get("/", { preHandler: adminGuard }, async () => {
     return listUsers();
+  });
+
+  app.get("/bootstrap/db-migration", { preHandler: adminGuard }, async () => {
+    return getDbMigrationStatus();
+  });
+
+  app.post("/bootstrap/db-migration", { preHandler: adminGuard }, async () => {
+    return migrateDatabaseWithBackup();
   });
 
   app.get("/picker", async () => {

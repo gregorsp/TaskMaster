@@ -150,6 +150,10 @@ git pull
 docker compose pull && docker compose up -d
 ```
 
+Nach dem Update prüft TaskMaster beim Start die Datenbank-Version. Wenn Migrationen fehlen,
+erscheint im Admin-Bereich ein Bootstrap-Hinweis. Die Migration wird dort manuell gestartet;
+vorher wird automatisch ein Backup der DB-Datei angelegt.
+
 ### Variante B: Aus dem Quellcode bauen
 
 Ohne Registry bzw. vor dem ersten CI-Build – das Image wird lokal gebaut
@@ -256,6 +260,8 @@ Fehlerantworten sind einheitlich: `{ "error": { "code", "message" } }`.
 | GET | `/api/users/:id` | Einzelner Nutzer | Admin |
 | PUT | `/api/users/:id` | Nutzer bearbeiten (Rolle, Passwort …) | Admin |
 | DELETE | `/api/users/:id` | Nutzer löschen | Admin |
+| GET | `/api/users/bootstrap/db-migration` | Migrationsstatus (Versionen) | Admin |
+| POST | `/api/users/bootstrap/db-migration` | DB-Backup erstellen + Migration ausführen | Admin |
 
 ## Projektstruktur
 
