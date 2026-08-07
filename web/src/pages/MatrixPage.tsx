@@ -53,7 +53,7 @@ export function MatrixPage() {
         <CircularProgress />
       ) : (
         <DndContext onDragEnd={handleDragEnd} sensors={sensors}>
-          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 2 }}>
             {QUADRANTS.map((q) => (
               <Droppable key={`${q.important}-${q.urgent}`} id={`${q.important}-${q.urgent}`} label={q.label} count={getQuadrantTasks(q.important, q.urgent).length}>
                 {getQuadrantTasks(q.important, q.urgent).map((task) => (
@@ -77,7 +77,7 @@ function Droppable({ id, label, count, children }: { id: string; label: string; 
     <Paper
       ref={setNodeRef}
       variant="outlined"
-      sx={{ p: 2, minHeight: 150, bgcolor: "background.paper" }}
+      sx={{ p: 2, minHeight: 150, minWidth: 0, bgcolor: "background.paper", overflow: "hidden" }}
     >
       <Typography variant="subtitle2" fontWeight={600} mb={1}>
         {label} ({count})
@@ -98,12 +98,13 @@ function DraggableTask({ task, onClick }: { task: Task; onClick: () => void }) {
       onClick={onClick}
       sx={{
         p: 1.5,
+        minWidth: 0,
         cursor: "grab",
         "&:active": { cursor: "grabbing" },
         ...style,
       }}
     >
-      <Typography variant="body2">{task.title}</Typography>
+      <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>{task.title}</Typography>
       {task.dueAt && (
         <Typography variant="caption" color="text.secondary">
           {new Date(task.dueAt).toLocaleDateString("de-DE")}

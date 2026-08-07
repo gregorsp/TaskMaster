@@ -32,23 +32,23 @@ export function AdminPage() {
       <Typography variant="h4" mb={2}>Administration</Typography>
 
       <TableContainer component={Paper}>
-        <Table>
+        <Table sx={{ tableLayout: "fixed" }}>
           <TableHead>
             <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>E-Mail</TableCell>
-              <TableCell>Rolle</TableCell>
-              <TableCell align="right">Aktionen</TableCell>
+              <TableCell sx={{ width: "35%" }}>Name</TableCell>
+              <TableCell sx={{ width: "30%" }}>E-Mail</TableCell>
+              <TableCell sx={{ width: "20%" }}>Rolle</TableCell>
+              <TableCell align="right" sx={{ width: "15%" }}>Aktionen</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {users.map((user) => (
               <TableRow key={user.id}>
-                <TableCell>
+                <TableCell sx={{ overflowWrap: "anywhere" }}>
                   <Typography fontWeight={500}>{user.displayName}</Typography>
                   <Typography variant="caption" color="text.secondary">@{user.username}</Typography>
                 </TableCell>
-                <TableCell>{user.email}</TableCell>
+                <TableCell sx={{ overflowWrap: "anywhere" }}>{user.email}</TableCell>
                 <TableCell>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <Chip size="small" label={user.isAdmin ? "Admin" : "Nutzer"} color={user.isAdmin ? "primary" : "default"} />

@@ -46,7 +46,7 @@ export function CategoriesPage() {
         {cats.map((cat) => (
           <Stack key={cat.id} direction="row" alignItems="center" spacing={2} sx={{ p: 1.5, borderRadius: 1, bgcolor: "white", border: "1px solid", borderColor: "grey.200" }}>
             <Box sx={{ width: 20, height: 20, borderRadius: "50%", bgcolor: cat.color, flexShrink: 0 }} />
-            <Typography sx={{ flexGrow: 1 }}>{cat.name}</Typography>
+            <Typography sx={{ flexGrow: 1, minWidth: 0, overflowWrap: "anywhere" }}>{cat.name}</Typography>
             <Chip size="small" label={cat.color} sx={{ fontFamily: "monospace" }} />
             <IconButton size="small" color="error" onClick={() => handleDelete(cat.id)}>
               <DeleteIcon fontSize="small" />

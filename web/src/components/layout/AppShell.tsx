@@ -154,6 +154,7 @@ export function AppShell() {
         component="main"
         sx={{
           flexGrow: 1,
+          minWidth: 0,
           pt: 8,
           pl: isMobile ? 0 : `${DRAWER_WIDTH}px`,
           minHeight: "100vh",

@@ -47,12 +47,12 @@ export function OverduePage() {
 
       {tasks.length > 0 && (
       <TableContainer component={Paper}>
-        <Table>
+        <Table sx={{ tableLayout: "fixed" }}>
           <TableHead>
             <TableRow>
               <TableCell>Titel</TableCell>
-              <TableCell>Fällig am</TableCell>
-              <TableCell>Überfällig seit</TableCell>
+              <TableCell sx={{ width: 130 }}>Fällig am</TableCell>
+              <TableCell sx={{ width: 95 }}>Überfällig seit</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -63,7 +63,7 @@ export function OverduePage() {
               const daysLate = dueDate ? Math.ceil((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)) : 0;
               return (
                 <TableRow key={task.id} hover onClick={() => setSelectedId(task.id)} sx={{ cursor: "pointer" }}>
-                  <TableCell sx={{ fontWeight: 500 }}>{task.title}</TableCell>
+                  <TableCell sx={{ fontWeight: 500, overflowWrap: "anywhere" }}>{task.title}</TableCell>
                   <TableCell>{dueDate?.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) || formatDate(due)}</TableCell>
                   <TableCell>
                     <Typography color="error" fontWeight={600}>

@@ -123,21 +123,21 @@ export function DashboardPage() {
       </Stack>
 
       <TableContainer>
-        <Table size="small">
+        <Table size="small" sx={{ tableLayout: "fixed" }}>
           <TableHead>
             <TableRow>
               <TableCell>Titel</TableCell>
-              <TableCell>Fällig</TableCell>
-              <TableCell align="right">Aktionen</TableCell>
+              <TableCell sx={{ width: 110 }}>Fällig</TableCell>
+              <TableCell align="right" sx={{ width: 88 }}>Aktionen</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {tasks.map((task) => (
               <TableRow key={task.id} hover onClick={() => setSelectedTaskId(task.id)} sx={{ cursor: "pointer", opacity: task.isCompleted ? 0.5 : 1 }}>
                 <TableCell>
-                  <Stack direction="row" alignItems="center" spacing={1}>
+                  <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
                     {task.isPrivate && <LockIcon fontSize="small" color="action" />}
-                    <Typography variant="body2" sx={{ textDecoration: task.isCompleted ? "line-through" : undefined }}>{task.title}</Typography>
+                    <Typography variant="body2" sx={{ overflowWrap: "anywhere", textDecoration: task.isCompleted ? "line-through" : undefined }}>{task.title}</Typography>
                     {(task.isImportant || task.isUrgent) && (
                       <Chip size="small" label={task.isImportant && task.isUrgent ? "W+D" : task.isImportant ? "Wichtig" : "Dringend"} color={task.isImportant && task.isUrgent ? "error" : task.isImportant ? "warning" : "info"} variant="outlined" />
                     )}
