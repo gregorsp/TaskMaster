@@ -10,6 +10,7 @@ import { MatrixPage } from "./pages/MatrixPage";
 import { CategoriesPage } from "./pages/CategoriesPage";
 import { OverduePage } from "./pages/OverduePage";
 import { AdminPage } from "./pages/AdminPage";
+import { ProfilePage } from "./pages/ProfilePage";
 import { MigrationPage } from "./pages/MigrationPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -62,6 +63,7 @@ export default function App() {
           <Route path="matrix" element={<MatrixPage />} />
           <Route path="categories" element={<CategoriesPage />} />
           <Route path="overdue" element={<OverduePage />} />
+          <Route path="profile" element={<ProfilePage />} />
           <Route
             path="admin"
             element={

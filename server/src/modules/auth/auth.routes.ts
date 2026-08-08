@@ -1,8 +1,23 @@
 import { FastifyInstance } from "fastify";
 import { registerSchema, loginSchema } from "./auth.schema.js";
-import { registerUser, authenticateUser, getUserById } from "./auth.service.js";
+import { registerUser, authenticateUser, getUserById, updateCurrentUser, changePassword } from "./auth.service.js";
 import { authGuard } from "../../middleware/auth.hooks.js";
 import { config } from "../../config.js";
+import { z } from "zod";
+import { saveProfilePicture, deleteProfilePictureFiles, getProfilePictureUrl } from "./profile.service.js";
+import { getDb } from "../../db/client.js";
+import { users } from "../../db/schema.js";
+import { eq } from "drizzle-orm";
+
+const updateProfileSchema = z.object({
+  displayName: z.string().min(1).max(100).optional(),
+  email: z.string().email().max(255).optional(),
+});
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8).max(128),
+});
 
 export async function authRoutes(app: FastifyInstance) {
   app.post("/register", async (request, reply) => {
@@ -60,11 +75,80 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.get("/me", { preHandler: authGuard }, async (request, reply) => {
-    const payload = request.user as { id: string };
-    const user = await getUserById(payload.id);
+    const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
+    const user = await getUserById(authUser.id);
     if (!user) {
       return reply.status(404).send({ error: { code: "USER_NOT_FOUND", message: "User not found" } });
     }
     return reply.send({ user });
+  });
+
+  app.put("/me", { preHandler: authGuard }, async (request, reply) => {
+    const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
+    const input = updateProfileSchema.parse(request.body);
+
+    try {
+      const user = await updateCurrentUser(authUser.id, input);
+      return reply.send({ user });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string };
+      return reply.status(e.statusCode || 400).send({ error: { code: e.code || "UPDATE_FAILED", message: e.message } });
+    }
+  });
+
+  app.put("/me/password", { preHandler: authGuard }, async (request, reply) => {
+    const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
+    const input = changePasswordSchema.parse(request.body);
+
+    try {
+      await changePassword(authUser.id, input.currentPassword, input.newPassword);
+      return reply.send({ ok: true });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string };
+      return reply.status(e.statusCode || 400).send({ error: { code: e.code || "PASSWORD_CHANGE_FAILED", message: e.message } });
+    }
+  });
+
+  app.post("/me/profile-picture", { preHandler: authGuard }, async (request, reply) => {
+    const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
+    const data = await request.file();
+
+    if (!data) {
+      return reply.status(400).send({ error: { code: "NO_FILE", message: "No file uploaded" } });
+    }
+
+    const buffer = await data.toBuffer();
+
+    try {
+      const db = getDb();
+      const currentUser = db.select({ profilePicture: users.profilePicture }).from(users).where(eq(users.id, authUser.id)).get();
+
+      const pictureId = await saveProfilePicture(buffer, data.filename);
+
+      deleteProfilePictureFiles(currentUser?.profilePicture ?? null);
+
+      db.update(users).set({ profilePicture: pictureId }).where(eq(users.id, authUser.id)).run();
+
+      return reply.send({ profilePicture: getProfilePictureUrl(pictureId) });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string };
+      return reply.status(e.statusCode || 400).send({ error: { code: e.code || "UPLOAD_FAILED", message: e.message } });
+    }
+  });
+
+  app.delete("/me/profile-picture", { preHandler: authGuard }, async (request, reply) => {
+    const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
+    const db = getDb();
+
+    const currentUser = db.select({ profilePicture: users.profilePicture }).from(users).where(eq(users.id, authUser.id)).get();
+
+    if (!currentUser?.profilePicture) {
+      return reply.send({ ok: true });
+    }
+
+    deleteProfilePictureFiles(currentUser.profilePicture);
+    db.update(users).set({ profilePicture: null }).where(eq(users.id, authUser.id)).run();
+
+    return reply.send({ ok: true });
   });
 }

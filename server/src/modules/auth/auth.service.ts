@@ -4,6 +4,7 @@ import { v7 as uuid } from "uuid";
 import { getDb } from "../../db/client.js";
 import { users } from "../../db/schema.js";
 import type { RegisterInput } from "./auth.schema.js";
+import { getProfilePictureUrl } from "./profile.service.js";
 
 const KEYLEN = 64;
 
@@ -24,6 +25,17 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
       resolve(timingSafeEqual(Buffer.from(hash, "hex"), derivedKey));
     });
   });
+}
+
+function userToResponse(user: typeof users.$inferSelect) {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    displayName: user.displayName,
+    isAdmin: user.isAdmin,
+    profilePicture: getProfilePictureUrl(user.profilePicture),
+  };
 }
 
 export async function registerUser(input: RegisterInput) {
@@ -59,12 +71,20 @@ export async function registerUser(input: RegisterInput) {
     passwordHash,
     displayName: input.displayName,
     isAdmin: false,
+    profilePicture: null,
     createdAt: new Date(),
   };
 
   db.insert(users).values(user).run();
 
-  return { id: user.id, username: user.username, email: user.email, displayName: user.displayName, isAdmin: user.isAdmin };
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    displayName: user.displayName,
+    isAdmin: user.isAdmin,
+    profilePicture: null,
+  };
 }
 
 export async function authenticateUser(email: string, password: string) {
@@ -81,24 +101,56 @@ export async function authenticateUser(email: string, password: string) {
     throw Object.assign(new Error("Invalid email or password"), { statusCode: 401, code: "INVALID_CREDENTIALS" });
   }
 
-  return {
-    id: user.id,
-    username: user.username,
-    email: user.email,
-    displayName: user.displayName,
-    isAdmin: user.isAdmin,
-  };
+  return userToResponse(user);
 }
 
 export async function getUserById(id: string) {
   const db = getDb();
   const user = db.select().from(users).where(eq(users.id, id)).get();
   if (!user) return null;
-  return {
-    id: user.id,
-    username: user.username,
-    email: user.email,
-    displayName: user.displayName,
-    isAdmin: user.isAdmin,
-  };
+  return userToResponse(user);
+}
+
+export async function updateCurrentUser(id: string, input: { displayName?: string; email?: string }) {
+  const db = getDb();
+  const existing = db.select().from(users).where(eq(users.id, id)).get();
+  if (!existing) {
+    throw Object.assign(new Error("User not found"), { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+
+  if (input.email !== undefined && input.email !== existing.email) {
+    const emailTaken = db.select().from(users).where(eq(users.email, input.email)).get();
+    if (emailTaken) {
+      throw Object.assign(new Error("Email already in use"), { statusCode: 409, code: "EMAIL_EXISTS" });
+    }
+  }
+
+  const updates: Record<string, unknown> = {};
+  if (input.displayName !== undefined) updates.displayName = input.displayName;
+  if (input.email !== undefined) updates.email = input.email;
+
+  if (Object.keys(updates).length > 0) {
+    db.update(users).set(updates).where(eq(users.id, id)).run();
+  }
+
+  const updated = db.select().from(users).where(eq(users.id, id)).get()!;
+  return userToResponse(updated);
+}
+
+export async function changePassword(userId: string, currentPassword: string, newPassword: string) {
+  const db = getDb();
+  const user = db.select().from(users).where(eq(users.id, userId)).get();
+  if (!user) {
+    throw Object.assign(new Error("User not found"), { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+
+  const valid = await verifyPassword(currentPassword, user.passwordHash);
+  if (!valid) {
+    throw Object.assign(new Error("Current password is incorrect"), { statusCode: 400, code: "INVALID_PASSWORD" });
+  }
+
+  const salt = randomBytes(16).toString("hex");
+  const passwordHash = await hashPassword(newPassword, salt);
+
+  db.update(users).set({ passwordHash }).where(eq(users.id, userId)).run();
 }

@@ -98,4 +98,22 @@ describe("HTTP Auth-Flow (real HTTP + Cookies)", () => {
     const res = await req("POST", "/api/auth/login", { body: { email: "http@test.com", password: "falsch" } });
     expect(res.status).toBe(401);
   });
+
+  it("PUT /me aktualisiert Profil", async () => {
+    const login = await req("POST", "/api/auth/login", { body: { email: "http@test.com", password: "admin123" } });
+    const token = (login.body as { accessToken: string }).accessToken;
+
+    const res = await req("PUT", "/api/auth/me", {
+      auth: token,
+      body: { displayName: "Real HTTP Updated", email: "http@test.com" },
+    });
+    console.log("PUT /me status:", res.status);
+    console.log("PUT /me body:", JSON.stringify(res.body));
+    expect(res.status).toBe(200);
+    expect((res.body as { user: { displayName: string } }).user.displayName).toBe("Real HTTP Updated");
+
+    const me = await req("GET", "/api/auth/me", { auth: token });
+    console.log("GET /me body:", JSON.stringify(me.body));
+    expect((me.body as { user: { displayName: string } }).user.displayName).toBe("Real HTTP Updated");
+  });
 });

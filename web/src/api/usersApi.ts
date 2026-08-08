@@ -6,6 +6,7 @@ export interface User {
   email: string;
   displayName: string;
   isAdmin: boolean;
+  profilePicture: string | null;
   createdAt: string;
 }
 
@@ -43,4 +44,17 @@ export async function updateUser(id: string, input: {
 
 export async function deleteUser(id: string): Promise<void> {
   await client.delete(`/users/${id}`);
+}
+
+export async function uploadUserProfilePicture(userId: string, file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const { data } = await client.post<{ profilePicture: string }>(`/users/${userId}/profile-picture`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data.profilePicture;
+}
+
+export async function deleteUserProfilePicture(userId: string): Promise<void> {
+  await client.delete(`/users/${userId}/profile-picture`);
 }

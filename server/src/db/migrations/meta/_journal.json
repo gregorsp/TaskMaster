@@ -29,6 +29,13 @@
       "when": 1786179808688,
       "tag": "0003_dazzling_peter_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789200000000,
+      "tag": "0004_slim_red_hulk",
+      "breakpoints": true
     }
   ]
 }

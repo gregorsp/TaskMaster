@@ -6,6 +6,7 @@ export interface User {
   email: string;
   displayName: string;
   isAdmin: boolean;
+  profilePicture: string | null;
 }
 
 export interface AuthResponse {
@@ -43,4 +44,29 @@ export async function logout(): Promise<void> {
 export async function me(): Promise<User> {
   const { data } = await client.get<{ user: User }>("/auth/me");
   return data.user;
+}
+
+export async function updateProfile(input: {
+  displayName?: string;
+  email?: string;
+}): Promise<User> {
+  const { data } = await client.put<{ user: User }>("/auth/me", input);
+  return data.user;
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await client.put("/auth/me/password", { currentPassword, newPassword });
+}
+
+export async function uploadProfilePicture(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const { data } = await client.post<{ profilePicture: string }>("/auth/me/profile-picture", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data.profilePicture;
+}
+
+export async function deleteProfilePicture(): Promise<void> {
+  await client.delete("/auth/me/profile-picture");
 }

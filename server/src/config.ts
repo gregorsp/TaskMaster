@@ -105,4 +105,6 @@ export const config = {
   backupDir: parsed.BACKUP_DIR || (parsed.NODE_ENV === "test" ? "" : path.join(path.dirname(dbPath), "backups")),
   /** Maximale Anzahl aufzubewahrender Backups */
   backupKeep: parsed.BACKUP_KEEP,
+  /** Verzeichnis für Profilbilder */
+  avatarsDir: parsed.NODE_ENV === "test" ? "" : path.join(path.dirname(dbPath), "avatars"),
 };

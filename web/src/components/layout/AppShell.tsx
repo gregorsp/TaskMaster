@@ -27,6 +27,7 @@ import {
   Label as LabelIcon,
   Warning as OverdueIcon,
   AdminPanelSettings as AdminIcon,
+  Person as PersonIcon,
   DarkMode as DarkModeIcon,
   LightMode as LightModeIcon,
 } from "@mui/icons-material";
@@ -35,6 +36,15 @@ import { useOverdueCount } from "../../hooks/useOverdueCount";
 import { useThemeMode } from "../../context/ThemeContext";
 
 const DRAWER_WIDTH = 240;
+
+function hashColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = ((hash << 5) - hash) + id.charCodeAt(i);
+    hash |= 0;
+  }
+  return `hsl(${Math.abs(hash) % 360}, 50%, 40%)`;
+}
 
 interface NavItem {
   path: string;
@@ -113,7 +123,10 @@ export function AppShell() {
             </IconButton>
             <Typography variant="body2">{user?.displayName}</Typography>
             <IconButton color="inherit" onClick={(e) => setUserMenuAnchor(e.currentTarget)}>
-              <Avatar sx={{ width: 32, height: 32, fontSize: 14, bgcolor: "secondary.main" }}>
+              <Avatar
+                src={user?.profilePicture ?? undefined}
+                sx={{ width: 32, height: 32, fontSize: 14, bgcolor: user ? hashColor(user.id) : "secondary.main" }}
+              >
                 {user?.displayName?.charAt(0)?.toUpperCase()}
               </Avatar>
             </IconButton>
@@ -125,6 +138,16 @@ export function AppShell() {
           >
             <MenuItem disabled dense>
               {user?.email}
+            </MenuItem>
+            <Divider />
+            <MenuItem
+              onClick={() => {
+                setUserMenuAnchor(null);
+                navigate("/profile");
+              }}
+            >
+              <PersonIcon sx={{ mr: 1, fontSize: 20 }} />
+              Profil
             </MenuItem>
             <Divider />
             <MenuItem
