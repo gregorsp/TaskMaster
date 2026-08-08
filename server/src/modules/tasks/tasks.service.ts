@@ -1,10 +1,11 @@
-import { eq, and, like, or, SQL, desc, asc } from "drizzle-orm";
+import { eq, and, like, or, inArray, SQL, desc, asc } from "drizzle-orm";
 import { v7 as uuid } from "uuid";
 import { getDb } from "../../db/client.js";
 import { tasks, taskAssignees, taskCategories, taskEvents, users, categories } from "../../db/schema.js";
 import { visibilityFilter } from "../../middleware/visibility.js";
 import { parsePageQuery, paginate } from "../../lib/paging.js";
 import { getEffectiveDueAt, isTaskOverdue, computeIsUrgent } from "../calendar/recurrence.service.js";
+import { getProfilePictureUrl } from "../auth/profile.service.js";
 import type { CreateTaskInput, UpdateTaskInput } from "./tasks.schema.js";
 
 function enrichTask(task: typeof tasks.$inferSelect) {
@@ -14,6 +15,47 @@ function enrichTask(task: typeof tasks.$inferSelect) {
     effectiveDueAt: getEffectiveDueAt(task)?.toISOString() || null,
     isOverdue: isTaskOverdue(task),
   };
+}
+
+interface TaskAssignee {
+  id: string;
+  username: string;
+  displayName: string;
+  profilePicture: string | null;
+}
+
+function assigneesByTaskId(taskIds: string[]) {
+  const db = getDb();
+  if (taskIds.length === 0) return new Map<string, TaskAssignee[]>();
+  const rows = db
+    .select({
+      taskId: taskAssignees.taskId,
+      id: users.id,
+      username: users.username,
+      displayName: users.displayName,
+      profilePicture: users.profilePicture,
+    })
+    .from(taskAssignees)
+    .innerJoin(users, eq(taskAssignees.userId, users.id))
+    .where(inArray(taskAssignees.taskId, taskIds))
+    .all();
+  const map = new Map<string, TaskAssignee[]>();
+  for (const row of rows) {
+    const list = map.get(row.taskId) || [];
+    list.push({
+      id: row.id,
+      username: row.username,
+      displayName: row.displayName,
+      profilePicture: getProfilePictureUrl(row.profilePicture),
+    });
+    map.set(row.taskId, list);
+  }
+  return map;
+}
+
+function withAssignees<T extends { id: string }>(items: T[]): (T & { assignees: TaskAssignee[] })[] {
+  const map = assigneesByTaskId(items.map((i) => i.id));
+  return items.map((item) => ({ ...item, assignees: map.get(item.id) || [] }));
 }
 
 export function listTasks(
@@ -90,7 +132,7 @@ export function listTasks(
   const start = (paging.page - 1) * paging.pageSize;
   const items = sorted.slice(start, start + paging.pageSize);
 
-  return paginate(items, total, paging);
+  return paginate(withAssignees(items), total, paging);
 }
 
 export async function getTask(id: string, userId: string, isAdmin: boolean) {
@@ -99,9 +141,10 @@ export async function getTask(id: string, userId: string, isAdmin: boolean) {
   if (!task) return null;
 
   const assignees = db
-    .select({ id: users.id, username: users.username, displayName: users.displayName })
+    .select({ id: users.id, username: users.username, displayName: users.displayName, profilePicture: users.profilePicture })
     .from(taskAssignees).innerJoin(users, eq(taskAssignees.userId, users.id))
-    .where(eq(taskAssignees.taskId, id)).all();
+    .where(eq(taskAssignees.taskId, id)).all()
+    .map((a) => ({ ...a, profilePicture: getProfilePictureUrl(a.profilePicture) }));
 
   const cats = db
     .select({ id: categories.id, name: categories.name, color: categories.color })
@@ -235,5 +278,5 @@ export function listOverdueTasks(userId: string, isAdmin: boolean) {
       return da - db;
     });
 
-  return { items, total: items.length };
+  return { items: withAssignees(items), total: items.length };
 }

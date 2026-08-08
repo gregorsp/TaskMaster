@@ -1,5 +1,12 @@
 import client from "./client";
 
+export interface TaskAssignee {
+  id: string;
+  username: string;
+  displayName: string;
+  profilePicture: string | null;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -21,10 +28,10 @@ export interface Task {
   recurrenceRule: string | null;
   createdById: string;
   createdAt: string;
+  assignees: TaskAssignee[];
 }
 
 export interface TaskWithRelations extends Task {
-  assignees: { id: string; username: string; displayName: string }[];
   categories: { id: string; name: string; color: string }[];
 }
 

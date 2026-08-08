@@ -3,6 +3,7 @@ import { v7 as uuid } from "uuid";
 import { getDb } from "../../db/client.js";
 import { tasks, taskEvents, users } from "../../db/schema.js";
 import { getNextOccurrence } from "../calendar/recurrence.service.js";
+import { getProfilePictureUrl } from "../auth/profile.service.js";
 
 export async function completeTask(
   taskId: string,
@@ -108,12 +109,13 @@ export function getTaskEvents(taskId: string) {
     content: taskEvents.content,
     createdAt: taskEvents.createdAt,
     displayName: users.displayName,
+    profilePicture: users.profilePicture,
   }).from(taskEvents)
     .leftJoin(users, eq(taskEvents.userId, users.id))
     .where(eq(taskEvents.taskId, taskId))
     .orderBy(taskEvents.createdAt)
     .all();
-  return rows;
+  return rows.map((r) => ({ ...r, profilePicture: getProfilePictureUrl(r.profilePicture) }));
 }
 
 export function addTaskComment(taskId: string, userId: string, content: string) {

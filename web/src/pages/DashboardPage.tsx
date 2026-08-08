@@ -12,6 +12,7 @@ import { listTasks, deleteTask, type Task } from "../api/tasksApi";
 import { listCategories, type Category } from "../api/categoriesApi";
 import { TaskCard } from "../components/tasks/TaskCard";
 import { TaskForm } from "../components/tasks/TaskForm";
+import { AssigneeAvatars } from "../components/tasks/AssigneeAvatars";
 import { useNotify } from "../context/NotifyContext";
 
 const formatDate = (d: string | null) => {
@@ -168,6 +169,11 @@ export function DashboardPage() {
                 {task.dueAt && renderDueDate(task)}
               </Stack>
             )}
+            {task.assignees.length > 0 && (
+              <Box sx={{ mt: 0.75 }}>
+                <AssigneeAvatars assignees={task.assignees} />
+              </Box>
+            )}
           </Paper>
         ))}
         {tasks.length === 0 && (
@@ -193,6 +199,7 @@ export function DashboardPage() {
                   <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
                     {task.isPrivate && <LockIcon fontSize="small" color="action" />}
                     <Typography variant="body2" sx={{ overflowWrap: "anywhere", textDecoration: task.isCompleted ? "line-through" : undefined }}>{task.title}</Typography>
+                    <AssigneeAvatars assignees={task.assignees} />
                     {renderPriorityChip(task)}
                   </Stack>
                 </TableCell>

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import {
   Dialog, DialogContent, Box, Typography, Chip, IconButton, Stack,
   Button, Divider, TextField, Paper, DialogTitle, DialogActions, Autocomplete,
-  Menu, MenuItem,
+  Menu, MenuItem, Avatar,
 } from "@mui/material";
 import {
   Close as CloseIcon, Add as AddIcon,
@@ -13,11 +13,12 @@ import { getTask, completeTask, reopenTask, updateTask, deleteTask, type TaskWit
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { TaskForm } from "./TaskForm";
+import { hashColor } from "./AssigneeAvatars";
 import { useNotify } from "../../context/NotifyContext";
 import client from "../../api/client";
 
 interface Props { taskId: string; open: boolean; onClose: () => void; onUpdated: () => void; }
-interface TaskEvent { id: string; taskId: string; userId: string; type: string; content: string | null; createdAt: string; }
+interface TaskEvent { id: string; taskId: string; userId: string; type: string; content: string | null; createdAt: string; displayName?: string; profilePicture?: string | null; }
 
 function safeCall(fn: () => Promise<unknown>) {
   fn().catch(e => console.error("TaskCard async error:", e));
@@ -146,6 +147,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
             <Stack direction="row" flexWrap="wrap" gap={1} mb={3} alignItems="center">
               {taskAssignees.map(a =>
                 <Chip key={a.id} label={a.displayName} size="small" variant="outlined"
+                  avatar={<Avatar src={a.profilePicture ?? undefined} sx={{ width: 22, height: 22, fontSize: 11, bgcolor: hashColor(a.id) }}>{a.displayName?.charAt(0)?.toUpperCase()}</Avatar>}
                   onDelete={() => safeCall(async () => { await updateTask(taskId, { assigneeIds: taskAssignees.filter(x => x.id !== a.id).map(x => x.id) }); load(); })} />
               )}
               <Autocomplete size="small" options={allUsers.filter(u => !taskAssignees.find(a => a.id === u.id))}
@@ -174,13 +176,18 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
             <Typography variant="subtitle2" fontWeight={600} mb={1}>Verlauf</Typography>
             <Box sx={{ flex: 1, overflowY: "auto", mb: 1 }}>
               {events.length === 0 && <Typography variant="caption" color="text.secondary">Noch keine Einträge.</Typography>}
-              {events.map((evt: { id: string; type: string; content: string | null; createdAt: string; displayName?: string }) => (
+              {events.map((evt: TaskEvent) => (
                 <Box key={evt.id} sx={{ mb: 1.5, pb: 1, borderBottom: "1px solid", borderColor: "divider" }}>
                   <Stack direction="row" justifyContent="space-between">
-                    <Typography variant="caption" fontWeight={600}>
-                      {evt.displayName || "?"}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
+                    <Stack direction="row" alignItems="center" gap={0.75} sx={{ minWidth: 0 }}>
+                      <Avatar src={evt.profilePicture ?? undefined} sx={{ width: 20, height: 20, fontSize: 10, bgcolor: hashColor(evt.userId) }}>
+                        {evt.displayName?.charAt(0)?.toUpperCase()}
+                      </Avatar>
+                      <Typography variant="caption" fontWeight={600} sx={{ overflowWrap: "anywhere" }}>
+                        {evt.displayName || "?"}
+                      </Typography>
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, ml: 1 }}>
                       {new Date(evt.createdAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                     </Typography>
                   </Stack>
