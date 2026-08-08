@@ -89,15 +89,42 @@ export function listTasks(
   if (query.categoryId) {
     const sub = db.select({ taskId: taskCategories.taskId }).from(taskCategories).where(eq(taskCategories.categoryId, query.categoryId as string));
     const ids = sub.all().map((r) => r.taskId);
-    if (ids.length > 0) for (const id of ids) conditions.push(eq(tasks.id, id));
+    if (ids.length > 0) conditions.push(inArray(tasks.id, ids));
     else return paginate([], 0, paging);
   }
 
   if (query.assigneeId) {
     const sub = db.select({ taskId: taskAssignees.taskId }).from(taskAssignees).where(eq(taskAssignees.userId, query.assigneeId as string));
     const ids = sub.all().map((r) => r.taskId);
-    if (ids.length > 0) for (const id of ids) conditions.push(eq(tasks.id, id));
+    if (ids.length > 0) conditions.push(inArray(tasks.id, ids));
     else return paginate([], 0, paging);
+  }
+
+  if (query.assigneeIds) {
+    const ids = String(query.assigneeIds).split(",").map((s) => s.trim()).filter(Boolean);
+    if (ids.length > 0) {
+      const rows = db
+        .select({ taskId: taskAssignees.taskId, userId: taskAssignees.userId })
+        .from(taskAssignees)
+        .where(inArray(taskAssignees.userId, ids))
+        .all();
+      const perUser = new Map<string, Set<string>>();
+      for (const r of rows) {
+        if (!perUser.has(r.userId)) perUser.set(r.userId, new Set());
+        perUser.get(r.userId)!.add(r.taskId);
+      }
+      let matching = new Set(perUser.get(ids[0]) || []);
+      for (let i = 1; i < ids.length && matching.size > 0; i++) {
+        const set = perUser.get(ids[i]);
+        if (!set) {
+          matching = new Set();
+          break;
+        }
+        matching = new Set([...matching].filter((x) => set.has(x)));
+      }
+      if (matching.size > 0) conditions.push(inArray(tasks.id, [...matching]));
+      else return paginate([], 0, paging);
+    }
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -109,7 +136,11 @@ export function listTasks(
     .all()
     .map((r) => r.tasks);
 
-  const enriched = rawItems.map(enrichTask);
+  let enriched = rawItems.map(enrichTask);
+
+  if (query.isOverdue === "true" || query.isOverdue === true) {
+    enriched = enriched.filter((t) => t.isOverdue);
+  }
 
   let sorted = enriched;
   const sort = (query.sort as string) || "createdAt";
@@ -256,27 +287,4 @@ export async function deleteTask(id: string): Promise<boolean> {
   return true;
 }
 
-export function listOverdueTasks(userId: string, isAdmin: boolean) {
-  const db = getDb();
-  const visFilter = visibilityFilter(userId, isAdmin);
-  const conditions: SQL[] = [eq(tasks.isCompleted, false)];
-  if (visFilter) conditions.push(visFilter);
 
-  const rawItems = db.select().from(tasks)
-    .leftJoin(taskAssignees, eq(tasks.id, taskAssignees.taskId))
-    .where(and(...conditions))
-    .groupBy(tasks.id)
-    .all()
-    .map((r) => r.tasks);
-
-  const items = rawItems
-    .filter((t) => isTaskOverdue(t))
-    .map(enrichTask)
-    .sort((a, b) => {
-      const da = a.effectiveDueAt ? new Date(a.effectiveDueAt).getTime() : 0;
-      const db = b.effectiveDueAt ? new Date(b.effectiveDueAt).getTime() : 0;
-      return da - db;
-    });
-
-  return { items: withAssignees(items), total: items.length };
-}

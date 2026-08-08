@@ -245,3 +245,81 @@ describe("Calendar", () => {
     expect(Array.isArray(res.json())).toBe(true);
   });
 });
+
+describe("Task filters", () => {
+  let adminId: string;
+  let user1Id: string;
+
+  beforeAll(async () => {
+    const picker = await app.inject({ method: "GET", url: "/api/users/picker", headers: headers(adminToken) });
+    const users = picker.json() as { id: string; username: string }[];
+    adminId = users.find((u) => u.username === "admin2")!.id;
+    user1Id = users.find((u) => u.username === "user1")!.id;
+  });
+
+  const createTask = async (payload: Record<string, unknown>) => {
+    const res = await app.inject({ method: "POST", url: "/api/tasks", headers: headers(adminToken), payload });
+    expect(res.statusCode).toBe(201);
+    return res.json().id as string;
+  };
+
+  const deleteTask = async (id: string) => {
+    await app.inject({ method: "DELETE", url: `/api/tasks/${id}`, headers: headers(adminToken) });
+  };
+
+  const listIds = async (qs: string) => {
+    const res = await app.inject({ method: "GET", url: `/api/tasks?${qs}`, headers: headers(adminToken) });
+    expect(res.statusCode).toBe(200);
+    return (res.json().items as { id: string }[]).map((t) => t.id);
+  };
+
+  it("filters overdue tasks", async () => {
+    const pastId = await createTask({ title: "Overdue Task", dueAt: new Date(Date.now() - 86400000).toISOString() });
+    const futureId = await createTask({ title: "Future Task", dueAt: new Date(Date.now() + 86400000).toISOString() });
+
+    const ids = await listIds("isOverdue=true");
+    expect(ids).toContain(pastId);
+    expect(ids).not.toContain(futureId);
+
+    await deleteTask(pastId);
+    await deleteTask(futureId);
+  });
+
+  it("filters by multiple assignees with AND semantics", async () => {
+    const both = await createTask({ title: "Both Assignees", assigneeIds: [adminId, user1Id] });
+    const onlyUser = await createTask({ title: "Only User", assigneeIds: [user1Id] });
+    const adminOnly = await createTask({ title: "Admin Only" });
+
+    const bothIds = await listIds(`assigneeIds=${encodeURIComponent(`${adminId},${user1Id}`)}`);
+    expect(bothIds).toContain(both);
+    expect(bothIds).toContain(onlyUser);
+    expect(bothIds).not.toContain(adminOnly);
+
+    const userOnlyIds = await listIds(`assigneeId=${user1Id}`);
+    expect(userOnlyIds).toContain(both);
+    expect(userOnlyIds).toContain(onlyUser);
+    expect(userOnlyIds).not.toContain(adminOnly);
+
+    await deleteTask(both);
+    await deleteTask(onlyUser);
+    await deleteTask(adminOnly);
+  });
+
+  it("lists all tasks of a category (multiple matches)", async () => {
+    const catRes = await app.inject({
+      method: "POST", url: "/api/categories", headers: headers(adminToken), payload: { name: "Filter Work" },
+    });
+    const catId = catRes.json().id;
+
+    const t1 = await createTask({ title: "Category Task 1", categoryIds: [catId] });
+    const t2 = await createTask({ title: "Category Task 2", categoryIds: [catId] });
+
+    const ids = await listIds(`categoryId=${catId}`);
+    expect(ids).toContain(t1);
+    expect(ids).toContain(t2);
+
+    await deleteTask(t1);
+    await deleteTask(t2);
+    await app.inject({ method: "DELETE", url: `/api/categories/${catId}`, headers: headers(adminToken) });
+  });
+});

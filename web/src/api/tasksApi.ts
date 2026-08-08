@@ -47,6 +47,8 @@ export interface TaskFilters {
   isCompleted?: boolean;
   categoryId?: string;
   assigneeId?: string;
+  assigneeIds?: string[];
+  isOverdue?: boolean;
   important?: boolean;
   urgent?: boolean;
   search?: string;
@@ -90,6 +92,8 @@ export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResp
   if (filters.isCompleted !== undefined) params.set("isCompleted", String(filters.isCompleted));
   if (filters.categoryId) params.set("categoryId", filters.categoryId);
   if (filters.assigneeId) params.set("assigneeId", filters.assigneeId);
+  if (filters.assigneeIds && filters.assigneeIds.length > 0) params.set("assigneeIds", filters.assigneeIds.join(","));
+  if (filters.isOverdue !== undefined) params.set("isOverdue", String(filters.isOverdue));
   if (filters.important !== undefined) params.set("important", String(filters.important));
   if (filters.urgent !== undefined) params.set("urgent", String(filters.urgent));
   if (filters.search) params.set("search", filters.search);
@@ -128,9 +132,4 @@ export async function completeTask(id: string, nextDueAt?: string, comment?: str
 
 export async function reopenTask(id: string): Promise<void> {
   await client.post(`/tasks/${id}/reopen`);
-}
-
-export async function listOverdueTasks(): Promise<{ items: Task[]; total: number }> {
-  const { data } = await client.get<{ items: Task[]; total: number }>("/tasks/overdue");
-  return data;
 }

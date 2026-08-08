@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import type { User } from "../api/authApi";
 import { logout as apiLogout, refresh } from "../api/authApi";
 import { onAuthExpired } from "../api/client";
-import client from "../api/client";
+import { listTasks } from "../api/tasksApi";
 import { useNotify } from "./NotifyContext";
 
 interface AuthState {
@@ -33,11 +33,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (user && !notifiedOverdue.current) {
       notifiedOverdue.current = true;
-      client.get<{ total: number }>("/tasks/overdue")
+      listTasks({ isOverdue: true, pageSize: 1 })
         .then((res) => {
-          if (res.data.total > 0) {
+          if (res.total > 0) {
             notify(
-              `Du hast ${res.data.total} überfällige Aufgabe${res.data.total > 1 ? "n" : ""}`,
+              `Du hast ${res.total} überfällige Aufgabe${res.total > 1 ? "n" : ""}`,
               "warning"
             );
           }

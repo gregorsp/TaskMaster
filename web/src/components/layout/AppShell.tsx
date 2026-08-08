@@ -25,14 +25,12 @@ import {
   CalendarMonth as CalendarIcon,
   GridView as MatrixIcon,
   Label as LabelIcon,
-  Warning as OverdueIcon,
   AdminPanelSettings as AdminIcon,
   Person as PersonIcon,
   DarkMode as DarkModeIcon,
   LightMode as LightModeIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../../context/AuthContext";
-import { useOverdueCount } from "../../hooks/useOverdueCount";
 import { useThemeMode } from "../../context/ThemeContext";
 
 const DRAWER_WIDTH = 240;
@@ -62,7 +60,6 @@ export function AppShell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const overdueCount = useOverdueCount();
   const { mode, toggle: toggleTheme } = useThemeMode();
 
   const navItems: NavItem[] = [
@@ -70,7 +67,6 @@ export function AppShell() {
     { path: "/calendar", label: "Kalender", icon: <CalendarIcon /> },
     { path: "/matrix", label: "Matrix", icon: <MatrixIcon /> },
     { path: "/categories", label: "Kategorien", icon: <LabelIcon /> },
-    { path: "/overdue", label: "Überfällig", icon: <OverdueIcon />, badge: overdueCount },
     { path: "/admin", label: "Admin", icon: <AdminIcon />, adminOnly: true },
   ];
 

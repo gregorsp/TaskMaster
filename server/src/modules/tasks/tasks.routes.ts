@@ -3,7 +3,7 @@ import { z } from "zod";
 import { authGuard } from "../../middleware/auth.hooks.js";
 import { isVisibleToUser } from "../../middleware/visibility.js";
 import {
-  listTasks, getTask, createTask, updateTask, deleteTask, listOverdueTasks,
+  listTasks, getTask, createTask, updateTask, deleteTask,
 } from "./tasks.service.js";
 import { completeTask, reopenTask, getTaskEvents, addTaskComment } from "./completion.service.js";
 import { createTaskSchema, updateTaskSchema } from "./tasks.schema.js";
@@ -35,11 +35,6 @@ export async function tasksRoutes(app: FastifyInstance) {
   app.get("/", async (request) => {
     const p = request.user as { id: string; isAdmin: boolean };
     return listTasks(p.id, p.isAdmin, request.query as Record<string, unknown>);
-  });
-
-  app.get("/overdue", async (request) => {
-    const p = request.user as { id: string; isAdmin: boolean };
-    return listOverdueTasks(p.id, p.isAdmin);
   });
 
   app.get("/:id", async (request, reply) => {
