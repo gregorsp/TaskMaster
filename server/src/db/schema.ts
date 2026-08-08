@@ -81,3 +81,8 @@ export const taskEvents = sqliteTable("task_events", {
   content: text("content"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+export const appMeta = sqliteTable("app_meta", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});

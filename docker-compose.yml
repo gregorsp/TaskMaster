@@ -56,6 +56,21 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@taskmaster.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
       NODE_ENV: production
+      # ------------------------------------------------------------
+      # Migration / Backup
+      # ------------------------------------------------------------
+      # Automatische DB-Migration beim Start (ohne Admin-Bootstrap).
+      # "false" (Default in production): Server startet bei Migrationsbedarf
+      #   im Maintenance-Modus; Admin muss Migration über die Bootstrap-UI
+      #   auslösen (Backup wird automatisch erstellt). Empfohlen.
+      # "true": Migrationen werden beim Start automatisch angewendet
+      #   (z. B. für unbeaufsichtigte Updates / CI).
+      # AUTO_MIGRATE: ${AUTO_MIGRATE:-false}
+      # Verzeichnis für automatisierte Backups vor der Migration.
+      # Default: /app/data/backups (innerhalb des Volumes).
+      # BACKUP_DIR: /app/data/backups
+      # Maximale Anzahl aufzubewahrender Backups (älteste werden gelöscht).
+      # BACKUP_KEEP: 5
 
     # Healthcheck: prüft den /api/health-Endpunkt. CasaOS/Docker starten den
     # Container nach einem Crash automatisch neu (siehe restart).

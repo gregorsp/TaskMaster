@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import { AppShell } from "./components/layout/AppShell";
@@ -9,6 +10,7 @@ import { MatrixPage } from "./pages/MatrixPage";
 import { CategoriesPage } from "./pages/CategoriesPage";
 import { OverduePage } from "./pages/OverduePage";
 import { AdminPage } from "./pages/AdminPage";
+import { MigrationPage } from "./pages/MigrationPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -24,34 +26,53 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function MigrationGate({ children }: { children: React.ReactNode }) {
+  const [checking, setChecking] = useState(true);
+  const [migrationRequired, setMigrationRequired] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/health")
+      .then((r) => r.json())
+      .then((d) => setMigrationRequired(d.migrationRequired === true))
+      .catch(() => setMigrationRequired(false))
+      .finally(() => setChecking(false));
+  }, []);
+
+  if (checking) return null;
+  if (migrationRequired) return <MigrationPage />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
-      <Route
-        path="/"
-        element={
-          <ProtectedRoute>
-            <AppShell />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<DashboardPage />} />
-        <Route path="calendar" element={<CalendarPage />} />
-        <Route path="matrix" element={<MatrixPage />} />
-        <Route path="categories" element={<CategoriesPage />} />
-        <Route path="overdue" element={<OverduePage />} />
+    <MigrationGate>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
         <Route
-          path="admin"
+          path="/"
           element={
-            <AdminRoute>
-              <AdminPage />
-            </AdminRoute>
+            <ProtectedRoute>
+              <AppShell />
+            </ProtectedRoute>
           }
-        />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        >
+          <Route index element={<DashboardPage />} />
+          <Route path="calendar" element={<CalendarPage />} />
+          <Route path="matrix" element={<MatrixPage />} />
+          <Route path="categories" element={<CategoriesPage />} />
+          <Route path="overdue" element={<OverduePage />} />
+          <Route
+            path="admin"
+            element={
+              <AdminRoute>
+                <AdminPage />
+              </AdminRoute>
+            }
+          />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </MigrationGate>
   );
 }

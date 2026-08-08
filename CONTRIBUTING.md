@@ -22,6 +22,18 @@ web/      React 19 + Vite + MUI PWA frontend
 - Run the frontend: `cd web && npm run dev` (http://localhost:5173, proxies `/api` to 8080)
 - The API docs, environment variables and config are documented in the README.
 
+### When changing the database schema
+
+If you modify `server/src/db/schema.ts`, follow this checklist:
+
+1. Run `npm run db:generate` in `server/` — this creates a new migration file in `src/db/migrations/`.
+2. Bump `SCHEMA_VERSION` in `server/src/db/version.ts` to match the new migration.
+3. If the migration inserts data (e.g. a new `schema_version` row), add the `INSERT` / `UPDATE` by hand to the generated `.sql` file.
+4. Write a migration test in `server/test/migration.test.ts` to verify the new migration applies correctly.
+5. Update this checklist if the process changes.
+
+**Important:** Never delete or modify an already-released migration file — always add new migrations. The Docker image ships the complete migration history so every update path works.
+
 ## Quality checks
 
 Before submitting a pull request, make sure the checks pass:

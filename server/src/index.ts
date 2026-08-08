@@ -1,11 +1,11 @@
 import { buildApp } from "./app.js";
-import { initDb, getDb, saveDb, closeDb, startAutoSave, stopAutoSave } from "./db/client.js";
-import { migrate } from "drizzle-orm/sql-js/migrator";
+import { initDb, getDb, saveDb, closeDb, startAutoSave, stopAutoSave, getRawDb } from "./db/client.js";
 import { config } from "./config.js";
 import { users } from "./db/schema.js";
-import { eq } from "drizzle-orm";
 import { scrypt, randomBytes } from "node:crypto";
 import { v7 as uuid } from "uuid";
+import { getDbState, SCHEMA_VERSION } from "./db/version.js";
+import { runMigration } from "./db/migrations.js";
 
 const KEYLEN = 64;
 
@@ -41,11 +41,37 @@ async function seedAdmin() {
 async function main() {
   await initDb();
 
-  migrate(getDb(), { migrationsFolder: "./src/db/migrations" });
-  await seedAdmin();
+  const state = getDbState(getDb(), getRawDb());
+
+  if (state.state === "AHEAD_OF_APP") {
+    console.error(
+      `DB schema version (${state.currentVersion}) is ahead of app (${SCHEMA_VERSION}). Refusing to start.`,
+    );
+    process.exit(1);
+  }
+
+  if (state.state === "FRESH") {
+    console.log("Fresh database, applying all migrations...");
+    runMigration();
+    await seedAdmin();
+  }
+
+  if (state.state === "MIGRATION_NEEDED") {
+    if (config.autoMigrate) {
+      console.log(`Auto-migrating DB from v${state.currentVersion} to v${SCHEMA_VERSION}...`);
+      runMigration();
+      console.log("Migration complete.");
+    } else {
+      console.log(
+        `DB needs migration (v${state.currentVersion} → v${SCHEMA_VERSION}). Starting in maintenance mode.`,
+      );
+    }
+  }
+
   startAutoSave();
 
-  const app = await buildApp();
+  const migrationMode = state.state === "MIGRATION_NEEDED" && !config.autoMigrate;
+  const app = await buildApp({ migrationMode });
 
   const gracefulShutdown = async () => {
     app.log.info("Shutting down...");
@@ -61,7 +87,8 @@ async function main() {
 
   try {
     await app.listen({ port: config.port, host: config.host });
-    console.log(`Server running on http://0.0.0.0:${config.port}`);
+    const mode = migrationMode ? "maintenance (migration required)" : "normal";
+    console.log(`Server running on http://0.0.0.0:${config.port} (${mode})`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);

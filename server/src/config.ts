@@ -1,4 +1,5 @@
 import { z } from "zod";
+import path from "node:path";
 
 /**
  * TaskMaster – Server-Konfiguration.
@@ -55,9 +56,31 @@ const envSchema = z.object({
    * - test:        In-Memory-Datenbank statt Datei
    */
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+
+  /**
+   * Automatische Datenbank-Migration beim Start (ohne Bootstrap/Gate).
+   * "true"  → Migrationen werden beim Start automatisch angewendet (Entwicklung).
+   * "false" → Bei Migrationsbedarf startet der Server im Maintenance-Modus;
+   *           ein Admin muss die Migration über die Bootstrap-UI auslösen (Produktion).
+   * Ist die Variable nicht gesetzt, gilt in "development" true, sonst false.
+   */
+  AUTO_MIGRATE: z.enum(["true", "false"]).optional(),
+
+  /**
+   * Verzeichnis für automatisierte Backups vor der Migration.
+   * Default: <DB_PATH-Verzeichnis>/backups
+   */
+  BACKUP_DIR: z.string().optional(),
+
+  /**
+   * Maximale Anzahl aufzubewahrender Backups (älteste werden gelöscht).
+   */
+  BACKUP_KEEP: z.coerce.number().int().min(1).default(5),
 });
 
 const parsed = envSchema.parse(process.env);
+
+const dbPath = parsed.NODE_ENV === "test" ? ":memory:" : parsed.DB_PATH;
 
 export const config = {
   /** HTTP-Port */
@@ -65,7 +88,7 @@ export const config = {
   /** Bind-Adresse des HTTP-Servers */
   host: parsed.HOST,
   /** Pfad zur SQLite-Datei (":memory:" im Test-Modus) */
-  dbPath: parsed.NODE_ENV === "test" ? ":memory:" : parsed.DB_PATH,
+  dbPath,
   /** JWT-Signatur-Secret */
   jwtSecret: parsed.JWT_SECRET,
   /** Lebensdauer des Access-Tokens (z. B. "15m") */
@@ -76,4 +99,10 @@ export const config = {
   isDev: parsed.NODE_ENV === "development",
   /** true im Production-Modus */
   isProd: parsed.NODE_ENV === "production",
+  /** Automatische Migration (ohne Admin-Bootstrap). Dev-Default true, sonst false */
+  autoMigrate: parsed.AUTO_MIGRATE ? parsed.AUTO_MIGRATE === "true" : parsed.NODE_ENV === "development",
+  /** Verzeichnis für Backups vor Migration */
+  backupDir: parsed.BACKUP_DIR || (parsed.NODE_ENV === "test" ? "" : path.join(path.dirname(dbPath), "backups")),
+  /** Maximale Anzahl aufzubewahrender Backups */
+  backupKeep: parsed.BACKUP_KEEP,
 };

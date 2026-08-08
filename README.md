@@ -150,6 +150,15 @@ git pull
 docker compose pull && docker compose up -d
 ```
 
+Wenn das Update eine Datenbank-Migration enthält (Schema-Änderung), startet der Server
+im **Maintenance-Modus** und zeigt eine **Bootstrap-Seite** an. Dort meldet sich der
+Admin an, es wird ein **Backup** erstellt und die Datenbank auf die neueste Version
+migriert. Danach läuft die App normal weiter.
+
+Wer Updates unbeaufsichtigt (z. B. CI/automatisch) durchführen will, setzt
+`AUTO_MIGRATE=true` – dann laufen Migrationen beim Start automatisch ohne Bootstrap
+(das Backup wird dennoch erstellt).
+
 ### Variante B: Aus dem Quellcode bauen
 
 Ohne Registry bzw. vor dem ersten CI-Build – das Image wird lokal gebaut
@@ -212,6 +221,9 @@ Unter CasaOS setzt du dieselben Variablen in den App-Einstellungen des Container
 | `HOST` | `0.0.0.0` | Bind-Adresse (Container-intern) |
 | `DB_PATH` | `./data/taskmaster.db` | Pfad zur SQLite-Datei; im Container: `/app/data/taskmaster.db` |
 | `NODE_ENV` | `development` | `development` / `production` / `test` – steuert Logger, CORS und Cookie-Flags |
+| `AUTO_MIGRATE` | `true` (dev) / `false` (prod) | Automatische DB-Migration beim Start. `false` → Admin muss Migration über Bootstrap-UI auslösen |
+| `BACKUP_DIR` | `<DB_PATH>/backups` | Verzeichnis für automatische Backups vor Migrationen |
+| `BACKUP_KEEP` | `5` | Maximale Anzahl aufzubewahrender Backups |
 
 Erläuterungen:
 

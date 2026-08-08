@@ -1,4 +1,4 @@
-import initSqlJs, { Database as SqlJsDatabase } from "sql.js";
+import initSqlJs, { Database as SqlJsDatabase, SqlJsStatic } from "sql.js";
 import { drizzle, SQLJsDatabase } from "drizzle-orm/sql-js";
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -6,9 +6,11 @@ import { config } from "../config.js";
 
 let db: SQLJsDatabase;
 let sql: SqlJsDatabase;
+let SqlStatic: SqlJsStatic | null = null;
 
 export async function initDb(): Promise<SQLJsDatabase> {
   const SQL = await initSqlJs();
+  SqlStatic = SQL;
 
   if (config.dbPath === ":memory:") {
     sql = new SQL.Database();
@@ -66,6 +68,21 @@ export function stopAutoSave(): void {
 export function closeDb(): void {
   saveDb();
   sql.close();
+}
+
+export function getRawDb(): SqlJsDatabase {
+  if (!sql) throw new Error("Database not initialized. Call initDb() first.");
+  return sql;
+}
+
+export async function restoreDb(backupPath: string): Promise<SQLJsDatabase> {
+  if (!SqlStatic) throw new Error("Database not initialized. Call initDb() first.");
+  const buffer = readFileSync(backupPath);
+  sql.close();
+  sql = new SqlStatic.Database(buffer);
+  sql.run("PRAGMA foreign_keys = ON");
+  db = drizzle(sql);
+  return db;
 }
 
 export { sql };
