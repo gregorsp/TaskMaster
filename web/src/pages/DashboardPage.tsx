@@ -3,7 +3,7 @@ import {
   Box, Typography, TextField, Select, MenuItem, FormControl, InputLabel,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Chip, IconButton, Pagination, Stack, Button, Dialog, DialogTitle,
-  DialogContent, DialogActions,
+  DialogContent, DialogActions, Paper,
 } from "@mui/material";
 import {
   Add as AddIcon, Lock as LockIcon, Edit as EditIcon, Delete as DeleteIcon,
@@ -13,6 +13,27 @@ import { listCategories, type Category } from "../api/categoriesApi";
 import { TaskCard } from "../components/tasks/TaskCard";
 import { TaskForm } from "../components/tasks/TaskForm";
 import { useNotify } from "../context/NotifyContext";
+
+const formatDate = (d: string | null) => {
+  if (!d) return "";
+  return new Date(d).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+};
+
+function renderPriorityChip(task: Task) {
+  if (!(task.isImportant || task.isUrgent)) return null;
+  const label = task.isImportant && task.isUrgent ? "W+D" : task.isImportant ? "Wichtig" : "Dringend";
+  const color = task.isImportant && task.isUrgent ? "error" : task.isImportant ? "warning" : "info";
+  return <Chip size="small" label={label} color={color} variant="outlined" />;
+}
+
+function renderDueDate(task: Task) {
+  const overdue = task.dueAt && new Date(task.dueAt) < new Date() && !task.isCompleted;
+  return (
+    <Typography variant="body2" color={overdue ? "error" : "text.secondary"} fontWeight={overdue ? 600 : undefined}>
+      {formatDate(task.dueAt)}
+    </Typography>
+  );
+}
 
 export function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -67,11 +88,6 @@ export function DashboardPage() {
     }
   };
 
-  const formatDate = (d: string | null) => {
-    if (!d) return "";
-    return new Date(d).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
-  };
-
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2} flexWrap="wrap" gap={1}>
@@ -122,7 +138,46 @@ export function DashboardPage() {
         </FormControl>
       </Stack>
 
-      <TableContainer>
+      <Box sx={{ display: { xs: "block", sm: "none" } }}>
+        {tasks.map((task) => (
+          <Paper
+            key={task.id}
+            variant="outlined"
+            onClick={() => setSelectedTaskId(task.id)}
+            sx={{ p: 1.5, mb: 1, cursor: "pointer", opacity: task.isCompleted ? 0.5 : 1 }}
+          >
+            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+              <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, flex: 1 }}>
+                {task.isPrivate && <LockIcon fontSize="small" color="action" sx={{ flexShrink: 0 }} />}
+                <Typography variant="body2" sx={{ overflowWrap: "anywhere", textDecoration: task.isCompleted ? "line-through" : undefined }}>
+                  {task.title}
+                </Typography>
+              </Stack>
+              <Stack direction="row" sx={{ flexShrink: 0 }}>
+                <IconButton size="small" onClick={(e) => { e.stopPropagation(); setSelectedTaskId(task.id); }}>
+                  <EditIcon fontSize="small" />
+                </IconButton>
+                <IconButton size="small" onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(task.id); }}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+            </Stack>
+            {(task.isImportant || task.isUrgent || task.dueAt) && (
+              <Stack direction="row" flexWrap="wrap" alignItems="center" gap={0.5} sx={{ mt: 0.75 }}>
+                {renderPriorityChip(task)}
+                {task.dueAt && renderDueDate(task)}
+              </Stack>
+            )}
+          </Paper>
+        ))}
+        {tasks.length === 0 && (
+          <Paper variant="outlined" sx={{ p: 3 }}>
+            <Typography color="text.secondary" textAlign="center">Keine Aufgaben gefunden.</Typography>
+          </Paper>
+        )}
+      </Box>
+
+      <TableContainer sx={{ display: { xs: "none", sm: "block" } }}>
         <Table size="small" sx={{ tableLayout: "fixed" }}>
           <TableHead>
             <TableRow>
@@ -138,16 +193,10 @@ export function DashboardPage() {
                   <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
                     {task.isPrivate && <LockIcon fontSize="small" color="action" />}
                     <Typography variant="body2" sx={{ overflowWrap: "anywhere", textDecoration: task.isCompleted ? "line-through" : undefined }}>{task.title}</Typography>
-                    {(task.isImportant || task.isUrgent) && (
-                      <Chip size="small" label={task.isImportant && task.isUrgent ? "W+D" : task.isImportant ? "Wichtig" : "Dringend"} color={task.isImportant && task.isUrgent ? "error" : task.isImportant ? "warning" : "info"} variant="outlined" />
-                    )}
+                    {renderPriorityChip(task)}
                   </Stack>
                 </TableCell>
-                <TableCell>
-                  <Typography variant="body2" color={task.dueAt && new Date(task.dueAt) < new Date() && !task.isCompleted ? "error" : "text.secondary"} fontWeight={task.dueAt && new Date(task.dueAt) < new Date() && !task.isCompleted ? 600 : undefined}>
-                    {formatDate(task.dueAt)}
-                  </Typography>
-                </TableCell>
+                <TableCell>{renderDueDate(task)}</TableCell>
                 <TableCell align="right">
                   <IconButton size="small" onClick={(e) => { e.stopPropagation(); setSelectedTaskId(task.id); }}><EditIcon fontSize="small" /></IconButton>
                   <IconButton size="small" onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(task.id); }}><DeleteIcon fontSize="small" /></IconButton>
