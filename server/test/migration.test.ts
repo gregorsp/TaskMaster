@@ -234,10 +234,9 @@ describe("Migration – API Routes (maintenance mode)", () => {
   });
 
   it("Data routes are not registered in maintenance mode", async () => {
-    const res = await app.inject({
-      method: "GET", url: "/api/tasks",
-      headers: { authorization: `Bearer ${adminToken}` },
-    });
-    expect(res.headers["content-type"]).toContain("text/html");
+    expect(app.hasRoute({ method: "GET", url: "/api/tasks" })).toBe(false);
+    expect(app.hasRoute({ method: "GET", url: "/api/categories" })).toBe(false);
+    expect(app.hasRoute({ method: "GET", url: "/api/users" })).toBe(false);
+    expect(app.hasRoute({ method: "GET", url: "/api/calendar" })).toBe(false);
   });
 });
