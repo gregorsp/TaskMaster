@@ -8,6 +8,24 @@ import { ThemeContextProvider } from "./context/ThemeContext";
 import App from "./App";
 import "./index.css";
 
+let touchStartY = 0;
+document.addEventListener(
+  "touchstart",
+  (e) => {
+    touchStartY = e.touches[0].clientY;
+  },
+  { passive: true }
+);
+document.addEventListener(
+  "touchmove",
+  (e) => {
+    if (window.scrollY === 0 && e.touches[0].clientY > touchStartY) {
+      e.preventDefault();
+    }
+  },
+  { passive: false }
+);
+
 const queryClient = new QueryClient();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
