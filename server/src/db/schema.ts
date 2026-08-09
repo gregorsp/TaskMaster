@@ -33,6 +33,7 @@ export const tasks = sqliteTable("tasks", {
   completedById: text("completed_by_id").references(() => users.id),
   isImportant: integer("is_important", { mode: "boolean" }).notNull().default(false),
   isUrgent: integer("is_urgent", { mode: "boolean" }).notNull().default(false),
+  pomodoros: integer("pomodoros"),
   urgencyMode: text("urgency_mode").notNull().default("before_days"),
   urgencyValue: integer("urgency_value"),
   isPrivate: integer("is_private", { mode: "boolean" }).notNull().default(false),

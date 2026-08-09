@@ -83,6 +83,7 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
   const [dueDate, setDueDate] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
   const [isImportant, setIsImportant] = useState(false);
+  const [pomodoros, setPomodoros] = useState<number | null>(null);
   const [urgencyMode, setUrgencyMode] = useState<"never" | "always" | "before_days" | "before_percent">("before_days");
   const [urgencyValue, setUrgencyValue] = useState<number>(3);
   const [recurrenceType, setRecurrenceType] = useState<"none" | "rrule" | "on_completion">("none");
@@ -123,6 +124,7 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
         setDueDate(toInputDate(task.dueAt ? new Date(task.dueAt) : (task.baseDate ? new Date(task.baseDate) : null)));
         setIsPrivate(task.isPrivate ?? false);
         setIsImportant(task.isImportant ?? false);
+        setPomodoros(task.pomodoros ?? null);
         setUrgencyMode(task.urgencyMode || "before_days");
         setUrgencyValue(task.urgencyValue ?? 3);
         setRecurrenceType(task.recurrenceType || "none");
@@ -142,7 +144,7 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
       } catch (e) { console.error("TaskForm prefill error:", e); }
     } else if (open && !task) {
       setTitle(""); setDescription(""); setDueDate(""); setIsPrivate(false);
-      setIsImportant(false); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
+      setIsImportant(false); setPomodoros(null); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
       setFreq("WEEKLY"); setInterval(1); setSelectedDays([]);
       setMonthDay(""); setUseNthWeekday(false); setSelectedCategories([]);
       const me = users.find((u) => u.id === currentUser?.id);
@@ -179,7 +181,7 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
           title: title.trim(),
           description: description.trim() || null,
           dueAt: dueDate ? new Date(dueDate).toISOString() : null,
-          isImportant, isPrivate, recurrenceType, urgencyMode, urgencyValue,
+          isImportant, isPrivate, pomodoros, recurrenceType, urgencyMode, urgencyValue,
           recurrenceRule: ruleStr || null,
           categoryIds: selectedCategories.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
@@ -191,7 +193,7 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
           title: title.trim(),
           description: description.trim() || undefined,
           dueAt: dueDate ? new Date(dueDate).toISOString() : undefined,
-          isImportant, isPrivate, recurrenceType, urgencyMode, urgencyValue,
+          isImportant, isPrivate, pomodoros, recurrenceType, urgencyMode, urgencyValue,
           recurrenceRule: ruleStr,
           categoryIds: selectedCategories.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
@@ -219,6 +221,20 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
             <FormControlLabel control={<Switch checked={isImportant} onChange={(e) => setIsImportant(e.target.checked)} />} label="Wichtig" />
             <FormControlLabel control={<Switch checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />} label="Privat" />
           </Stack>
+
+          <TextField
+            label="Pomodoros"
+            type="number"
+            value={pomodoros ?? ""}
+            onChange={(e) => {
+              const v = e.target.value;
+              setPomodoros(v === "" ? null : Math.max(1, Number(v) || 1));
+            }}
+            inputProps={{ min: 1, max: 999 }}
+            placeholder="Keine Angabe"
+            helperText="1 Pomodoro ≈ 25 Minuten – leer lassen für keinen Schätzwert"
+            fullWidth
+          />
 
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography variant="body2" sx={{ minWidth: 90 }}>Dringend:</Typography>

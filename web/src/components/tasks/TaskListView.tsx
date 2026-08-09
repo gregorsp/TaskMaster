@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import {
   Box, Typography, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Paper, Alert, CircularProgress, Chip, IconButton,
-  Stack, Dialog, DialogTitle, DialogContent, DialogActions, Button,
+  Stack, Dialog, DialogTitle, DialogContent, DialogActions, Button, Tooltip,
 } from "@mui/material";
 import {
   Lock as LockIcon, Edit as EditIcon, Delete as DeleteIcon,
@@ -22,6 +22,15 @@ function renderPriorityChip(task: Task) {
   const label = task.isImportant && task.isUrgent ? "W+D" : task.isImportant ? "Wichtig" : "Dringend";
   const color = task.isImportant && task.isUrgent ? "error" : task.isImportant ? "warning" : "info";
   return <Chip size="small" label={label} color={color} variant="outlined" />;
+}
+
+function renderPomodoroChip(task: Task) {
+  if (task.pomodoros == null || task.pomodoros <= 0) return null;
+  return (
+    <Tooltip title={`${task.pomodoros} Pomodoro${task.pomodoros > 1 ? "s" : ""} ≈ ${task.pomodoros * 25} Minuten`}>
+      <Chip size="small" label={`${task.pomodoros} Pomo`} color="secondary" />
+    </Tooltip>
+  );
 }
 
 function renderDueDate(task: Task) {
@@ -136,6 +145,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
                         <Typography variant="body2" sx={{ overflowWrap: "anywhere", textDecoration: task.isCompleted ? "line-through" : undefined }}>{task.title}</Typography>
                         <AssigneeAvatars assignees={task.assignees} />
                         {renderPriorityChip(task)}
+                        {renderPomodoroChip(task)}
                       </Stack>
                     </TableCell>
                     <TableCell>

@@ -21,6 +21,7 @@ export interface Task {
   completedById: string | null;
   isImportant: boolean;
   isUrgent: boolean;
+  pomodoros: number | null;
   urgencyMode: "never" | "always" | "before_days" | "before_percent";
   urgencyValue: number | null;
   isPrivate: boolean;
@@ -63,6 +64,7 @@ export interface CreateTaskInput {
   description?: string;
   dueAt?: string;
   isImportant?: boolean;
+  pomodoros?: number | null;
   isPrivate?: boolean;
   urgencyMode?: "never" | "always" | "before_days" | "before_percent";
   urgencyValue?: number | null;
@@ -78,6 +80,7 @@ export interface UpdateTaskInput {
   dueAt?: string | null;
   isImportant?: boolean;
   isUrgent?: boolean;
+  pomodoros?: number | null;
   isPrivate?: boolean;
   urgencyMode?: "never" | "always" | "before_days" | "before_percent";
   urgencyValue?: number | null;

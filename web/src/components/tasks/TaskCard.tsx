@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import {
   Dialog, DialogContent, Box, Typography, Chip, IconButton, Stack,
   Button, Divider, TextField, Paper, DialogTitle, DialogActions, Autocomplete,
-  Menu, MenuItem, Avatar,
+  Menu, MenuItem, Avatar, Tooltip,
 } from "@mui/material";
 import {
   Close as CloseIcon, Add as AddIcon,
@@ -85,6 +85,11 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={2}>
               <Stack direction="row" alignItems="center" gap={1}>
                 <Typography variant="h5" fontWeight={600}>{task.title}</Typography>
+                {task.pomodoros != null && task.pomodoros > 0 && (
+                  <Tooltip title={`${task.pomodoros} Pomodoro${task.pomodoros > 1 ? "s" : ""} ≈ ${task.pomodoros * 25} Minuten`}>
+                    <Chip size="small" label={`${task.pomodoros} Pomo`} color="secondary" />
+                  </Tooltip>
+                )}
                 <IconButton size="small" onClick={() => setEditOpen(true)}><EditIcon fontSize="small" /></IconButton>
                 <IconButton size="small" onClick={() => safeCall(async () => { await updateTask(taskId, { isPrivate: !task.isPrivate }); setTask({ ...task, isPrivate: !task.isPrivate }); })}>
                   {task.isPrivate ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" color="disabled" />}

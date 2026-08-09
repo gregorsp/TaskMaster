@@ -203,6 +203,7 @@ export function createTask(input: CreateTaskInput, createdById: string) {
     completedAt: null,
     completedById: null,
     isImportant: input.isImportant ?? false,
+    pomodoros: input.pomodoros ?? null,
     isUrgent: false, // computed field
     urgencyMode: input.urgencyMode ?? "before_days",
     urgencyValue: input.urgencyValue ?? 3,
@@ -241,6 +242,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
   if (input.title !== undefined) updates.title = input.title;
   if (input.description !== undefined) updates.description = input.description;
   if (input.isImportant !== undefined) updates.isImportant = input.isImportant;
+  if (input.pomodoros !== undefined) updates.pomodoros = input.pomodoros;
   if (input.isPrivate !== undefined) updates.isPrivate = input.isPrivate;
   if (input.urgencyMode !== undefined) updates.urgencyMode = input.urgencyMode;
   if (input.urgencyValue !== undefined) updates.urgencyValue = input.urgencyValue;

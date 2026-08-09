@@ -323,3 +323,67 @@ describe("Task filters", () => {
     await app.inject({ method: "DELETE", url: `/api/categories/${catId}`, headers: headers(adminToken) });
   });
 });
+
+describe("Pomodoros", () => {
+  const createTask = async (payload: Record<string, unknown>) => {
+    const res = await app.inject({ method: "POST", url: "/api/tasks", headers: headers(adminToken), payload });
+    return res;
+  };
+  const deleteTask = async (id: string) => {
+    await app.inject({ method: "DELETE", url: `/api/tasks/${id}`, headers: headers(adminToken) });
+  };
+
+  it("defaults to null (keine Angabe) when not provided", async () => {
+    const res = await createTask({ title: "Pomo Default" });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().pomodoros).toBeNull();
+    await deleteTask(res.json().id);
+  });
+
+  it("creates a task with pomodoros and includes them in list and detail", async () => {
+    const res = await createTask({ title: "Pomo Task", pomodoros: 8 });
+    expect(res.statusCode).toBe(201);
+    const id = res.json().id;
+    expect(res.json().pomodoros).toBe(8);
+
+    const list = await app.inject({ method: "GET", url: "/api/tasks", headers: headers(adminToken) });
+    const item = (list.json().items as { id: string; pomodoros: number | null }[]).find((t) => t.id === id);
+    expect(item?.pomodoros).toBe(8);
+
+    const detail = await app.inject({ method: "GET", url: `/api/tasks/${id}`, headers: headers(adminToken) });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().pomodoros).toBe(8);
+
+    await deleteTask(id);
+  });
+
+  it("updates pomodoros and can clear them back to null", async () => {
+    const res = await createTask({ title: "Pomo Update", pomodoros: 3 });
+    const id = res.json().id;
+
+    const upd = await app.inject({
+      method: "PUT", url: `/api/tasks/${id}`,
+      headers: headers(adminToken),
+      payload: { pomodoros: 12 },
+    });
+    expect(upd.statusCode).toBe(200);
+    expect(upd.json().pomodoros).toBe(12);
+
+    const clear = await app.inject({
+      method: "PUT", url: `/api/tasks/${id}`,
+      headers: headers(adminToken),
+      payload: { pomodoros: null },
+    });
+    expect(clear.statusCode).toBe(200);
+    expect(clear.json().pomodoros).toBeNull();
+
+    await deleteTask(id);
+  });
+
+  it("rejects invalid pomodoros (0, negative, float, >999)", async () => {
+    for (const p of [0, -1, 2.5, 1000]) {
+      const res = await createTask({ title: "Pomo Invalid", pomodoros: p });
+      expect(res.statusCode).toBe(400);
+    }
+  });
+});

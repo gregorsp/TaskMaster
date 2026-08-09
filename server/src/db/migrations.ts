@@ -1,7 +1,7 @@
 import { getDb, sql, getRawDb } from "./client.js";
 import { migrate } from "drizzle-orm/sql-js/migrator";
 import { config } from "../config.js";
-import { existsSync, mkdirSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { SCHEMA_VERSION } from "./version.js";
 import { appMeta } from "./schema.js";
@@ -63,6 +63,43 @@ export function ensureSchemaVersion(): void {
 
 export function runMigration(): void {
   const db = getDb();
+  repairMigrationTimestamps();
   migrate(db, { migrationsFolder: "./src/db/migrations" });
   ensureSchemaVersion();
+}
+
+/**
+ * Repariert inkonsistente `created_at`-Werte in `__drizzle_migrations`.
+ *
+ * Drizzle's Migrator wendet eine Migration nur an, wenn ihr `when`-Timestamp
+ * größer ist als der der zuletzt angewendeten Migration. Wenn ein Migrationseintrag
+ * im Journal einen `when`-Wert in der Zukunft trägt (z. B. durch eine fehlerhafte
+ * Systemuhr beim Generieren), bekommen nachfolgend generierte Migrationen einen
+ * niedrigeren `when`-Wert und werden stillschweigend übersprungen – die Spalten
+ * fehlen dann, obwohl `schema_version` bereits hochgezählt wurde.
+ *
+ * Diese Funktion gleicht die `created_at`-Werte der bereits angewendeten
+ * Migrationen mit den (korrigierten) Journal-Timestamps ab und ist idempotent.
+ */
+function repairMigrationTimestamps(): void {
+  const raw = getRawDb();
+  try {
+    const journalPath = path.join("src", "db", "migrations", "meta", "_journal.json");
+    if (!existsSync(journalPath)) return;
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as { entries: { when: number }[] };
+
+    const rows = raw.exec("SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at ASC");
+    if (rows.length === 0 || rows[0].values.length === 0) return;
+
+    const applied = rows[0].values as [string, number][];
+    const entries = [...journal.entries].sort((a, b) => a.when - b.when);
+
+    for (let i = 0; i < applied.length && i < entries.length; i++) {
+      if (applied[i][1] !== entries[i].when) {
+        raw.run("UPDATE __drizzle_migrations SET created_at = ? WHERE hash = ?", [entries[i].when, applied[i][0]]);
+      }
+    }
+  } catch {
+    // Nicht fatal: `migrate()` unten meldet echte Fehler.
+  }
 }
