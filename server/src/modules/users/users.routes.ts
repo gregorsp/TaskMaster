@@ -6,6 +6,7 @@ import { listUsers, getUser, updateUser, deleteUser } from "./users.service.js";
 import { saveProfilePicture, deleteProfilePictureFiles, getProfilePictureUrl } from "../auth/profile.service.js";
 import { getDb } from "../../db/client.js";
 import { users } from "../../db/schema.js";
+import { capacitySchema } from "../../lib/capacity.js";
 
 const updateUserSchema = z.object({
   username: z.string().min(3).max(50).optional(),
@@ -13,6 +14,7 @@ const updateUserSchema = z.object({
   displayName: z.string().min(1).max(100).optional(),
   isAdmin: z.boolean().optional(),
   password: z.string().min(8).max(128).optional(),
+  capacity: capacitySchema.nullable().optional(),
 });
 
 export async function usersRoutes(app: FastifyInstance) {

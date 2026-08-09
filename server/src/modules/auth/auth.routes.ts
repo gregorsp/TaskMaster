@@ -1,6 +1,9 @@
 import { FastifyInstance } from "fastify";
 import { registerSchema, loginSchema } from "./auth.schema.js";
-import { registerUser, authenticateUser, getUserById, updateCurrentUser, changePassword } from "./auth.service.js";
+import {
+  registerUser, authenticateUser, getUserById, updateCurrentUser, changePassword,
+  getCurrentUserCapacity, updateCurrentUserCapacity,
+} from "./auth.service.js";
 import { authGuard } from "../../middleware/auth.hooks.js";
 import { config } from "../../config.js";
 import { z } from "zod";
@@ -8,6 +11,7 @@ import { saveProfilePicture, deleteProfilePictureFiles, getProfilePictureUrl } f
 import { getDb } from "../../db/client.js";
 import { users } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
+import { capacitySchema } from "../../lib/capacity.js";
 
 const updateProfileSchema = z.object({
   displayName: z.string().min(1).max(100).optional(),
@@ -17,6 +21,10 @@ const updateProfileSchema = z.object({
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(8).max(128),
+});
+
+const updateCapacitySchema = z.object({
+  capacity: capacitySchema.nullable(),
 });
 
 export async function authRoutes(app: FastifyInstance) {
@@ -106,6 +114,28 @@ export async function authRoutes(app: FastifyInstance) {
     } catch (err) {
       const e = err as { statusCode?: number; code?: string; message?: string };
       return reply.status(e.statusCode || 400).send({ error: { code: e.code || "PASSWORD_CHANGE_FAILED", message: e.message } });
+    }
+  });
+
+  app.get("/me/capacity", { preHandler: authGuard }, async (request, reply) => {
+    const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
+    try {
+      return reply.send({ capacity: getCurrentUserCapacity(authUser.id) });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string };
+      return reply.status(e.statusCode || 500).send({ error: { code: e.code || "INTERNAL_ERROR", message: e.message } });
+    }
+  });
+
+  app.put("/me/capacity", { preHandler: authGuard }, async (request, reply) => {
+    const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
+    const input = updateCapacitySchema.parse(request.body);
+
+    try {
+      return reply.send({ capacity: updateCurrentUserCapacity(authUser.id, input.capacity) });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string };
+      return reply.status(e.statusCode || 500).send({ error: { code: e.code || "UPDATE_FAILED", message: e.message } });
     }
   });
 

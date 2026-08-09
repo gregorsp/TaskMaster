@@ -5,6 +5,7 @@ import { getDb } from "../../db/client.js";
 import { users } from "../../db/schema.js";
 import type { RegisterInput } from "./auth.schema.js";
 import { getProfilePictureUrl } from "./profile.service.js";
+import { parseCapacity, serializeCapacity, type Capacity } from "../../lib/capacity.js";
 
 const KEYLEN = 64;
 
@@ -35,6 +36,7 @@ function userToResponse(user: typeof users.$inferSelect) {
     displayName: user.displayName,
     isAdmin: user.isAdmin,
     profilePicture: getProfilePictureUrl(user.profilePicture),
+    capacity: parseCapacity(user.capacity),
   };
 }
 
@@ -153,4 +155,25 @@ export async function changePassword(userId: string, currentPassword: string, ne
   const passwordHash = await hashPassword(newPassword, salt);
 
   db.update(users).set({ passwordHash }).where(eq(users.id, userId)).run();
+}
+
+export function getCurrentUserCapacity(id: string): Capacity | null {
+  const db = getDb();
+  const user = db.select({ capacity: users.capacity }).from(users).where(eq(users.id, id)).get();
+  if (!user) {
+    throw Object.assign(new Error("User not found"), { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+  return parseCapacity(user.capacity);
+}
+
+export function updateCurrentUserCapacity(id: string, capacity: Capacity | null): Capacity | null {
+  const db = getDb();
+  const user = db.select({ id: users.id }).from(users).where(eq(users.id, id)).get();
+  if (!user) {
+    throw Object.assign(new Error("User not found"), { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+
+  const serialized = serializeCapacity(capacity);
+  db.update(users).set({ capacity: serialized }).where(eq(users.id, id)).run();
+  return parseCapacity(serialized);
 }

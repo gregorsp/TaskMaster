@@ -3,6 +3,7 @@ import { getDb } from "../../db/client.js";
 import { users, taskAssignees } from "../../db/schema.js";
 import { scrypt, randomBytes } from "node:crypto";
 import { getProfilePictureUrl, deleteProfilePictureFiles } from "../auth/profile.service.js";
+import { parseCapacity, serializeCapacity, type Capacity } from "../../lib/capacity.js";
 
 const KEYLEN = 64;
 
@@ -23,6 +24,7 @@ function userToResponse(user: typeof users.$inferSelect) {
     displayName: user.displayName,
     isAdmin: user.isAdmin,
     profilePicture: getProfilePictureUrl(user.profilePicture),
+    capacity: parseCapacity(user.capacity),
     createdAt: user.createdAt,
   };
 }
@@ -52,6 +54,7 @@ export function listUsers() {
       displayName: users.displayName,
       isAdmin: users.isAdmin,
       profilePicture: users.profilePicture,
+      capacity: users.capacity,
       createdAt: users.createdAt,
     })
     .from(users)
@@ -64,6 +67,7 @@ export function listUsers() {
     displayName: u.displayName,
     isAdmin: u.isAdmin,
     profilePicture: getProfilePictureUrl(u.profilePicture),
+    capacity: parseCapacity(u.capacity),
     createdAt: u.createdAt,
   }));
 }
@@ -78,6 +82,7 @@ export function getUser(id: string) {
       displayName: users.displayName,
       isAdmin: users.isAdmin,
       profilePicture: users.profilePicture,
+      capacity: users.capacity,
       createdAt: users.createdAt,
     })
     .from(users)
@@ -92,11 +97,12 @@ export function getUser(id: string) {
     displayName: user.displayName,
     isAdmin: user.isAdmin,
     profilePicture: getProfilePictureUrl(user.profilePicture),
+    capacity: parseCapacity(user.capacity),
     createdAt: user.createdAt,
   };
 }
 
-export async function updateUser(id: string, input: { username?: string; email?: string; displayName?: string; isAdmin?: boolean; password?: string }) {
+export async function updateUser(id: string, input: { username?: string; email?: string; displayName?: string; isAdmin?: boolean; password?: string; capacity?: Capacity | null }) {
   const db = getDb();
   const existing = db.select().from(users).where(eq(users.id, id)).get();
   if (!existing) return null;
@@ -110,6 +116,7 @@ export async function updateUser(id: string, input: { username?: string; email?:
   if (input.email !== undefined) updates.email = input.email;
   if (input.displayName !== undefined) updates.displayName = input.displayName;
   if (input.isAdmin !== undefined) updates.isAdmin = input.isAdmin;
+  if (input.capacity !== undefined) updates.capacity = serializeCapacity(input.capacity);
 
   if (input.password !== undefined && input.password.length > 0) {
     const salt = randomBytes(16).toString("hex");

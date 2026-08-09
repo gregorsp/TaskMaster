@@ -7,6 +7,7 @@ export interface User {
   displayName: string;
   isAdmin: boolean;
   profilePicture: string | null;
+  capacity: Record<string, number> | null;
 }
 
 export interface AuthResponse {
@@ -69,4 +70,14 @@ export async function uploadProfilePicture(file: File): Promise<string> {
 
 export async function deleteProfilePicture(): Promise<void> {
   await client.delete("/auth/me/profile-picture");
+}
+
+export async function fetchCapacity(): Promise<Record<string, number> | null> {
+  const { data } = await client.get<{ capacity: Record<string, number> | null }>("/auth/me/capacity");
+  return data.capacity;
+}
+
+export async function updateCapacity(capacity: Record<string, number> | null): Promise<Record<string, number> | null> {
+  const { data } = await client.put<{ capacity: Record<string, number> | null }>("/auth/me/capacity", { capacity });
+  return data.capacity;
 }
