@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -32,7 +32,6 @@ export const tasks = sqliteTable("tasks", {
   isCompleted: integer("is_completed", { mode: "boolean" }).notNull().default(false),
   completedAt: integer("completed_at", { mode: "timestamp_ms" }),
   completedById: text("completed_by_id").references(() => users.id),
-  parentId: text("parent_id").references((): AnySQLiteColumn => tasks.id),
   isImportant: integer("is_important", { mode: "boolean" }).notNull().default(false),
   isUrgent: integer("is_urgent", { mode: "boolean" }).notNull().default(false),
   pomodoros: integer("pomodoros"),
@@ -71,20 +70,6 @@ export const taskCategories = sqliteTable(
       .references(() => categories.id),
   },
   (table) => [primaryKey({ columns: [table.taskId, table.categoryId] })]
-);
-
-export const taskLinks = sqliteTable(
-  "task_links",
-  {
-    taskIdA: text("task_id_a")
-      .notNull()
-      .references(() => tasks.id),
-    taskIdB: text("task_id_b")
-      .notNull()
-      .references(() => tasks.id),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  },
-  (table) => [primaryKey({ columns: [table.taskIdA, table.taskIdB] })]
 );
 
 export const taskEvents = sqliteTable("task_events", {

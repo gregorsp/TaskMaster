@@ -173,7 +173,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
         </DialogActions>
       </Dialog>
 
-      {selectedTaskId && <TaskCard initialTaskId={selectedTaskId} open={!!selectedTaskId} onClose={() => setSelectedTaskId(null)} onUpdated={onUpdated} />}
+      {selectedTaskId && <TaskCard taskId={selectedTaskId} open={!!selectedTaskId} onClose={() => setSelectedTaskId(null)} onUpdated={onUpdated} />}
     </Box>
   );
 }

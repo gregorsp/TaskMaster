@@ -265,7 +265,7 @@ export function CalendarPage() {
         })}
       </Box>
 
-      {selectedTaskId && <TaskCard initialTaskId={selectedTaskId} open={!!selectedTaskId} onClose={() => setSelectedTaskId(null)} onUpdated={fetchItems} />}
+      {selectedTaskId && <TaskCard taskId={selectedTaskId} open={!!selectedTaskId} onClose={() => setSelectedTaskId(null)} onUpdated={fetchItems} />}
     </Box>
   );
 }

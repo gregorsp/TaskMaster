@@ -7,7 +7,6 @@ import { RegisterPage } from "./components/auth/RegisterPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CalendarPage } from "./pages/CalendarPage";
 import { MatrixPage } from "./pages/MatrixPage";
-import { GraphPage } from "./pages/GraphPage";
 import { CategoriesPage } from "./pages/CategoriesPage";
 import { AdminPage } from "./pages/AdminPage";
 import { ProfilePage } from "./pages/ProfilePage";
@@ -61,7 +60,6 @@ export default function App() {
           <Route index element={<DashboardPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="matrix" element={<MatrixPage />} />
-          <Route path="graph" element={<GraphPage />} />
           <Route path="categories" element={<CategoriesPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route

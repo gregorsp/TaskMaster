@@ -4,7 +4,7 @@ import {
   FormControlLabel, Switch, MenuItem, Typography, Chip, Autocomplete,
   RadioGroup, Radio, FormControl, FormLabel,
 } from "@mui/material";
-import { createTask, updateTask, listTasks, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations, type Task } from "../../api/tasksApi";
+import { createTask, updateTask, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations } from "../../api/tasksApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { useNotify } from "../../context/NotifyContext";
@@ -15,7 +15,6 @@ interface Props {
   onClose: () => void;
   onCreated: () => void;
   task?: TaskWithRelations | null;
-  initialParent?: { id: string; title: string } | null;
 }
 
 const DAYS: { value: string; label: string }[] = [
@@ -77,7 +76,7 @@ function toInputDate(d: Date | null): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 }
 
-export function TaskForm({ open, onClose, onCreated, task, initialParent }: Props) {
+export function TaskForm({ open, onClose, onCreated, task }: Props) {
   const isEdit = !!task;
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -85,8 +84,6 @@ export function TaskForm({ open, onClose, onCreated, task, initialParent }: Prop
   const [isPrivate, setIsPrivate] = useState(false);
   const [isImportant, setIsImportant] = useState(false);
   const [pomodoros, setPomodoros] = useState<number | null>(null);
-  const [parentValue, setParentValue] = useState<{ id: string; title: string } | null>(initialParent ?? null);
-  const [parentOptions, setParentOptions] = useState<Task[]>([]);
   const [urgencyMode, setUrgencyMode] = useState<"never" | "always" | "before_days" | "before_percent">("before_days");
   const [urgencyValue, setUrgencyValue] = useState<number>(3);
   const [recurrenceType, setRecurrenceType] = useState<"none" | "rrule" | "on_completion">("none");
@@ -109,7 +106,6 @@ export function TaskForm({ open, onClose, onCreated, task, initialParent }: Prop
   useEffect(() => {
     if (open) {
       listCategories().then(setCategories).catch(() => []);
-      listTasks({ pageSize: 100, sort: "createdAt", parentId: undefined }).then((res) => setParentOptions(res.items)).catch(() => setParentOptions([]));
       listUsersPicker().then((all) => {
         setUsers(all);
         if (!task && currentUser) {
@@ -148,20 +144,13 @@ export function TaskForm({ open, onClose, onCreated, task, initialParent }: Prop
       } catch (e) { console.error("TaskForm prefill error:", e); }
     } else if (open && !task) {
       setTitle(""); setDescription(""); setDueDate(""); setIsPrivate(false);
-      setIsImportant(false); setPomodoros(null); setParentValue(initialParent ?? null); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
+      setIsImportant(false); setPomodoros(null); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
       setFreq("WEEKLY"); setInterval(1); setSelectedDays([]);
       setMonthDay(""); setUseNthWeekday(false); setSelectedCategories([]);
       const me = users.find((u) => u.id === currentUser?.id);
       setSelectedAssignees(me ? [me] : []);
     }
   }, [open, task]);
-
-  useEffect(() => {
-    if (open && task?.parentId && parentOptions.length > 0) {
-      const found = parentOptions.find((t) => t.id === task.parentId);
-      if (found) setParentValue({ id: found.id, title: found.title });
-    }
-  }, [open, task, parentOptions]);
 
   const buildRRule = (): string | undefined => {
     if (recurrenceType !== "rrule") return undefined;
@@ -194,7 +183,6 @@ export function TaskForm({ open, onClose, onCreated, task, initialParent }: Prop
           dueAt: dueDate ? new Date(dueDate).toISOString() : null,
           isImportant, isPrivate, pomodoros, recurrenceType, urgencyMode, urgencyValue,
           recurrenceRule: ruleStr || null,
-          parentId: parentValue ? parentValue.id : null,
           categoryIds: selectedCategories.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
         };
@@ -207,7 +195,6 @@ export function TaskForm({ open, onClose, onCreated, task, initialParent }: Prop
           dueAt: dueDate ? new Date(dueDate).toISOString() : undefined,
           isImportant, isPrivate, pomodoros, recurrenceType, urgencyMode, urgencyValue,
           recurrenceRule: ruleStr,
-          parentId: parentValue ? parentValue.id : undefined,
           categoryIds: selectedCategories.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
         };
@@ -295,14 +282,6 @@ export function TaskForm({ open, onClose, onCreated, task, initialParent }: Prop
           )}
           <Autocomplete multiple options={categories} getOptionLabel={c=>c.name} value={selectedCategories} onChange={(_,v)=>setSelectedCategories(v)} renderInput={p=><TextField {...p} label="Kategorien" />} renderOption={(props,opt)=>(<li {...props} key={opt.id}><Box sx={{display:"flex",alignItems:"center",gap:1}}><Box sx={{width:12,height:12,borderRadius:"50%",bgcolor:opt.color}}/>{opt.name}</Box></li>)} />
           <Autocomplete multiple options={users} getOptionLabel={u=>u.displayName} value={selectedAssignees} onChange={(_,v)=>setSelectedAssignees(v)} renderInput={p=><TextField {...p} label="Verantwortlich" />} />
-          <Autocomplete
-            value={parentValue}
-            options={parentOptions.filter((t) => t.id !== task?.id)}
-            getOptionLabel={(o) => o.title}
-            isOptionEqualToValue={(o, v) => o.id === v.id}
-            onChange={(_, v) => setParentValue(v)}
-            renderInput={(p) => <TextField {...p} label="Unteraufgabe von" placeholder="Keine (Top-Level)" />}
-          />
           <Stack direction="row" justifyContent="flex-end" gap={1} mt={2}>
             <Button onClick={onClose}>Abbrechen</Button>
             <Button variant="contained" onClick={handleSubmit} disabled={loading||!title.trim()}>{isEdit?"Speichern":"Erstellen"}</Button>

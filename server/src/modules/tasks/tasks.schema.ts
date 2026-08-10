@@ -11,7 +11,6 @@ export const createTaskSchema = z.object({
   urgencyValue: z.number().int().min(1).max(99).optional().nullable(),
   recurrenceType: z.enum(["none", "rrule", "on_completion"]).default("none"),
   recurrenceRule: z.string().optional(),
-  parentId: z.string().optional(),
   assigneeIds: z.array(z.string()).default([]),
   categoryIds: z.array(z.string()).default([]),
 });
@@ -27,7 +26,6 @@ export const updateTaskSchema = z.object({
   urgencyValue: z.number().int().min(1).max(99).optional().nullable(),
   recurrenceType: z.enum(["none", "rrule", "on_completion"]).optional(),
   recurrenceRule: z.string().nullable().optional(),
-  parentId: z.string().nullable().optional(),
   assigneeIds: z.array(z.string()).optional(),
   categoryIds: z.array(z.string()).optional(),
 });

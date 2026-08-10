@@ -24,7 +24,6 @@ import {
   Dashboard as DashboardIcon,
   CalendarMonth as CalendarIcon,
   GridView as MatrixIcon,
-  AccountTree as AccountTreeIcon,
   Label as LabelIcon,
   AdminPanelSettings as AdminIcon,
   Person as PersonIcon,
@@ -67,7 +66,6 @@ export function AppShell() {
     { path: "/", label: "Aufgaben", icon: <DashboardIcon /> },
     { path: "/calendar", label: "Kalender", icon: <CalendarIcon /> },
     { path: "/matrix", label: "Matrix", icon: <MatrixIcon /> },
-    { path: "/graph", label: "Graph", icon: <AccountTreeIcon /> },
     { path: "/categories", label: "Kategorien", icon: <LabelIcon /> },
     { path: "/admin", label: "Admin", icon: <AdminIcon />, adminOnly: true },
   ];
