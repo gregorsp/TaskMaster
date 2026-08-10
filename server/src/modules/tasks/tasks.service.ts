@@ -1,7 +1,7 @@
-import { eq, and, like, or, inArray, SQL, desc, asc } from "drizzle-orm";
+import { eq, and, like, or, inArray, ne, SQL, sql as drizzleSql } from "drizzle-orm";
 import { v7 as uuid } from "uuid";
 import { getDb } from "../../db/client.js";
-import { tasks, taskAssignees, taskCategories, taskEvents, users, categories } from "../../db/schema.js";
+import { tasks, taskAssignees, taskCategories, taskEvents, taskLinks, users, categories } from "../../db/schema.js";
 import { visibilityFilter } from "../../middleware/visibility.js";
 import { parsePageQuery, paginate } from "../../lib/paging.js";
 import { getEffectiveDueAt, isTaskOverdue, computeIsUrgent } from "../calendar/recurrence.service.js";
@@ -210,6 +210,7 @@ export function createTask(input: CreateTaskInput, createdById: string) {
     isPrivate: input.isPrivate ?? false,
     recurrenceType: input.recurrenceType ?? "none",
     recurrenceRule: input.recurrenceRule || null,
+    parentId: input.parentId || null,
     createdById,
     createdAt: new Date(),
   };
@@ -248,6 +249,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
   if (input.urgencyValue !== undefined) updates.urgencyValue = input.urgencyValue;
   if (input.recurrenceType !== undefined) updates.recurrenceType = input.recurrenceType;
   if (input.recurrenceRule !== undefined) updates.recurrenceRule = input.recurrenceRule;
+  if (input.parentId !== undefined) updates.parentId = input.parentId;
 
   if (input.dueAt !== undefined) {
     if (input.recurrenceType === "rrule" || existing.recurrenceType === "rrule") {
@@ -278,15 +280,122 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
   return getTask(id, userId, isAdmin);
 }
 
-export async function deleteTask(id: string): Promise<boolean> {
+export async function deleteTask(id: string): Promise<boolean | { blocked: boolean; code: string }> {
   const db = getDb();
   const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
   if (!existing) return false;
+
+  const childCount = db.select({ count: drizzleSql<number>`COUNT(*)` }).from(tasks).where(eq(tasks.parentId, id)).get();
+  if (childCount && childCount.count > 0) {
+    return { blocked: true, code: "HAS_SUBTASKS" };
+  }
+
   db.delete(taskAssignees).where(eq(taskAssignees.taskId, id)).run();
   db.delete(taskCategories).where(eq(taskCategories.taskId, id)).run();
   db.delete(taskEvents).where(eq(taskEvents.taskId, id)).run();
+  db.delete(taskLinks).where(or(eq(taskLinks.taskIdA, id), eq(taskLinks.taskIdB, id))).run();
   db.delete(tasks).where(eq(tasks.id, id)).run();
   return true;
+}
+
+export function getSubtasks(taskId: string) {
+  const db = getDb();
+  const children = db.select().from(tasks).where(eq(tasks.parentId, taskId)).all();
+
+  const completed = children.filter((c) => c.isCompleted).length;
+  const total = children.length;
+
+  const allDescendantIds = new Set<string>();
+  for (const child of children) {
+    allDescendantIds.add(child.id);
+    collectDescendantIds(child.id, allDescendantIds);
+  }
+  const allDescendants = [...allDescendantIds];
+
+  let completedDescendants = 0;
+  for (const id of allDescendants) {
+    const t = db.select().from(tasks).where(eq(tasks.id, id)).get();
+    if (t?.isCompleted) completedDescendants++;
+  }
+
+  return {
+    subtasks: withAssignees(children.map(enrichTask)),
+    progress: {
+      completed: completedDescendants,
+      total: allDescendants.length,
+    },
+  };
+}
+
+function collectDescendantIds(taskId: string, result: Set<string>) {
+  const db = getDb();
+  const children = db.select({ id: tasks.id }).from(tasks).where(eq(tasks.parentId, taskId)).all();
+  for (const child of children) {
+    if (!result.has(child.id)) {
+      result.add(child.id);
+      collectDescendantIds(child.id, result);
+    }
+  }
+}
+
+export function getOpenSubtaskCount(taskId: string): number {
+  const db = getDb();
+  const descendantIds = new Set<string>();
+  collectDescendantIds(taskId, descendantIds);
+  if (descendantIds.size === 0) return 0;
+
+  const rows = db.select({ id: tasks.id, isCompleted: tasks.isCompleted })
+    .from(tasks)
+    .where(inArray(tasks.id, [...descendantIds]))
+    .all();
+
+  return rows.filter((r) => !r.isCompleted).length;
+}
+
+export function getSiblings(taskId: string) {
+  const db = getDb();
+  const task = db.select({ parentId: tasks.parentId }).from(tasks).where(eq(tasks.id, taskId)).get();
+  if (!task?.parentId) return [];
+
+  const siblings = db.select().from(tasks)
+    .where(eq(tasks.parentId, task.parentId))
+    .all();
+  const filtered = siblings.filter((s) => s.id !== taskId);
+  return withAssignees(filtered.map(enrichTask));
+}
+
+export function getTaskLinks(taskId: string) {
+  const db = getDb();
+  const rows = db.select({
+    taskId: drizzleSql<string>`CASE WHEN task_links.task_id_a = ${taskId} THEN task_links.task_id_b ELSE task_links.task_id_a END`,
+  }).from(taskLinks)
+    .where(or(eq(taskLinks.taskIdA, taskId), eq(taskLinks.taskIdB, taskId)))
+    .all();
+
+  if (rows.length === 0) return [];
+
+  const linkedIds = rows.map((r) => r.taskId);
+  const linkedTasks = db.select().from(tasks).where(inArray(tasks.id, linkedIds)).all();
+  return withAssignees(linkedTasks.map(enrichTask));
+}
+
+export function addTaskLink(taskId: string, linkedTaskId: string) {
+  const db = getDb();
+  const now = new Date();
+  db.insert(taskLinks).values({ taskIdA: taskId, taskIdB: linkedTaskId, createdAt: now }).run();
+  db.insert(taskLinks).values({ taskIdA: linkedTaskId, taskIdB: taskId, createdAt: now }).run();
+  return { ok: true };
+}
+
+export function removeTaskLink(taskId: string, linkedTaskId: string) {
+  const db = getDb();
+  db.delete(taskLinks).where(
+    and(eq(taskLinks.taskIdA, taskId), eq(taskLinks.taskIdB, linkedTaskId))
+  ).run();
+  db.delete(taskLinks).where(
+    and(eq(taskLinks.taskIdA, linkedTaskId), eq(taskLinks.taskIdB, taskId))
+  ).run();
+  return { ok: true };
 }
 
 

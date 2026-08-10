@@ -7,24 +7,37 @@ import {
 import {
   Close as CloseIcon, Add as AddIcon,
   Lock as LockIcon, LockOpen as LockOpenIcon, Edit as EditIcon,
-  Send as SendIcon,
+  Send as SendIcon, Warning as WarningIcon,
 } from "@mui/icons-material";
-import { getTask, completeTask, reopenTask, updateTask, deleteTask, type TaskWithRelations } from "../../api/tasksApi";
+import { getTask, completeTask, reopenTask, updateTask, deleteTask, getSubtasks, type TaskWithRelations, type Task } from "../../api/tasksApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { TaskForm } from "./TaskForm";
+import { TaskRelationsSidebar } from "./TaskRelationsSidebar";
+import { ForceCompleteDialog } from "./ForceCompleteDialog";
 import { hashColor } from "./AssigneeAvatars";
 import { useNotify } from "../../context/NotifyContext";
+import { useModalStack } from "./ModalStackProvider";
 import client from "../../api/client";
 
-interface Props { taskId: string; open: boolean; onClose: () => void; onUpdated: () => void; }
+interface Props {
+  taskId: string;
+  open: boolean;
+  onClose: () => void;
+  onUpdated: () => void;
+  onNavigate?: (taskId: string) => void;
+  isStacked?: boolean;
+  stackDepth?: number;
+  isActive?: boolean;
+}
+
 interface TaskEvent { id: string; taskId: string; userId: string; type: string; content: string | null; createdAt: string; displayName?: string; profilePicture?: string | null; }
 
 function safeCall(fn: () => Promise<unknown>) {
   fn().catch(e => console.error("TaskCard async error:", e));
 }
 
-export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
+export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStacked, stackDepth = 0, isActive = true }: Props) {
   const [task, setTask] = useState<TaskWithRelations | null>(null);
   const [allCats, setAllCats] = useState<Category[]>([]);
   const [allUsers, setAllUsers] = useState<UserPickerItem[]>([]);
@@ -37,7 +50,25 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
   const [commentText, setCommentText] = useState("");
   const [completeDialog, setCompleteDialog] = useState(false);
   const [completeNote, setCompleteNote] = useState("");
+  const [forceCompleteOpen, setForceCompleteOpen] = useState(false);
+  const [subtaskOpenCount, setSubtaskOpenCount] = useState(0);
+  const [subtaskTotalCount, setSubtaskTotalCount] = useState(0);
+  const [parentTask, setParentTask] = useState<Task | null>(null);
   const notify = useNotify();
+  const { push, closeAll } = useModalStack();
+
+  const handleNavigateToTask = (target: Task) => {
+    import("../../api/tasksApi").then(({ getTask: gt }) => {
+      gt(target.id).then((t) => push(t)).catch(() => {});
+    });
+  };
+
+  const handleClose = () => {
+    if (!isStacked) {
+      closeAll();
+    }
+    onClose();
+  };
 
   const load = async () => {
     try {
@@ -49,20 +80,81 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
       setTask(t);
       setAllCats(cats);
       setAllUsers(usrs);
+
+      if (t.parentId) {
+        import("../../api/tasksApi").then(({ getTask: gt }) => {
+          gt(t.parentId!).then(setParentTask).catch(() => setParentTask(null));
+        });
+      } else {
+        setParentTask(null);
+      }
+
       client.get(`/tasks/${taskId}/events`).then(r => setEvents(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+
+      getSubtasks(taskId).then((r) => {
+        setSubtaskOpenCount(r.progress.total - r.progress.completed);
+        setSubtaskTotalCount(r.progress.total);
+      }).catch(() => {});
     } catch (e) { console.error("TaskCard load error:", e); }
   };
 
   useEffect(() => { if (open) load(); }, [open, taskId]);
 
   const handleComplete = async (nextDueAt?: string) => {
-    try { await completeTask(taskId, nextDueAt, completeNote || undefined); notify("Aufgabe erledigt"); setCompleteDialog(false); setCompleteNote(""); setNextDueOpen(false); load(); onUpdated(); }
-    catch (e) { console.error(e); notify("Fehler beim Erledigen", "error"); }
+    try {
+      await completeTask(taskId, nextDueAt, completeNote || undefined);
+      notify("Aufgabe erledigt");
+      setCompleteDialog(false);
+      setCompleteNote("");
+      setNextDueOpen(false);
+      load();
+      onUpdated();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: { code?: string; openCount?: number; totalCount?: number } }; status?: number } };
+      const errData = err?.response?.data?.error;
+      if (errData?.code === "SUBTASKS_OPEN") {
+        setSubtaskOpenCount(errData.openCount || 0);
+        getSubtasks(taskId).then((r) => setSubtaskTotalCount(r.progress.total)).catch(() => {});
+        setForceCompleteOpen(true);
+        return;
+      }
+      console.error(e);
+      notify("Fehler beim Erledigen", "error");
+    }
   };
+
+  const handleForceComplete = async (note: string) => {
+    try {
+      await completeTask(taskId, undefined, note || undefined, true);
+      notify("Aufgabe erledigt (trotz offener Unteraufgaben)");
+      setForceCompleteOpen(false);
+      setCompleteNote("");
+      load();
+      onUpdated();
+    } catch (e) {
+      console.error(e);
+      notify("Fehler beim Erledigen", "error");
+    }
+  };
+
   const handleDelete = async () => {
-    try { await deleteTask(taskId); notify("Aufgabe gelöscht"); setConfirmDelete(false); onClose(); onUpdated(); }
-    catch (e) { console.error(e); notify("Fehler beim Löschen", "error"); }
+    try {
+      await deleteTask(taskId);
+      notify("Aufgabe gelöscht");
+      setConfirmDelete(false);
+      onClose();
+      onUpdated();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: { code?: string } }; status?: number } };
+      if (err?.response?.data?.error?.code === "HAS_SUBTASKS") {
+        notify("Aufgabe hat Unteraufgaben – bitte zuerst diese löschen", "error");
+        return;
+      }
+      console.error(e);
+      notify("Fehler beim Löschen", "error");
+    }
   };
+
   const handleSendComment = async () => {
     if (!commentText.trim()) return;
     try { await client.post(`/tasks/${taskId}/comment`, { content: commentText.trim() }); setCommentText(""); load(); }
@@ -76,11 +168,36 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
   const taskAssignees = task.assignees || [];
   const availCats = allCats.filter(c => !taskCats.find(tc => tc.id === c.id));
   const rt = task.recurrenceType;
+  const hasOpenSubtasks = subtaskOpenCount > 0;
+
+  const translateX = isStacked ? -stackDepth * 48 : 0;
+  const zIndex = isStacked ? 1300 - stackDepth : 1300;
 
   return (
     <>
-      <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+      <Dialog
+        open={open}
+        onClose={isStacked && !isActive ? undefined : handleClose}
+        maxWidth="lg"
+        fullWidth
+        sx={{
+          "& .MuiDialog-paper": {
+            transform: isStacked ? `translateX(${translateX}px)` : undefined,
+            transition: "transform 0.3s ease",
+            opacity: isStacked && !isActive ? 0.7 : 1,
+            pointerEvents: isStacked && !isActive ? "none" : "auto",
+          },
+          zIndex,
+        }}
+      >
         <DialogContent sx={{ p: 0, display: "flex", flexDirection: { xs: "column", md: "row" } }}>
+          <TaskRelationsSidebar
+            taskId={taskId}
+            parentTask={parentTask}
+            onRefresh={() => load()}
+            onNavigateToTask={handleNavigateToTask}
+          />
+
           <Box sx={{ flex: 1, p: { xs: 2, md: 3 }, minWidth: 0 }}>
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={2}>
               <Stack direction="row" alignItems="center" gap={1}>
@@ -95,7 +212,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
                   {task.isPrivate ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" color="disabled" />}
                 </IconButton>
               </Stack>
-              <IconButton onClick={onClose}><CloseIcon /></IconButton>
+              <IconButton onClick={handleClose}><CloseIcon /></IconButton>
             </Stack>
 
             <Stack direction="row" flexWrap="wrap" gap={1} mb={2}>
@@ -162,18 +279,40 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
             </Stack>
 
             <Divider sx={{ my: 2 }} />
-            <Stack direction="row" justifyContent="space-between">
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Button color="error" size="small" onClick={() => setConfirmDelete(true)}>Löschen</Button>
-              <Button variant={task.isCompleted ? "outlined" : "contained"}
-                onClick={async () => {
-                  try {
-                    if (task.isCompleted) { await reopenTask(taskId); load(); onUpdated(); return; }
+
+              {task.isCompleted ? (
+                <Button variant="outlined" onClick={async () => { try { await reopenTask(taskId); load(); onUpdated(); } catch (e) { console.error(e); notify("Fehler", "error"); } }}>
+                  Wieder öffnen
+                </Button>
+              ) : hasOpenSubtasks ? (
+                <Stack alignItems="flex-end">
+                  <Tooltip title={`${subtaskOpenCount} von ${subtaskTotalCount} Unteraufgaben noch offen`}>
+                    <Button
+                      variant="contained"
+                      color="warning"
+                      onClick={async () => {
+                        try {
+                          await handleComplete();
+                        } catch { /* handled in handleComplete */ }
+                      }}
+                      startIcon={<WarningIcon />}
+                    >
+                      Erledigen ({subtaskOpenCount}/{subtaskTotalCount} offen)
+                    </Button>
+                  </Tooltip>
+                </Stack>
+              ) : (
+                <Button
+                  variant="contained"
+                  onClick={async () => {
                     if (rt === "on_completion") { setNextDueOpen(true); return; }
                     setCompleteDialog(true);
-                  } catch (e) { console.error(e); notify("Fehler", "error"); }
-                }}>
-                {task.isCompleted ? "Wieder öffnen" : "Erledigen"}
-              </Button>
+                  }}>
+                  Erledigen
+                </Button>
+              )}
             </Stack>
           </Box>
 
@@ -223,6 +362,14 @@ export function TaskCard({ taskId, open, onClose, onUpdated }: Props) {
           <DialogContent><Typography variant="h6" mb={2}>Nächstes Mal?</Typography><TextField label="Nächster Termin" type="date" fullWidth InputLabelProps={{ shrink: true }} value={nextDueDate} onChange={e => setNextDueDate(e.target.value)} sx={{ mb: 2 }} /><Stack direction="row" justifyContent="flex-end" gap={1}><Button onClick={() => setNextDueOpen(false)}>Abbrechen</Button><Button variant="contained" onClick={() => handleComplete(nextDueDate || undefined)}>Speichern</Button></Stack></DialogContent>
         </Dialog>
       )}
+
+      <ForceCompleteDialog
+        open={forceCompleteOpen}
+        openCount={subtaskOpenCount}
+        totalCount={subtaskTotalCount}
+        onClose={() => setForceCompleteOpen(false)}
+        onConfirm={handleForceComplete}
+      />
 
       <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)}>
         <DialogTitle>Aufgabe löschen?</DialogTitle><DialogActions><Button onClick={() => setConfirmDelete(false)}>Abbrechen</Button><Button onClick={handleDelete} color="error" variant="contained">Löschen</Button></DialogActions>

@@ -40,6 +40,7 @@ export const tasks = sqliteTable("tasks", {
   isPrivate: integer("is_private", { mode: "boolean" }).notNull().default(false),
   recurrenceType: text("recurrence_type").notNull().default("none"),
   recurrenceRule: text("recurrence_rule"),
+  parentId: text("parent_id"),
   createdById: text("created_by_id")
     .notNull()
     .references(() => users.id),
@@ -84,6 +85,20 @@ export const taskEvents = sqliteTable("task_events", {
   content: text("content"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+export const taskLinks = sqliteTable(
+  "task_links",
+  {
+    taskIdA: text("task_id_a")
+      .notNull()
+      .references(() => tasks.id),
+    taskIdB: text("task_id_b")
+      .notNull()
+      .references(() => tasks.id),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.taskIdA, table.taskIdB] })]
+);
 
 export const appMeta = sqliteTable("app_meta", {
   key: text("key").primaryKey(),

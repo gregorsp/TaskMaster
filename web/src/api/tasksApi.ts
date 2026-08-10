@@ -27,6 +27,7 @@ export interface Task {
   isPrivate: boolean;
   recurrenceType: "none" | "rrule" | "on_completion";
   recurrenceRule: string | null;
+  parentId: string | null;
   createdById: string;
   createdAt: string;
   assignees: TaskAssignee[];
@@ -34,6 +35,16 @@ export interface Task {
 
 export interface TaskWithRelations extends Task {
   categories: { id: string; name: string; color: string }[];
+}
+
+export interface SubtaskProgress {
+  completed: number;
+  total: number;
+}
+
+export interface SubtaskResponse {
+  subtasks: Task[];
+  progress: SubtaskProgress;
 }
 
 export interface TaskListResponse {
@@ -72,6 +83,7 @@ export interface CreateTaskInput {
   recurrenceRule?: string;
   assigneeIds?: string[];
   categoryIds?: string[];
+  parentId?: string | null;
 }
 
 export interface UpdateTaskInput {
@@ -88,6 +100,7 @@ export interface UpdateTaskInput {
   recurrenceRule?: string | null;
   assigneeIds?: string[];
   categoryIds?: string[];
+  parentId?: string | null;
 }
 
 export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResponse> {
@@ -128,11 +141,39 @@ export async function deleteTask(id: string): Promise<void> {
   await client.delete(`/tasks/${id}`);
 }
 
-export async function completeTask(id: string, nextDueAt?: string, comment?: string): Promise<{ completed: boolean; nextDueAt: string | null }> {
-  const { data } = await client.post<{ completed: boolean; nextDueAt: string | null }>(`/tasks/${id}/complete`, { nextDueAt, comment });
+export async function completeTask(id: string, nextDueAt?: string, comment?: string, force?: boolean): Promise<{ completed: boolean; nextDueAt: string | null }> {
+  const { data } = await client.post<{ completed: boolean; nextDueAt: string | null }>(`/tasks/${id}/complete`, { nextDueAt, comment, force });
   return data;
 }
 
 export async function reopenTask(id: string): Promise<void> {
   await client.post(`/tasks/${id}/reopen`);
+}
+
+export async function getSubtasks(id: string): Promise<SubtaskResponse> {
+  const { data } = await client.get<Partial<SubtaskResponse>>(`/tasks/${id}/subtasks`);
+  return {
+    subtasks: Array.isArray(data?.subtasks) ? (data.subtasks as Task[]) : [],
+    progress: { completed: data?.progress?.completed ?? 0, total: data?.progress?.total ?? 0 },
+  };
+}
+
+export async function getSiblings(id: string): Promise<Task[]> {
+  const { data } = await client.get<Task[]>(`/tasks/${id}/siblings`);
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getTaskLinks(id: string): Promise<Task[]> {
+  const { data } = await client.get<Task[]>(`/tasks/${id}/links`);
+  return Array.isArray(data) ? data : [];
+}
+
+export async function addTaskLink(id: string, linkedTaskId: string): Promise<{ ok: boolean }> {
+  const { data } = await client.post<{ ok: boolean }>(`/tasks/${id}/links`, { linkedTaskId });
+  return data;
+}
+
+export async function removeTaskLink(id: string, linkedTaskId: string): Promise<{ ok: boolean }> {
+  const { data } = await client.delete<{ ok: boolean }>(`/tasks/${id}/links/${linkedTaskId}`);
+  return data;
 }

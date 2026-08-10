@@ -4,16 +4,28 @@ import { getDb } from "../../db/client.js";
 import { tasks, taskEvents, users } from "../../db/schema.js";
 import { getNextOccurrence } from "../calendar/recurrence.service.js";
 import { getProfilePictureUrl } from "../auth/profile.service.js";
+import { getOpenSubtaskCount } from "./tasks.service.js";
 
 export async function completeTask(
   taskId: string,
   completedById: string,
   nextDueAt?: string,
-  comment?: string
+  comment?: string,
+  force?: boolean
 ) {
   const db = getDb();
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) throw Object.assign(new Error("Task not found"), { statusCode: 404, code: "NOT_FOUND" });
+
+  if (!force) {
+    const openCount = getOpenSubtaskCount(taskId);
+    if (openCount > 0) {
+      throw Object.assign(new Error(`${openCount} subtask(s) still open`), {
+        statusCode: 409, code: "SUBTASKS_OPEN",
+        openCount,
+      });
+    }
+  }
 
   const now = new Date();
 

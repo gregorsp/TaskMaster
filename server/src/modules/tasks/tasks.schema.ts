@@ -13,6 +13,7 @@ export const createTaskSchema = z.object({
   recurrenceRule: z.string().optional(),
   assigneeIds: z.array(z.string()).default([]),
   categoryIds: z.array(z.string()).default([]),
+  parentId: z.string().nullable().optional(),
 });
 
 export const updateTaskSchema = z.object({
@@ -28,6 +29,21 @@ export const updateTaskSchema = z.object({
   recurrenceRule: z.string().nullable().optional(),
   assigneeIds: z.array(z.string()).optional(),
   categoryIds: z.array(z.string()).optional(),
+  parentId: z.string().nullable().optional(),
+});
+
+export const completeTaskSchema = z.object({
+  nextDueAt: z.string().optional(),
+  comment: z.string().max(2000).optional(),
+  force: z.boolean().optional(),
+});
+
+export const addLinkSchema = z.object({
+  linkedTaskId: z.string().min(1),
+});
+
+export const commentSchema = z.object({
+  content: z.string().min(1).max(2000),
 });
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;

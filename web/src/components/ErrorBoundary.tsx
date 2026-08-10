@@ -1,40 +1,36 @@
 import { Component, type ReactNode } from "react";
-import { Typography, Box, Alert, Button } from "@mui/material";
 
 interface Props {
   children: ReactNode;
-  fallback?: ReactNode;
 }
 
 interface State {
   hasError: boolean;
-  error: Error | null;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false, error: null };
+  state: State = { hasError: false };
 
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+  static getDerivedStateFromError(): State {
+    return { hasError: true };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error("ErrorBoundary caught:", error.message, info.componentStack?.slice(0, 200));
+  componentDidCatch(error: unknown, info: unknown) {
+    console.error("ErrorBoundary caught:", error, info);
   }
+
+  handleReload = () => {
+    this.setState({ hasError: false });
+  };
 
   render() {
     if (this.state.hasError) {
       return (
-        this.props.fallback ?? (
-          <Box sx={{ p: 4, maxWidth: 400, mx: "auto", mt: 4 }}>
-            <Alert severity="error" sx={{ mb: 2 }}>
-              Fehler beim Anzeigen der Komponente: {this.state.error?.message}
-            </Alert>
-            <Button variant="outlined" onClick={() => this.setState({ hasError: false, error: null })}>
-              Erneut versuchen
-            </Button>
-          </Box>
-        )
+        <div style={{ padding: 40, fontFamily: "system-ui, sans-serif", textAlign: "center" }}>
+          <h2>Etwas ist schiefgelaufen</h2>
+          <p>Bitte lade die Seite neu.</p>
+          <button onClick={this.handleReload}>Neu laden</button>
+        </div>
       );
     }
     return this.props.children;

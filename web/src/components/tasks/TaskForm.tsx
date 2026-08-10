@@ -4,7 +4,7 @@ import {
   FormControlLabel, Switch, MenuItem, Typography, Chip, Autocomplete,
   RadioGroup, Radio, FormControl, FormLabel,
 } from "@mui/material";
-import { createTask, updateTask, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations } from "../../api/tasksApi";
+import { createTask, updateTask, listTasks, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations, type Task } from "../../api/tasksApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { useNotify } from "../../context/NotifyContext";
@@ -97,6 +97,8 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
   const [yearDay, setYearDay] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
   const [selectedAssignees, setSelectedAssignees] = useState<UserPickerItem[]>([]);
+  const [parentTask, setParentTask] = useState<Task | null>(null);
+  const [parentOptions, setParentOptions] = useState<Task[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<UserPickerItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -112,6 +114,9 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
           const me = all.find((u) => u.id === currentUser.id);
           if (me) setSelectedAssignees([me]);
         }
+      }).catch(() => []);
+      listTasks({ isCompleted: false, pageSize: 200 }).then((r) => {
+        setParentOptions(r.items.filter((t) => !task || t.id !== task.id));
       }).catch(() => []);
     }
   }, [open]);
@@ -130,6 +135,13 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
         setRecurrenceType(task.recurrenceType || "none");
         setSelectedCategories((task.categories || []) as Category[]);
         setSelectedAssignees(task.assignees || []);
+        if (task.parentId) {
+          import("../../api/tasksApi").then(({ getTask: gt }) => {
+            gt(task.parentId!).then(setParentTask).catch(() => setParentTask(null));
+          });
+        } else {
+          setParentTask(null);
+        }
         if (task.recurrenceType === "rrule" && task.recurrenceRule) {
           const parsed = parseRRule(task.recurrenceRule);
           setFreq(parsed.freq);
@@ -147,6 +159,7 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
       setIsImportant(false); setPomodoros(null); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
       setFreq("WEEKLY"); setInterval(1); setSelectedDays([]);
       setMonthDay(""); setUseNthWeekday(false); setSelectedCategories([]);
+      setParentTask(null);
       const me = users.find((u) => u.id === currentUser?.id);
       setSelectedAssignees(me ? [me] : []);
     }
@@ -185,6 +198,7 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
           recurrenceRule: ruleStr || null,
           categoryIds: selectedCategories.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
+          parentId: parentTask?.id || null,
         };
         await updateTask(task.id, input);
         notify("Aufgabe gespeichert");
@@ -197,6 +211,7 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
           recurrenceRule: ruleStr,
           categoryIds: selectedCategories.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
+          parentId: parentTask?.id || null,
         };
         await createTask(input);
         notify("Aufgabe erstellt");
@@ -280,6 +295,14 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
               {previewDates.length>0&&<Box sx={{bgcolor:"background.paper",p:1.5,borderRadius:1,border:1,borderColor:"divider"}}><Typography variant="caption" color="text.secondary" fontWeight={600}>Nächste Termine:</Typography>{previewDates.map((d,i)=><Typography key={i} variant="body2" color="text.secondary">{d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"})}</Typography>)}</Box>}
             </Stack>
           )}
+          <Autocomplete
+            options={parentOptions}
+            getOptionLabel={(t) => t.title}
+            value={parentTask}
+            onChange={(_, v) => setParentTask(v)}
+            renderInput={(p) => <TextField {...p} label="Unteraufgabe von (optional)" />}
+            isOptionEqualToValue={(o, v) => o.id === v.id}
+          />
           <Autocomplete multiple options={categories} getOptionLabel={c=>c.name} value={selectedCategories} onChange={(_,v)=>setSelectedCategories(v)} renderInput={p=><TextField {...p} label="Kategorien" />} renderOption={(props,opt)=>(<li {...props} key={opt.id}><Box sx={{display:"flex",alignItems:"center",gap:1}}><Box sx={{width:12,height:12,borderRadius:"50%",bgcolor:opt.color}}/>{opt.name}</Box></li>)} />
           <Autocomplete multiple options={users} getOptionLabel={u=>u.displayName} value={selectedAssignees} onChange={(_,v)=>setSelectedAssignees(v)} renderInput={p=><TextField {...p} label="Verantwortlich" />} />
           <Stack direction="row" justifyContent="flex-end" gap={1} mt={2}>
