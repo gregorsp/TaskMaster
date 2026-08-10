@@ -4,6 +4,7 @@ import { authGuard } from "../../middleware/auth.hooks.js";
 import { isVisibleToUser } from "../../middleware/visibility.js";
 import {
   listTasks, getTask, createTask, updateTask, deleteTask,
+  getSubtasks, getTaskLinks, addTaskLink, removeTaskLink, getAllTaskLinks, getTaskRelations,
 } from "./tasks.service.js";
 import { completeTask, reopenTask, getTaskEvents, addTaskComment } from "./completion.service.js";
 import { createTaskSchema, updateTaskSchema } from "./tasks.schema.js";
@@ -11,10 +12,15 @@ import { createTaskSchema, updateTaskSchema } from "./tasks.schema.js";
 const completeSchema = z.object({
   nextDueAt: z.string().optional(),
   comment: z.string().max(2000).optional(),
+  forceCompleteSubtasks: z.boolean().optional(),
 });
 
 const commentSchema = z.object({
   content: z.string().min(1).max(2000),
+});
+
+const linkSchema = z.object({
+  linkedTaskId: z.string().min(1),
 });
 
 function getPayload(request: unknown) {
@@ -35,6 +41,11 @@ export async function tasksRoutes(app: FastifyInstance) {
   app.get("/", async (request) => {
     const p = request.user as { id: string; isAdmin: boolean };
     return listTasks(p.id, p.isAdmin, request.query as Record<string, unknown>);
+  });
+
+  app.get("/links", async (request) => {
+    const p = request.user as { id: string; isAdmin: boolean };
+    return getAllTaskLinks(p.id, p.isAdmin);
   });
 
   app.get("/:id", async (request, reply) => {
@@ -66,9 +77,9 @@ export async function tasksRoutes(app: FastifyInstance) {
   });
 
   app.post("/", async (request, reply) => {
-    const p = request.user as { id: string };
+    const p = request.user as { id: string; isAdmin: boolean };
     const input = createTaskSchema.parse(request.body);
-    const task = createTask(input, p.id);
+    const task = await createTask(input, p.id, p.isAdmin);
     return reply.status(201).send(task);
   });
 
@@ -88,9 +99,14 @@ export async function tasksRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
-    const deleted = await deleteTask(id);
-    if (!deleted) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
-    return { ok: true };
+    try {
+      const deleted = await deleteTask(id);
+      if (!deleted) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+      return { ok: true };
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string };
+      return reply.status(e.statusCode || 500).send({ error: { code: e.code || "INTERNAL_ERROR", message: e.message } });
+    }
   });
 
   app.post("/:id/complete", async (request, reply) => {
@@ -100,7 +116,7 @@ export async function tasksRoutes(app: FastifyInstance) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
     const input = completeSchema.parse(request.body);
     try {
-      const result = await completeTask(id, p.id, input.nextDueAt, input.comment);
+      const result = await completeTask(id, p.id, input.nextDueAt, input.comment, input.forceCompleteSubtasks);
       return result;
     } catch (err) {
       const e = err as { statusCode?: number; code?: string; message?: string };
@@ -119,5 +135,53 @@ export async function tasksRoutes(app: FastifyInstance) {
       const e = err as { statusCode?: number; code?: string; message?: string };
       return reply.status(e.statusCode || 500).send({ error: { code: e.code || "INTERNAL_ERROR", message: e.message } });
     }
+  });
+
+  app.get("/:id/subtasks", async (request, reply) => {
+    const p = request.user as { id: string; isAdmin: boolean };
+    const { id } = request.params as { id: string };
+    if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    return getSubtasks(id);
+  });
+
+  app.get("/:id/relations", async (request, reply) => {
+    const p = request.user as { id: string; isAdmin: boolean };
+    const { id } = request.params as { id: string };
+    if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    return getTaskRelations(id, p.id, p.isAdmin);
+  });
+
+  app.get("/:id/links", async (request, reply) => {
+    const p = request.user as { id: string; isAdmin: boolean };
+    const { id } = request.params as { id: string };
+    if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    return getTaskLinks(id, p.id, p.isAdmin);
+  });
+
+  app.post("/:id/links", async (request, reply) => {
+    const p = request.user as { id: string; isAdmin: boolean };
+    const { id } = request.params as { id: string };
+    if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    const input = linkSchema.parse(request.body);
+    try {
+      await addTaskLink(id, input.linkedTaskId, p.id, p.isAdmin);
+      return reply.status(201).send({ ok: true });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string };
+      return reply.status(e.statusCode || 500).send({ error: { code: e.code || "INTERNAL_ERROR", message: e.message } });
+    }
+  });
+
+  app.delete("/:id/links/:linkedTaskId", async (request, reply) => {
+    const p = request.user as { id: string; isAdmin: boolean };
+    const { id, linkedTaskId } = request.params as { id: string; linkedTaskId: string };
+    if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    removeTaskLink(id, linkedTaskId);
+    return { ok: true };
   });
 }

@@ -1,19 +1,64 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { v7 as uuid } from "uuid";
 import { getDb } from "../../db/client.js";
 import { tasks, taskEvents, users } from "../../db/schema.js";
 import { getNextOccurrence } from "../calendar/recurrence.service.js";
 import { getProfilePictureUrl } from "../auth/profile.service.js";
 
+function forceCompleteOpenDescendants(taskId: string, completedById: string) {
+  const db = getDb();
+  const children = db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.parentId, taskId), eq(tasks.isCompleted, false)))
+    .all();
+
+  for (const child of children) {
+    forceCompleteOpenDescendants(child.id, completedById);
+    const now = new Date();
+    db.update(tasks).set({
+      isCompleted: true,
+      completedAt: now,
+      completedById,
+      lastCompletedAt: now,
+    }).where(eq(tasks.id, child.id)).run();
+    db.insert(taskEvents).values({
+      id: uuid(),
+      taskId: child.id,
+      userId: completedById,
+      type: "completed",
+      content: "Automatisch miterledigt",
+      createdAt: now,
+    }).run();
+  }
+}
+
 export async function completeTask(
   taskId: string,
   completedById: string,
   nextDueAt?: string,
-  comment?: string
+  comment?: string,
+  forceCompleteSubtasks = false
 ) {
   const db = getDb();
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) throw Object.assign(new Error("Task not found"), { statusCode: 404, code: "NOT_FOUND" });
+
+  const openSubtasks = db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.parentId, taskId), eq(tasks.isCompleted, false)))
+    .all();
+
+  if (openSubtasks.length > 0 && !forceCompleteSubtasks) {
+    throw Object.assign(new Error(`${openSubtasks.length} subtasks still open`), {
+      statusCode: 409, code: "SUBTASKS_OPEN", openCount: openSubtasks.length,
+    });
+  }
+
+  if (openSubtasks.length > 0) {
+    forceCompleteOpenDescendants(taskId, completedById);
+  }
 
   const now = new Date();
 

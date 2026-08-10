@@ -65,7 +65,7 @@ export function MatrixPage() {
         </DndContext>
       )}
       {selectedTaskId && (
-        <TaskCard taskId={selectedTaskId} open={!!selectedTaskId} onClose={() => setSelectedTaskId(null)} onUpdated={fetchTasks} />
+        <TaskCard initialTaskId={selectedTaskId} open={!!selectedTaskId} onClose={() => setSelectedTaskId(null)} onUpdated={fetchTasks} />
       )}
     </Box>
   );
