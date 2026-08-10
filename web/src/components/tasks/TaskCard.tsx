@@ -194,7 +194,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
           <TaskRelationsSidebar
             taskId={taskId}
             parentTask={parentTask}
-            onRefresh={() => load()}
+            onRefresh={() => { load(); onUpdated(); }}
             onNavigateToTask={handleNavigateToTask}
           />
 

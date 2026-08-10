@@ -2,15 +2,15 @@ import { z } from "zod";
 
 export const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
-  description: z.string().max(5000).optional(),
-  dueAt: z.string().optional(),
+  description: z.string().max(5000).nullable().optional(),
+  dueAt: z.string().nullable().optional(),
   isImportant: z.boolean().default(false),
   pomodoros: z.number().int().min(1).max(999).nullable().optional(),
   isPrivate: z.boolean().default(false),
   urgencyMode: z.enum(["never", "always", "before_days", "before_percent"]).default("before_days"),
   urgencyValue: z.number().int().min(1).max(99).optional().nullable(),
   recurrenceType: z.enum(["none", "rrule", "on_completion"]).default("none"),
-  recurrenceRule: z.string().optional(),
+  recurrenceRule: z.string().nullable().optional(),
   assigneeIds: z.array(z.string()).default([]),
   categoryIds: z.array(z.string()).default([]),
   parentId: z.string().nullable().optional(),

@@ -252,7 +252,12 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
             value={pomodoros ?? ""}
             onChange={(e) => {
               const v = e.target.value;
-              setPomodoros(v === "" ? null : Math.max(1, Number(v) || 1));
+              if (v === "") {
+                setPomodoros(null);
+                return;
+              }
+              const n = Number(v);
+              setPomodoros(Number.isFinite(n) ? Math.max(1, Math.min(999, Math.round(n))) : null);
             }}
             inputProps={{ min: 1, max: 999 }}
             placeholder="Keine Angabe"
@@ -269,7 +274,10 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
               <MenuItem value="before_percent">Nach x% der Zeit</MenuItem>
             </TextField>
             {(urgencyMode === "before_days" || urgencyMode === "before_percent") && (
-              <TextField type="number" size="small" value={urgencyValue} onChange={(e) => setUrgencyValue(Number(e.target.value) || 1)}
+              <TextField type="number" size="small" value={urgencyValue} onChange={(e) => {
+                const v = Number(e.target.value);
+                setUrgencyValue(Number.isFinite(v) ? Math.max(1, Math.min(99, Math.round(v))) : 1);
+              }}
                 inputProps={{ min: 1, max: 99 }} sx={{ width: 70 }}
                 label={urgencyMode === "before_days" ? "Tage" : "%"} />
             )}

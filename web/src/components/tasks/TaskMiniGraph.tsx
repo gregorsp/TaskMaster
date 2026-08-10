@@ -163,16 +163,21 @@ export function TaskMiniGraph({ taskId, subtasks, siblings, links, parentTask, o
   useEffect(() => {
     setNodes(initialNodes);
     setEdges(initialEdges);
-  }, [initialNodes]);
-
-  useEffect(() => {
     if (rfInstance && initialNodes.length > 1) {
-      const timer = setTimeout(() => {
-        rfInstance.fitView({ padding: 0.3, maxZoom: 1.5, duration: 200 });
-      }, 80);
-      return () => clearTimeout(timer);
+      let cancelled = false;
+      const t1 = requestAnimationFrame(() => {
+        const t2 = requestAnimationFrame(() => {
+          if (!cancelled) {
+            rfInstance.fitView({ padding: 0.3, maxZoom: 1.5, duration: 200 });
+          }
+        });
+      });
+      return () => {
+        cancelled = true;
+        cancelAnimationFrame(t1);
+      };
     }
-  }, [rfInstance, initialNodes]);
+  }, [initialNodes, rfInstance]);
 
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
