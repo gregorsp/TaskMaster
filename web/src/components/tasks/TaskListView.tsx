@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import {
   Box, Typography, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Paper, Alert, CircularProgress, Chip, IconButton,
@@ -8,9 +8,9 @@ import {
   Lock as LockIcon, Edit as EditIcon, Delete as DeleteIcon,
 } from "@mui/icons-material";
 import { deleteTask, type Task } from "../../api/tasksApi";
-import { TaskCard } from "./TaskCard";
 import { AssigneeAvatars } from "./AssigneeAvatars";
 import { useNotify } from "../../context/NotifyContext";
+import { useModalStack } from "./ModalStackProvider";
 
 const formatDate = (d: string | null) => {
   if (!d) return "";
@@ -52,9 +52,15 @@ interface Props {
 }
 
 export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extraBadge }: Props) {
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const notify = useNotify();
+  const { push, setOnRootUpdated } = useModalStack();
+
+  useEffect(() => {
+    setOnRootUpdated(onUpdated);
+  }, [onUpdated, setOnRootUpdated]);
+
+  const handleOpenTask = (task: Task) => push(task);
 
   const handleDelete = async () => {
     if (!deleteConfirmId) return;
@@ -88,7 +94,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
               <Paper
                 key={task.id}
                 variant="outlined"
-                onClick={() => setSelectedTaskId(task.id)}
+                onClick={() => handleOpenTask(task)}
                 sx={{ p: 1.5, mb: 1, cursor: "pointer", opacity: task.isCompleted ? 0.5 : 1 }}
               >
                 <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
@@ -99,7 +105,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
                     </Typography>
                   </Stack>
                   <Stack direction="row" sx={{ flexShrink: 0 }}>
-                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); setSelectedTaskId(task.id); }}>
+                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleOpenTask(task); }}>
                       <EditIcon fontSize="small" />
                     </IconButton>
                     <IconButton size="small" onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(task.id); }}>
@@ -138,7 +144,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
               </TableHead>
               <TableBody>
                 {tasks.map((task) => (
-                  <TableRow key={task.id} hover onClick={() => setSelectedTaskId(task.id)} sx={{ cursor: "pointer", opacity: task.isCompleted ? 0.5 : 1 }}>
+                  <TableRow key={task.id} hover onClick={() => handleOpenTask(task)} sx={{ cursor: "pointer", opacity: task.isCompleted ? 0.5 : 1 }}>
                     <TableCell>
                       <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
                         {task.isPrivate && <LockIcon fontSize="small" color="action" />}
@@ -153,7 +159,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
                       {extra(task)}
                     </TableCell>
                     <TableCell align="right">
-                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); setSelectedTaskId(task.id); }}><EditIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleOpenTask(task); }}><EditIcon fontSize="small" /></IconButton>
                       <IconButton size="small" onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(task.id); }}><DeleteIcon fontSize="small" /></IconButton>
                     </TableCell>
                   </TableRow>
@@ -173,7 +179,6 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
         </DialogActions>
       </Dialog>
 
-      {selectedTaskId && <TaskCard taskId={selectedTaskId} open={!!selectedTaskId} onClose={() => setSelectedTaskId(null)} onUpdated={onUpdated} />}
     </Box>
   );
 }

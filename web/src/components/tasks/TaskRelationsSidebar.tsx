@@ -4,6 +4,7 @@ import { Add as AddIcon } from "@mui/icons-material";
 import { getSubtasks, getSiblings, getTaskLinks, type Task, type SubtaskResponse } from "../../api/tasksApi";
 import { TaskMiniGraph } from "./TaskMiniGraph";
 import { LinkTaskDialog } from "./LinkTaskDialog";
+import { TaskForm } from "./TaskForm";
 
 interface Props {
   taskId: string;
@@ -17,6 +18,7 @@ export function TaskRelationsSidebar({ taskId, parentTask, onRefresh, onNavigate
   const [siblings, setSiblings] = useState<Task[]>([]);
   const [links, setLinks] = useState<Task[]>([]);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [subtaskFormOpen, setSubtaskFormOpen] = useState(false);
 
   useEffect(() => {
     loadRelations();
@@ -52,7 +54,7 @@ export function TaskRelationsSidebar({ taskId, parentTask, onRefresh, onNavigate
           <Typography variant="caption" color="text.secondary">
             Unteraufgaben {progress && `(${progress.completed}/${progress.total})`}
           </Typography>
-          <IconButton size="small" onClick={onRefresh}>
+          <IconButton size="small" onClick={() => setSubtaskFormOpen(true)}>
             <AddIcon fontSize="small" />
           </IconButton>
         </Stack>
@@ -134,6 +136,15 @@ export function TaskRelationsSidebar({ taskId, parentTask, onRefresh, onNavigate
       </Box>
 
       <LinkTaskDialog open={linkDialogOpen} taskId={taskId} onClose={() => { setLinkDialogOpen(false); loadRelations(); }} />
+
+      {subtaskFormOpen && (
+        <TaskForm
+          open={subtaskFormOpen}
+          parentId={taskId}
+          onClose={() => setSubtaskFormOpen(false)}
+          onCreated={() => { setSubtaskFormOpen(false); loadRelations(); onRefresh(); }}
+        />
+      )}
     </Box>
   );
 }

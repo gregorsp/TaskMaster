@@ -15,6 +15,7 @@ interface Props {
   onClose: () => void;
   onCreated: () => void;
   task?: TaskWithRelations | null;
+  parentId?: string;
 }
 
 const DAYS: { value: string; label: string }[] = [
@@ -76,7 +77,7 @@ function toInputDate(d: Date | null): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 }
 
-export function TaskForm({ open, onClose, onCreated, task }: Props) {
+export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const isEdit = !!task;
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -164,6 +165,14 @@ export function TaskForm({ open, onClose, onCreated, task }: Props) {
       setSelectedAssignees(me ? [me] : []);
     }
   }, [open, task]);
+
+  useEffect(() => {
+    if (open && !task && parentId) {
+      import("../../api/tasksApi").then(({ getTask: gt }) => {
+        gt(parentId).then(setParentTask).catch(() => setParentTask(null));
+      });
+    }
+  }, [open, task, parentId]);
 
   const buildRRule = (): string | undefined => {
     if (recurrenceType !== "rrule") return undefined;

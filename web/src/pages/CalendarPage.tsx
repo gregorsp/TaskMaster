@@ -6,7 +6,7 @@ import {
 } from "@mui/material";
 import { ChevronLeft, ChevronRight } from "@mui/icons-material";
 import client from "../api/client";
-import { TaskCard } from "../components/tasks/TaskCard";
+import { useModalStack } from "../components/tasks/ModalStackProvider";
 import { listUsers, type User } from "../api/usersApi";
 import { useAuth } from "../context/AuthContext";
 import { listCategories, type Category } from "../api/categoriesApi";
@@ -28,7 +28,6 @@ export function CalendarPage() {
   const [items, setItems] = useState<CalendarItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [view, setView] = useState<"month" | "week">("month");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [userIdFilter, setUserIdFilter] = useState("");
@@ -76,6 +75,11 @@ export function CalendarPage() {
   };
 
   useEffect(() => { fetchItems(); }, [year, month, userIdFilter, categoryFilter]);
+
+  const { push, setOnRootUpdated } = useModalStack();
+  useEffect(() => {
+    setOnRootUpdated(fetchItems);
+  }, [fetchItems, setOnRootUpdated]);
 
   const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
   const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
@@ -206,7 +210,7 @@ export function CalendarPage() {
                   {dayItems.slice(0, 3).map((item) => (
                     <Box
                       key={item.taskId}
-                      onClick={() => setSelectedTaskId(item.taskId)}
+                      onClick={() => push({ id: item.taskId, title: item.title })}
                       sx={{
                         py: 0.25, px: 0.5, borderRadius: 0.5, mt: 0.25, cursor: "pointer",
                         fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -245,7 +249,7 @@ export function CalendarPage() {
               {dayItems.slice(0, 6).map((item) => (
                 <Box
                   key={item.taskId}
-                  onClick={() => setSelectedTaskId(item.taskId)}
+                  onClick={() => push({ id: item.taskId, title: item.title })}
                   sx={{
                     py: 0.25, px: 0.5, borderRadius: 0.5, mt: 0.25, cursor: "pointer",
                     fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -265,7 +269,6 @@ export function CalendarPage() {
         })}
       </Box>
 
-      {selectedTaskId && <TaskCard taskId={selectedTaskId} open={!!selectedTaskId} onClose={() => setSelectedTaskId(null)} onUpdated={fetchItems} />}
     </Box>
   );
 }

@@ -2,7 +2,7 @@ import { useModalStack } from "./ModalStackProvider";
 import { TaskCard } from "./TaskCard";
 
 export function ModalStackRenderer() {
-  const { stack, popTo } = useModalStack();
+  const { stack, popTo, onRootUpdated } = useModalStack();
 
   if (stack.length === 0) return null;
 
@@ -16,7 +16,7 @@ export function ModalStackRenderer() {
             taskId={entry.task.id}
             open={true}
             onClose={() => popTo(entry.depth)}
-            onUpdated={() => {}}
+            onUpdated={onRootUpdated}
             isStacked
             stackDepth={offsetFromDeepest}
             isActive={idx === stack.length - 1}

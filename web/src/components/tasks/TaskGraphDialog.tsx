@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect, useRef } from "react";
 import { Dialog, DialogTitle, DialogContent, Box, Typography, Stack } from "@mui/material";
 import { ReactFlow, Handle, Position, type Node, type Edge, useNodesState, useEdgesState } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -19,7 +19,6 @@ interface Props {
 function TaskNode({ data }: { data: { label: string; onClick: () => void; isCenter?: boolean } }) {
   return (
     <Box
-      onClick={data.onClick}
       sx={{
         px: 2,
         py: 1,
@@ -72,6 +71,11 @@ function layoutGraph(nodes: Node[], edges: Edge[], centerId: string) {
 }
 
 export function TaskGraphDialog({ open, taskId, subtasks, siblings, links, parentTask, onClose, onNodeClick }: Props) {
+  const onNodeClickRef = useRef(onNodeClick);
+  useEffect(() => {
+    onNodeClickRef.current = onNodeClick;
+  }, [onNodeClick]);
+
   const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
     const nodes: Node[] = [];
     const edges: Edge[] = [];
@@ -88,7 +92,7 @@ export function TaskGraphDialog({ open, taskId, subtasks, siblings, links, paren
         id: `parent-${parentTask.id}`,
         type: "taskNode",
         position: { x: 0, y: 0 },
-        data: { label: parentTask.title, onClick: () => onNodeClick(parentTask) },
+        data: { label: parentTask.title, onClick: () => onNodeClickRef.current(parentTask) },
       });
       edges.push({ id: "parent-edge", source: `parent-${parentTask.id}`, target: taskId, type: "smoothstep", style: { stroke: "#1976d2", strokeWidth: 2 } });
     }
@@ -98,7 +102,7 @@ export function TaskGraphDialog({ open, taskId, subtasks, siblings, links, paren
         id: `child-${st.id}`,
         type: "taskNode",
         position: { x: 0, y: 0 },
-        data: { label: st.isCompleted ? `✓ ${st.title}` : st.title, onClick: () => onNodeClick(st) },
+        data: { label: st.isCompleted ? `✓ ${st.title}` : st.title, onClick: () => onNodeClickRef.current(st) },
       });
       edges.push({ id: `child-edge-${st.id}`, source: taskId, target: `child-${st.id}`, type: "smoothstep", style: { stroke: "#1976d2", strokeWidth: 1.5 } });
     });
@@ -108,7 +112,7 @@ export function TaskGraphDialog({ open, taskId, subtasks, siblings, links, paren
         id: `sib-${s.id}`,
         type: "taskNode",
         position: { x: 0, y: 0 },
-        data: { label: s.title, onClick: () => onNodeClick(s) },
+        data: { label: s.title, onClick: () => onNodeClickRef.current(s) },
       });
       edges.push({ id: `sib-edge-${s.id}`, source: `sib-${s.id}`, target: taskId, type: "smoothstep", style: { stroke: "#ed6c02", strokeWidth: 1, strokeDasharray: "8 4" } });
     });
@@ -118,7 +122,7 @@ export function TaskGraphDialog({ open, taskId, subtasks, siblings, links, paren
         id: `link-${l.id}`,
         type: "taskNode",
         position: { x: 0, y: 0 },
-        data: { label: l.title, onClick: () => onNodeClick(l) },
+        data: { label: l.title, onClick: () => onNodeClickRef.current(l) },
         style: { background: "#9c27b0" },
       });
       edges.push({ id: `link-edge-${l.id}`, source: `link-${l.id}`, target: taskId, type: "smoothstep", style: { stroke: "#9c27b0", strokeWidth: 1, strokeDasharray: "4 2" } });
@@ -126,10 +130,15 @@ export function TaskGraphDialog({ open, taskId, subtasks, siblings, links, paren
 
     const layouted = layoutGraph(nodes, edges, taskId);
     return { nodes: layouted, edges };
-  }, [taskId, subtasks, siblings, links, parentTask, onNodeClick]);
+  }, [taskId, subtasks, siblings, links, parentTask]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  useEffect(() => {
+    setNodes(initialNodes);
+    setEdges(initialEdges);
+  }, [initialNodes, initialEdges]);
 
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {

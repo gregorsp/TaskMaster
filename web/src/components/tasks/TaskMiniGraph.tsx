@@ -19,7 +19,6 @@ interface Props {
 function TaskNode({ data }: { data: { label: string; onClick: () => void; isCenter?: boolean } }) {
   return (
     <Box
-      onClick={data.onClick}
       sx={{
         px: 1.5,
         py: 0.5,

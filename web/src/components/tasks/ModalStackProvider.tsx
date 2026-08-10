@@ -1,19 +1,20 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from "react";
 import { Breadcrumbs, Link, Box } from "@mui/material";
 import { NavigateNext as NavigateNextIcon } from "@mui/icons-material";
-import type { TaskWithRelations } from "../../api/tasksApi";
 
 interface ModalStackEntry {
-  task: TaskWithRelations;
+  task: { id: string; title: string };
   depth: number;
 }
 
 interface ModalStackContextValue {
   stack: ModalStackEntry[];
-  push: (task: TaskWithRelations) => void;
+  push: (task: { id: string; title: string }) => void;
   popTo: (depth: number) => void;
   closeAll: () => void;
-  activeTask: TaskWithRelations | null;
+  activeTask: { id: string; title: string } | null;
+  onRootUpdated: () => void;
+  setOnRootUpdated: (fn: () => void) => void;
 }
 
 const ModalStackContext = createContext<ModalStackContextValue | null>(null);
@@ -26,8 +27,9 @@ export function useModalStack() {
 
 export function ModalStackProvider({ children }: { children: ReactNode }) {
   const [stack, setStack] = useState<ModalStackEntry[]>([]);
+  const onRootUpdatedRef = useRef<() => void>(() => {});
 
-  const push = useCallback((task: TaskWithRelations) => {
+  const push = useCallback((task: { id: string; title: string }) => {
     setStack((prev) => [...prev, { task, depth: prev.length }]);
   }, []);
 
@@ -39,10 +41,18 @@ export function ModalStackProvider({ children }: { children: ReactNode }) {
     setStack([]);
   }, []);
 
+  const setOnRootUpdated = useCallback((fn: () => void) => {
+    onRootUpdatedRef.current = fn;
+  }, []);
+
+  const onRootUpdated = useCallback(() => {
+    onRootUpdatedRef.current();
+  }, []);
+
   const activeTask = stack.length > 0 ? stack[stack.length - 1].task : null;
 
   return (
-    <ModalStackContext.Provider value={{ stack, push, popTo, closeAll, activeTask }}>
+    <ModalStackContext.Provider value={{ stack, push, popTo, closeAll, activeTask, onRootUpdated, setOnRootUpdated }}>
       {children}
       {stack.length > 0 && (
         <BreadcrumbBar stack={stack} onNavigate={popTo} />

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Box, Typography, Paper, Stack, CircularProgress } from "@mui/material";
 import { DndContext, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { listTasks, updateTask, type Task } from "../api/tasksApi";
-import { TaskCard } from "../components/tasks/TaskCard";
+import { useModalStack } from "../components/tasks/ModalStackProvider";
 
 interface Quadrant {
   label: string;
@@ -20,7 +20,6 @@ const QUADRANTS: Quadrant[] = [
 export function MatrixPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const fetchTasks = useCallback(async () => {
     const res = await listTasks({ pageSize: 200 });
@@ -29,6 +28,13 @@ export function MatrixPage() {
   }, []);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
+
+  const { push, setOnRootUpdated } = useModalStack();
+  useEffect(() => {
+    setOnRootUpdated(fetchTasks);
+  }, [fetchTasks, setOnRootUpdated]);
+
+  const handleOpenTask = (task: Task) => push(task);
 
   const getQuadrantTasks = (important: boolean, urgent: boolean) =>
     tasks.filter((t) => t.isImportant === important && t.isUrgent === urgent);
@@ -57,15 +63,12 @@ export function MatrixPage() {
             {QUADRANTS.map((q) => (
               <Droppable key={`${q.important}-${q.urgent}`} id={`${q.important}-${q.urgent}`} label={q.label} count={getQuadrantTasks(q.important, q.urgent).length}>
                 {getQuadrantTasks(q.important, q.urgent).map((task) => (
-                  <DraggableTask key={task.id} task={task} onClick={() => setSelectedTaskId(task.id)} />
+                  <DraggableTask key={task.id} task={task} onClick={() => handleOpenTask(task)} />
                 ))}
               </Droppable>
             ))}
           </Box>
         </DndContext>
-      )}
-      {selectedTaskId && (
-        <TaskCard taskId={selectedTaskId} open={!!selectedTaskId} onClose={() => setSelectedTaskId(null)} onUpdated={fetchTasks} />
       )}
     </Box>
   );
