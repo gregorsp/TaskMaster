@@ -16,14 +16,15 @@ interface Props {
   onNodeClick: (task: Task) => void;
 }
 
-function TaskNode({ data }: { data: { label: string; onClick: () => void; isCenter?: boolean } }) {
+function TaskNode({ data }: { data: { label: string; onClick: () => void; isCenter?: boolean; isCompleted?: boolean } }) {
+  const done = data.isCompleted && !data.isCenter;
   return (
     <Box
       sx={{
         px: 1.5,
         py: 0.5,
         borderRadius: 1,
-        bgcolor: data.isCenter ? "primary.main" : "secondary.main",
+        bgcolor: data.isCenter ? "primary.main" : done ? "success.main" : "secondary.main",
         color: "white",
         fontSize: 11,
         fontWeight: data.isCenter ? 700 : 500,
@@ -32,13 +33,15 @@ function TaskNode({ data }: { data: { label: string; onClick: () => void; isCent
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
+        textDecoration: done ? "line-through" : "none",
+        opacity: done ? 0.8 : 1,
         border: data.isCenter ? "1.5px solid" : "none",
         borderColor: "primary.dark",
         "&:hover": { opacity: 0.85 },
       }}
     >
       <Handle type="target" position={Position.Top} style={{ background: "transparent", border: "none" }} />
-      {data.label}
+      {done && "✓ "}{data.label}
       <Handle type="source" position={Position.Bottom} style={{ background: "transparent", border: "none" }} />
     </Box>
   );
@@ -61,13 +64,42 @@ function layoutGraph(nodes: Node[], edges: Edge[]) {
 
   dagre.layout(g);
 
-  return nodes.map((node) => {
+  const positioned = nodes.map((node) => {
     const pos = g.node(node.id);
     return {
       ...node,
       position: { x: pos.x - 75, y: pos.y - 14 },
     };
   });
+
+  const center = positioned.find(
+    (n) => !n.id.startsWith("parent-") && !n.id.startsWith("child-") && !n.id.startsWith("sib-") && !n.id.startsWith("link-")
+  );
+  if (!center) return positioned;
+
+  const stepX = 150 + 24;
+  positioned
+    .filter((n) => n.id.startsWith("sib-"))
+    .forEach((n, i) => {
+      n.position = { x: center.position.x - stepX * (i + 1), y: center.position.y };
+    });
+  positioned
+    .filter((n) => n.id.startsWith("link-"))
+    .forEach((n, i) => {
+      n.position = { x: center.position.x + stepX * (i + 1), y: center.position.y };
+    });
+  positioned
+    .filter((n) => n.id.startsWith("parent-"))
+    .forEach((n) => {
+      n.position = { ...n.position, x: center.position.x };
+    });
+  positioned
+    .filter((n) => n.id.startsWith("child-"))
+    .forEach((n, i) => {
+      n.position = { ...n.position, x: center.position.x + stepX * (i - (positioned.filter((c) => c.id.startsWith("child-")).length - 1) / 2) };
+    });
+
+  return positioned;
 }
 
 export function TaskMiniGraph({ taskId, subtasks, siblings, links, parentTask, onNodeClick }: Props) {
@@ -91,7 +123,7 @@ export function TaskMiniGraph({ taskId, subtasks, siblings, links, parentTask, o
         id: `parent-${parentTask.id}`,
         type: "taskNode",
         position: { x: 0, y: 0 },
-        data: { label: parentTask.title, onClick: () => onNodeClick(parentTask) },
+        data: { label: parentTask.title, onClick: () => onNodeClick(parentTask), isCompleted: parentTask.isCompleted },
         draggable: false,
       });
       edges.push({
@@ -107,7 +139,7 @@ export function TaskMiniGraph({ taskId, subtasks, siblings, links, parentTask, o
         id: `child-${st.id}`,
         type: "taskNode",
         position: { x: 0, y: 0 },
-        data: { label: st.isCompleted ? `✓ ${st.title}` : st.title, onClick: () => onNodeClick(st) },
+        data: { label: st.title, onClick: () => onNodeClick(st), isCompleted: st.isCompleted },
         draggable: false,
       });
       edges.push({
@@ -123,7 +155,7 @@ export function TaskMiniGraph({ taskId, subtasks, siblings, links, parentTask, o
         id: `sib-${s.id}`,
         type: "taskNode",
         position: { x: 0, y: 0 },
-        data: { label: s.title, onClick: () => onNodeClick(s) },
+        data: { label: s.title, onClick: () => onNodeClick(s), isCompleted: s.isCompleted },
         draggable: false,
       });
       edges.push({
@@ -139,7 +171,7 @@ export function TaskMiniGraph({ taskId, subtasks, siblings, links, parentTask, o
         id: `link-${l.id}`,
         type: "taskNode",
         position: { x: 0, y: 0 },
-        data: { label: l.title, onClick: () => onNodeClick(l) },
+        data: { label: l.title, onClick: () => onNodeClick(l), isCompleted: l.isCompleted },
         draggable: false,
         style: { background: "#9c27b0" },
       });
