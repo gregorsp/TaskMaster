@@ -41,6 +41,7 @@ export const tasks = sqliteTable("tasks", {
   recurrenceType: text("recurrence_type").notNull().default("none"),
   recurrenceRule: text("recurrence_rule"),
   parentId: text("parent_id"),
+  plannedDate: integer("planned_date", { mode: "timestamp_ms" }),
   createdById: text("created_by_id")
     .notNull()
     .references(() => users.id),

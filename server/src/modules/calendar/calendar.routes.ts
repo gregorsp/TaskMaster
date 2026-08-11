@@ -4,14 +4,30 @@ import { authGuard } from "../../middleware/auth.hooks.js";
 import { visibilityFilter } from "../../middleware/visibility.js";
 import { getDb } from "../../db/client.js";
 import { tasks, taskAssignees } from "../../db/schema.js";
-import { getOccurrences, isTaskOverdue } from "./recurrence.service.js";
+import { getOccurrences, getEffectiveDueAt, isTaskOverdue } from "./recurrence.service.js";
+
+interface CalendarItem {
+  taskId: string;
+  title: string;
+  date: string;
+  color: string | null;
+  isCompleted: boolean;
+  isOverdue: boolean;
+  plannedDate: string | null;
+  pomodoros: number | null;
+  type: "due" | "planned";
+}
 
 export async function calendarRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authGuard);
 
   app.get("/", async (request) => {
-    const query = request.query as { from?: string; to?: string; userId?: string };
+    const query = request.query as { from?: string; to?: string; userId?: string; mode?: string };
     const reqUser = request.user as { id: string; isAdmin: boolean };
+
+    const mode = (query.mode as string) || "both";
+    const showDue = mode === "due" || mode === "both";
+    const showPlanned = mode === "planned" || mode === "both";
 
     const from = query.from ? new Date(query.from) : new Date();
     const to = query.to ? new Date(query.to) : new Date(from.getFullYear(), from.getMonth() + 1, 0);
@@ -20,7 +36,14 @@ export async function calendarRoutes(app: FastifyInstance) {
     const targetUserId = reqUser.isAdmin && query.userId ? query.userId : reqUser.id;
     const targetIsAdmin = reqUser.isAdmin && !query.userId;
 
-    const conditions: SQL[] = [or(isNotNull(tasks.dueAt), isNotNull(tasks.baseDate)) as SQL];
+    const dateConditions: SQL[] = [];
+    if (showDue) {
+      dateConditions.push(or(isNotNull(tasks.dueAt), isNotNull(tasks.baseDate)) as SQL);
+    }
+    if (showPlanned) {
+      dateConditions.push(isNotNull(tasks.plannedDate) as SQL);
+    }
+    const conditions: SQL[] = [or(...dateConditions) as SQL];
     const visFilter = visibilityFilter(targetUserId, targetIsAdmin);
     if (visFilter) conditions.push(visFilter);
 
@@ -35,30 +58,60 @@ export async function calendarRoutes(app: FastifyInstance) {
     const taskList = rows
       .map((r) => r.tasks)
       .filter((t) => {
-        if (t.recurrenceType === "rrule" && t.baseDate) return true;
-        if (!t.dueAt) return false;
-        const dueDate = new Date(t.dueAt);
-        return dueDate >= from && dueDate <= to;
+        if (showDue && t.recurrenceType === "rrule" && t.baseDate) return true;
+        if (showDue && t.dueAt) {
+          const dueDate = new Date(t.dueAt);
+          return dueDate >= from && dueDate <= to;
+        }
+        if (showPlanned && t.plannedDate) {
+          const pd = new Date(t.plannedDate);
+          return pd >= from && pd <= to;
+        }
+        return false;
       });
 
-    const calendarItems: Array<{
-      taskId: string;
-      title: string;
-      date: string;
-      color: string | null;
-      isCompleted: boolean;
-      isOverdue: boolean;
-    }> = [];
+    const calendarItems: CalendarItem[] = [];
+    const formatTask = (t: typeof tasks.$inferSelect, date: Date, type: "due" | "planned"): CalendarItem => ({
+      taskId: t.id,
+      title: t.title,
+      date: date.toISOString(),
+      color: null,
+      isCompleted: t.isCompleted,
+      isOverdue: isTaskOverdue(t),
+      plannedDate: t.plannedDate?.toISOString() ?? null,
+      pomodoros: t.pomodoros ?? null,
+      type,
+    });
 
     for (const task of taskList) {
       const isOverdue = isTaskOverdue(task);
-      if (task.recurrenceType === "rrule" && task.recurrenceRule && task.baseDate) {
+
+      if (showDue && task.recurrenceType === "rrule" && task.recurrenceRule && task.baseDate) {
         const occurrences = getOccurrences(task.recurrenceRule, from, to, task.baseDate);
         for (const occ of occurrences) {
-          calendarItems.push({ taskId: task.id, title: task.title, date: occ.toISOString(), color: null, isCompleted: task.isCompleted, isOverdue });
+          calendarItems.push(formatTask(task, occ, "due"));
         }
-      } else if (task.dueAt) {
-        calendarItems.push({ taskId: task.id, title: task.title, date: task.dueAt.toISOString(), color: null, isCompleted: task.isCompleted, isOverdue });
+      } else if (showDue && task.dueAt) {
+        calendarItems.push(formatTask(task, new Date(task.dueAt), "due"));
+      }
+
+      if (showPlanned && task.plannedDate) {
+        const pd = new Date(task.plannedDate);
+        if (pd >= from && pd <= to) {
+          const plannedAsDate = pd.toISOString().slice(0, 10);
+          const dueAsDate = task.dueAt ? new Date(task.dueAt).toISOString().slice(0, 10) : null;
+          if (mode === "both" && dueAsDate === plannedAsDate) {
+            const idx = calendarItems.findIndex(
+              (i) => i.taskId === task.id && i.date.slice(0, 10) === plannedAsDate && i.type === "due"
+            );
+            if (idx >= 0) {
+              calendarItems[idx].type = "due";
+              calendarItems[idx].plannedDate = task.plannedDate?.toISOString() ?? null;
+              continue;
+            }
+          }
+          calendarItems.push(formatTask(task, pd, "planned"));
+        }
       }
     }
 

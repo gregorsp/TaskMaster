@@ -8,7 +8,7 @@ import { getEffectiveDueAt, isTaskOverdue, computeIsUrgent } from "../calendar/r
 import { getProfilePictureUrl } from "../auth/profile.service.js";
 import type { CreateTaskInput, UpdateTaskInput } from "./tasks.schema.js";
 
-function enrichTask(task: typeof tasks.$inferSelect) {
+export function enrichTask(task: typeof tasks.$inferSelect) {
   return {
     ...task,
     isUrgent: computeIsUrgent(task),
@@ -211,6 +211,7 @@ export function createTask(input: CreateTaskInput, createdById: string) {
     recurrenceType: input.recurrenceType ?? "none",
     recurrenceRule: input.recurrenceRule || null,
     parentId: input.parentId || null,
+    plannedDate: input.plannedDate ? new Date(input.plannedDate) : null,
     createdById,
     createdAt: new Date(),
   };
@@ -250,6 +251,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
   if (input.recurrenceType !== undefined) updates.recurrenceType = input.recurrenceType;
   if (input.recurrenceRule !== undefined) updates.recurrenceRule = input.recurrenceRule;
   if (input.parentId !== undefined) updates.parentId = input.parentId;
+  if (input.plannedDate !== undefined) updates.plannedDate = input.plannedDate ? new Date(input.plannedDate) : null;
 
   if (input.dueAt !== undefined) {
     if (input.recurrenceType === "rrule" || existing.recurrenceType === "rrule") {

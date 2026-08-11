@@ -18,6 +18,9 @@ interface CalendarItem {
   color: string | null;
   isCompleted: boolean;
   isOverdue: boolean;
+  plannedDate: string | null;
+  pomodoros: number | null;
+  type: "due" | "planned";
 }
 
 const DAY_NAMES = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -29,6 +32,7 @@ export function CalendarPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [view, setView] = useState<"month" | "week">("month");
+  const [mode, setMode] = useState<"due" | "planned" | "both">("both");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [userIdFilter, setUserIdFilter] = useState("");
   const [showCompleted, setShowCompleted] = useState(true);
@@ -52,7 +56,7 @@ export function CalendarPage() {
     try {
       const from = new Date(year, month, 1).toISOString();
       const to = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
-      let url = `/calendar?from=${from}&to=${to}`;
+      let url = `/calendar?from=${from}&to=${to}&mode=${mode}`;
       if (userIdFilter) url += `&userId=${userIdFilter}`;
       const { data } = await client.get<CalendarItem[]>(url);
       let filtered = data;
@@ -74,7 +78,7 @@ export function CalendarPage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchItems(); }, [year, month, userIdFilter, categoryFilter]);
+  useEffect(() => { fetchItems(); }, [year, month, userIdFilter, categoryFilter, mode]);
 
   const { push, setOnRootUpdated } = useModalStack();
   useEffect(() => {
@@ -140,6 +144,11 @@ export function CalendarPage() {
             control={<Switch size="small" checked={showCompleted} onChange={(e) => setShowCompleted(e.target.checked)} />}
             label={<Typography variant="caption">Erledigt</Typography>}
           />
+          <ToggleButtonGroup size="small" value={mode} exclusive onChange={(_, v) => v && setMode(v)}>
+            <ToggleButton value="due">Fälligkeiten</ToggleButton>
+            <ToggleButton value="planned">Geplant</ToggleButton>
+            <ToggleButton value="both">Beides</ToggleButton>
+          </ToggleButtonGroup>
           <ToggleButtonGroup size="small" value={view} exclusive onChange={(_, v) => v && setView(v)}>
             <ToggleButton value="month">Monat</ToggleButton>
             <ToggleButton value="week">Woche</ToggleButton>
@@ -207,21 +216,31 @@ export function CalendarPage() {
                   <Typography variant="caption" fontWeight={isToday ? 700 : 600} color={isToday ? "primary.contrastText" : undefined}>
                     {day}
                   </Typography>
-                  {dayItems.slice(0, 3).map((item) => (
+                  {dayItems.slice(0, 3).map((item) => {
+                    const isDue = item.type === "due";
+                    const isPlanned = item.type === "planned";
+                    return (
                     <Box
                       key={item.taskId}
                       onClick={() => push({ id: item.taskId, title: item.title })}
                       sx={{
                         py: 0.25, px: 0.5, borderRadius: 0.5, mt: 0.25, cursor: "pointer",
                         fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                        bgcolor: item.isCompleted ? "action.disabledBackground" : item.isOverdue ? "error.light" : item.color ? item.color + "30" : "primary.light",
-                        color: item.isCompleted ? "text.disabled" : item.isOverdue ? "error.contrastText" : item.color || "primary.dark",
                         textDecoration: item.isCompleted ? "line-through" : undefined,
+                        border: isPlanned ? `1.5px dashed ${item.color || "primary.main"}` : undefined,
+                        bgcolor: item.isCompleted ? "action.disabledBackground"
+                          : item.isOverdue && isDue ? "error.light"
+                          : isDue ? (item.color ? item.color + "30" : "primary.light")
+                          : "transparent",
+                        color: item.isCompleted ? "text.disabled"
+                          : item.isOverdue && isDue ? "error.contrastText"
+                          : item.color || "primary.dark",
                       }}
                     >
-                      {item.title}
+                      {isPlanned ? "□" : "■"} {item.title}
                     </Box>
-                  ))}
+                    );
+                  })}
                   {dayItems.length > 3 && (
                     <Typography variant="caption" color="text.secondary" fontSize={10}>+{dayItems.length - 3} mehr</Typography>
                   )}
@@ -246,21 +265,31 @@ export function CalendarPage() {
               <Typography variant="caption" fontWeight={isToday ? 700 : 600}>
                 {wd.toLocaleDateString("de-DE", { day: "numeric", month: "short" })}
               </Typography>
-              {dayItems.slice(0, 6).map((item) => (
+              {dayItems.slice(0, 6).map((item) => {
+                const isDue = item.type === "due";
+                const isPlanned = item.type === "planned";
+                return (
                 <Box
                   key={item.taskId}
                   onClick={() => push({ id: item.taskId, title: item.title })}
                   sx={{
                     py: 0.25, px: 0.5, borderRadius: 0.5, mt: 0.25, cursor: "pointer",
                     fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    bgcolor: item.isCompleted ? "action.disabledBackground" : item.isOverdue ? "error.light" : item.color ? item.color + "30" : "primary.light",
-                    color: item.isCompleted ? "text.disabled" : item.isOverdue ? "error.contrastText" : item.color || "primary.dark",
                     textDecoration: item.isCompleted ? "line-through" : undefined,
+                    border: isPlanned ? `1.5px dashed ${item.color || "primary.main"}` : undefined,
+                    bgcolor: item.isCompleted ? "action.disabledBackground"
+                      : item.isOverdue && isDue ? "error.light"
+                      : isDue ? (item.color ? item.color + "30" : "primary.light")
+                      : "transparent",
+                    color: item.isCompleted ? "text.disabled"
+                      : item.isOverdue && isDue ? "error.contrastText"
+                      : item.color || "primary.dark",
                   }}
                 >
-                  {item.title}
+                  {isPlanned ? "□" : "■"} {item.title}
                 </Box>
-              ))}
+                );
+              })}
               {dayItems.length > 6 && (
                 <Typography variant="caption" color="text.secondary" fontSize={10}>+{dayItems.length - 6} mehr</Typography>
               )}

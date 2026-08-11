@@ -240,6 +240,21 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                   {task.isOverdue && <Typography variant="caption" color="error">Überfällig</Typography>}
                 </Paper>
               </Box>
+              {task.plannedDate && (
+                <Box sx={{ flex: 1 }}>
+                  <Paper variant="outlined" sx={{ p: 2 }}>
+                    <Typography variant="caption" color="text.secondary">Geplant</Typography>
+                    <Typography color={
+                      task.dueAt && new Date(task.plannedDate) > new Date(task.dueAt) ? "warning.main" : undefined
+                    }>
+                      {fd(task.plannedDate)}
+                    </Typography>
+                    {task.dueAt && new Date(task.plannedDate) > new Date(task.dueAt) && (
+                      <Typography variant="caption" color="warning.main">Nach Fälligkeit</Typography>
+                    )}
+                  </Paper>
+                </Box>
+              )}
               {rt !== "none" && (
                 <Box sx={{ flex: 1 }}>
                   <Paper variant="outlined" sx={{ p: 2 }}>

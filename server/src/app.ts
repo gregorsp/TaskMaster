@@ -11,6 +11,7 @@ import { tasksRoutes } from "./modules/tasks/tasks.routes.js";
 import { categoriesRoutes } from "./modules/categories/categories.routes.js";
 import { usersRoutes } from "./modules/users/users.routes.js";
 import { calendarRoutes } from "./modules/calendar/calendar.routes.js";
+import { planningRoutes } from "./modules/planning/planning.routes.js";
 import { migrationRoutes } from "./modules/migration/migration.routes.js";
 import { SCHEMA_VERSION } from "./db/version.js";
 import path from "node:path";
@@ -82,6 +83,7 @@ export async function buildApp(opts?: { migrationMode?: boolean }) {
     await app.register(categoriesRoutes, { prefix: "/api/categories" });
     await app.register(usersRoutes, { prefix: "/api/users" });
     await app.register(calendarRoutes, { prefix: "/api/calendar" });
+    await app.register(planningRoutes, { prefix: "/api/planning" });
   }
 
   const publicDir = path.join(process.cwd(), "public");

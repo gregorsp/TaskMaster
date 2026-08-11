@@ -14,6 +14,7 @@ export const createTaskSchema = z.object({
   assigneeIds: z.array(z.string()).default([]),
   categoryIds: z.array(z.string()).default([]),
   parentId: z.string().nullable().optional(),
+  plannedDate: z.string().nullable().optional(),
 });
 
 export const updateTaskSchema = z.object({
@@ -30,6 +31,7 @@ export const updateTaskSchema = z.object({
   assigneeIds: z.array(z.string()).optional(),
   categoryIds: z.array(z.string()).optional(),
   parentId: z.string().nullable().optional(),
+  plannedDate: z.string().nullable().optional(),
 });
 
 export const completeTaskSchema = z.object({

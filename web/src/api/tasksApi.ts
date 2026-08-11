@@ -28,6 +28,7 @@ export interface Task {
   recurrenceType: "none" | "rrule" | "on_completion";
   recurrenceRule: string | null;
   parentId: string | null;
+  plannedDate: string | null;
   createdById: string;
   createdAt: string;
   assignees: TaskAssignee[];
@@ -84,6 +85,7 @@ export interface CreateTaskInput {
   assigneeIds?: string[];
   categoryIds?: string[];
   parentId?: string | null;
+  plannedDate?: string | null;
 }
 
 export interface UpdateTaskInput {
@@ -101,6 +103,7 @@ export interface UpdateTaskInput {
   assigneeIds?: string[];
   categoryIds?: string[];
   parentId?: string | null;
+  plannedDate?: string | null;
 }
 
 export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResponse> {

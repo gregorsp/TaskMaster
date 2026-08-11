@@ -30,6 +30,7 @@ describe("Migration – Version State Machine", () => {
   it("UP_TO_DATE: after applying all migrations", async () => {
     await initDb();
     migrate(getDb(), { migrationsFolder: "./src/db/migrations" });
+    ensureSchemaVersion();
     const state = getDbState(getDb(), getRawDb());
     expect(state.state).toBe("UP_TO_DATE");
     expect(state.currentVersion).toBe(SCHEMA_VERSION);
@@ -162,6 +163,7 @@ describe("Migration – API Routes (maintenance mode)", () => {
     await initDb();
     const db = getDb();
     migrate(db, { migrationsFolder: "./src/db/migrations" });
+    ensureSchemaVersion();
 
     const salt = randomBytes(16).toString("hex");
     const pw = await hashPassword("admin123admin", salt);

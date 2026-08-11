@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Box, Typography, TextField, Select, MenuItem, FormControl, InputLabel,
-  Stack, Button, Pagination, Badge, Chip, Checkbox, useTheme, useMediaQuery,
+  Stack, Button, Pagination, Badge, Chip, Checkbox, useTheme, useMediaQuery, Alert,
 } from "@mui/material";
 import { Add as AddIcon, FilterList as FilterListIcon } from "@mui/icons-material";
 import { listTasks, type Task } from "../api/tasksApi";
+import { fetchPlanning } from "../api/planningApi";
 import { listCategories, type Category } from "../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../api/usersApi";
 import { TaskListView } from "../components/tasks/TaskListView";
@@ -31,6 +32,8 @@ export function DashboardPage() {
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [overdueCount, setOverdueCount] = useState(0);
+  const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
+  const [dismissedWarnings, setDismissedWarnings] = useState<Set<number>>(new Set());
   const notify = useNotify();
 
   const fetchTasks = useCallback(async () => {
@@ -77,6 +80,26 @@ export function DashboardPage() {
       .catch(() => { if (!cancelled) setOverdueCount(0); });
     return () => { cancelled = true; };
   }, [search, categoryFilter, assigneeFilter]);
+
+  useEffect(() => {
+    const today = new Date();
+    const from = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+    const to = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 6).toISOString();
+    fetchPlanning(from, to)
+      .then((data) => {
+        const warnings: string[] = [];
+        const todayDay = data.days[0];
+        if (todayDay?.overloaded) {
+          warnings.push(`Heute: ${todayDay.usedSp}/${todayDay.capacity} Pomodori geplant – ${todayDay.usedSp - todayDay.capacity} über Budget`);
+        }
+        for (const hw of data.horizonWarnings) {
+          const d = new Date(hw.deadlineDate).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+          warnings.push(`Bis ${d}: ${hw.requiredSp} Pomodori fällig, nur ${hw.availableSp} Kapazität (–${hw.shortfall})`);
+        }
+        setLoadWarnings(warnings);
+      })
+      .catch(() => setLoadWarnings([]));
+  }, []);
 
   const userById = new Map(users.map((u) => [u.id, u]));
 
@@ -185,6 +208,16 @@ export function DashboardPage() {
       )}
 
       <TaskListView tasks={tasks} onUpdated={fetchTasks} />
+
+      {loadWarnings.length > 0 && (
+        <Stack spacing={0.5} mt={2}>
+          {loadWarnings.map((w, i) => dismissedWarnings.has(i) ? null : (
+            <Alert key={i} severity="warning" onClose={() => setDismissedWarnings((prev) => new Set(prev).add(i))}>
+              {w}
+            </Alert>
+          ))}
+        </Stack>
+      )}
 
       {totalPages > 1 && (
         <Stack direction="row" justifyContent="center" mt={2}>

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   Dialog, DialogContent, DialogTitle, TextField, Button, Stack, Box,
   FormControlLabel, Switch, MenuItem, Typography, Chip, Autocomplete,
-  RadioGroup, Radio, FormControl, FormLabel,
+  RadioGroup, Radio, FormControl, FormLabel, Alert,
 } from "@mui/material";
 import { createTask, updateTask, listTasks, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations, type Task } from "../../api/tasksApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
@@ -82,6 +82,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [plannedDate, setPlannedDate] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
   const [isImportant, setIsImportant] = useState(false);
   const [pomodoros, setPomodoros] = useState<number | null>(null);
@@ -128,6 +129,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         setTitle(task.title || "");
         setDescription(task.description || "");
         setDueDate(toInputDate(task.dueAt ? new Date(task.dueAt) : (task.baseDate ? new Date(task.baseDate) : null)));
+        setPlannedDate(toInputDate(task.plannedDate ? new Date(task.plannedDate) : null));
         setIsPrivate(task.isPrivate ?? false);
         setIsImportant(task.isImportant ?? false);
         setPomodoros(task.pomodoros ?? null);
@@ -156,7 +158,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         }
       } catch (e) { console.error("TaskForm prefill error:", e); }
     } else if (open && !task) {
-      setTitle(""); setDescription(""); setDueDate(""); setIsPrivate(false);
+      setTitle(""); setDescription(""); setDueDate(""); setPlannedDate(""); setIsPrivate(false);
       setIsImportant(false); setPomodoros(null); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
       setFreq("WEEKLY"); setInterval(1); setSelectedDays([]);
       setMonthDay(""); setUseNthWeekday(false); setSelectedCategories([]);
@@ -208,6 +210,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           categoryIds: selectedCategories.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
           parentId: parentTask?.id || null,
+          plannedDate: plannedDate ? new Date(plannedDate).toISOString() : null,
         };
         await updateTask(task.id, input);
         notify("Aufgabe gespeichert");
@@ -221,6 +224,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           categoryIds: selectedCategories.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
           parentId: parentTask?.id || null,
+          plannedDate: plannedDate ? new Date(plannedDate).toISOString() : undefined,
         };
         await createTask(input);
         notify("Aufgabe erstellt");
@@ -241,6 +245,12 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           <TextField label="Titel" value={title} onChange={(e) => setTitle(e.target.value)} required fullWidth autoFocus />
           <TextField label="Beschreibung" value={description} onChange={(e) => setDescription(e.target.value)} multiline rows={3} fullWidth />
           <TextField label={recurrenceType === "rrule" ? "Startdatum (erste Fälligkeit)" : "Fälligkeit"} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
+          <TextField label="Geplant für" type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth helperText="Tag, an dem die Aufgabe erledigt werden soll" />
+          {plannedDate && dueDate && new Date(plannedDate) > new Date(dueDate) && (
+            <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
+              Das Planungsdatum liegt nach der Fälligkeit.
+            </Alert>
+          )}
           <Stack direction="row" spacing={2}>
             <FormControlLabel control={<Switch checked={isImportant} onChange={(e) => setIsImportant(e.target.checked)} />} label="Wichtig" />
             <FormControlLabel control={<Switch checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />} label="Privat" />
