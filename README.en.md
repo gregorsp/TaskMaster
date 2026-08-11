@@ -33,19 +33,30 @@
 
 - **Users & roles** – Registration, login and admin roles; admins manage users (change role, delete)
 - **Tasks** – Title, description, due date (date + optional time), multiple assignees, categories (tags)
+- **Task hierarchy** – Subtasks (parent/child) with tree view and completion blocking for open children
+- **Task links** – Bidirectional links between tasks with interactive graph (DAG, via @xyflow/react)
 - **Recurrences** – three types:
   - *One-off*: gets completed and stays done
   - *Recurring* (RRULE / RFC 5545): e.g. "every 2 weeks on Wednesday", "every 3rd Wednesday of the month", "always on the 1st of the month"
   - *On completion*: after completing, you set when the task should happen next
+  - *Habits*: daily/weekly goals with completion confirmation and progress tracking
+- **Task occurrences** – individual recurrence instances can be skipped or manually planned
 - **Visibility** – Private tasks are only visible to the creator, assignees and admins (server-side filter)
 - **Calendar** – Month and week view including computed recurrence occurrences
 - **Eisenhower matrix** – Drag & drop tasks into 4 quadrants (important/urgent)
 - **Overdue tasks** – Red badge in the header (polling), dedicated page and a toast after login
+- **Daily view** – Today's tasks, habits and upcoming appointments on one page
+- **Planning view** – Weekly task planning with draft/confirm workflow; admins can view per-user planning
+- **Capacity planning** – Users can set their work capacity (hours/day); weekly planning respects these limits
 - **Task history** – Timeline of who completed/reopened a task, plus per-task comments
 - **Categories** – Color palette, custom color picker and automatic color with maximum distance to existing ones
 - **Dark mode** – Light/dark toggle in the header (persisted in the browser)
+- **Pomodoro counter** – Tasks can store a pomodoro count
+- **Urgency modes** – "X days before due" or fixed date; tasks are marked urgent accordingly
+- **Profile page** – Users can manage display name, email, password, capacity and profile picture
 - **PWA** – Installable as an app on your phone, offline caching via service worker
 - **REST API** – JWT auth (15 min access token, 7 day refresh token as HttpOnly cookie)
+- **Maintenance mode** – when a DB migration is required, the app starts in maintenance mode; admin runs migration via bootstrap UI (with backup)
 
 ## Roadmap (planned)
 
@@ -53,7 +64,7 @@ Not implemented yet, but planned:
 
 - **Notifications** (email/push) for due and overdue tasks
 - **iCal import/export** (near-trivial thanks to RRULE)
-- **Sub-tasks / checklists**
+- **Checklists** within tasks
 - **Internationalization (i18n)** – the UI is currently German only
 - **Task attachments** – attach files/notes to tasks
 
@@ -61,13 +72,17 @@ Not implemented yet, but planned:
 
 | Area | Technology |
 |---|---|
-| Backend | Node.js 24 + TypeScript + Fastify |
+| Backend | Node.js 24 + TypeScript + Fastify 5 |
 | Database | SQLite via sql.js (WASM, no native modules) + Drizzle ORM |
 | Migrations | Drizzle Kit |
 | Frontend | React 19 + Vite + MUI 7 + Tailwind 4 |
 | Auth | JWT (fastify-jwt) + scrypt + HttpOnly cookies |
 | Recurrences | rrule (RFC 5545) |
 | Drag & drop | dnd-kit |
+| Task graph | @xyflow/react + dagre |
+| Data fetching | @tanstack/react-query |
+| Image processing | sharp (profile pictures) |
+| File upload | @fastify/multipart |
 | PWA | vite-plugin-pwa |
 | Deployment | Docker (multi-arch: `linux/arm64` + `linux/amd64`), image on GHCR |
 
@@ -112,10 +127,10 @@ npm run dev                 # http://localhost:5173 (proxies /api to 8080)
 
 ```bash
 cd server
-npm test        # Vitest with in-memory database (32 tests)
+npm test        # Vitest with in-memory database (102 tests in 9 test files)
 ```
 
-Covered: auth flow (login/refresh), task CRUD, private-task visibility, recurrence logic and categories.
+Covered: auth flow (login/refresh), task CRUD, private-task visibility, recurrence logic, categories, habits, planning, capacity, profile updates and migrations.
 
 ## Deployment (CasaOS / Raspberry Pi)
 
@@ -235,17 +250,34 @@ Error responses are uniform: `{ "error": { "code", "message" } }`.
 | POST | `/api/auth/refresh` | Renew access token (cookie) | public |
 | POST | `/api/auth/logout` | Clear refresh cookie | authenticated |
 | GET | `/api/auth/me` | Current user | authenticated |
-| GET | `/api/health` | Liveness check | public |
+| PUT | `/api/auth/me` | Update own profile (name, email) | authenticated |
+| PUT | `/api/auth/me/password` | Change own password | authenticated |
+| GET | `/api/auth/me/capacity` | Get own capacity | authenticated |
+| PUT | `/api/auth/me/capacity` | Set own capacity | authenticated |
+| PUT | `/api/auth/me/habit-confirm` | Toggle habit confirmation | authenticated |
+| POST | `/api/auth/me/profile-picture` | Upload profile picture | authenticated |
+| DELETE | `/api/auth/me/profile-picture` | Delete profile picture | authenticated |
+| GET | `/api/health` | Liveness check (status, version, schema version) | public |
+| GET | `/api/avatars/:filename` | Serve profile picture | public |
 | GET | `/api/tasks` | Task list (filters, pagination, search) | authenticated |
 | GET | `/api/tasks/overdue` | Overdue tasks | authenticated |
 | POST | `/api/tasks` | Create task | authenticated |
 | GET | `/api/tasks/:id` | Single task | visible |
 | PUT | `/api/tasks/:id` | Update task | visible |
-| DELETE | `/api/tasks/:id` | Delete task | visible |
-| POST | `/api/tasks/:id/complete` | Complete (body: `nextDueAt?`, `comment?`) | visible |
-| POST | `/api/tasks/:id/reopen` | Reopen (one-off only) | visible |
+| DELETE | `/api/tasks/:id` | Delete task (blocked if open subtasks) | visible |
+| POST | `/api/tasks/:id/complete` | Complete (body: `nextDueAt?`, `comment?`, `force?`, `cascade?`, `occurrenceDate?`, `recurringCompletions?`) | visible |
+| POST | `/api/tasks/:id/reopen` | Reopen | visible |
 | GET | `/api/tasks/:id/events` | History (completed/reopened/comments) | visible |
 | POST | `/api/tasks/:id/comment` | Add a comment | visible |
+| GET | `/api/tasks/:id/subtasks` | Child tasks (subtasks) | visible |
+| GET | `/api/tasks/:id/siblings` | Sibling tasks | visible |
+| GET | `/api/tasks/:id/links` | Linked tasks | visible |
+| POST | `/api/tasks/:id/links` | Create task link | visible |
+| DELETE | `/api/tasks/:id/links/:linkedTaskId` | Remove task link | visible |
+| GET | `/api/tasks/:id/occurrences` | All occurrences of a task | visible |
+| GET | `/api/tasks/:id/upcoming-occurrences` | Next occurrences (with `?count=N&showPast=true`) | visible |
+| POST | `/api/tasks/:id/occurrences` | Create occurrence (`occurrenceDate`, `plannedDate?`) | visible |
+| DELETE | `/api/tasks/:id/occurrences/:occurrenceId` | Delete occurrence | visible |
 | GET | `/api/calendar?from=&to=` | Calendar entries incl. recurrence occurrences | authenticated |
 | GET | `/api/categories` | Categories | authenticated |
 | POST | `/api/categories` | Create category (body: `{ name, color? }`) | authenticated |
@@ -256,13 +288,20 @@ Error responses are uniform: `{ "error": { "code", "message" } }`.
 | GET | `/api/users/:id` | Single user | Admin |
 | PUT | `/api/users/:id` | Update user (role, password …) | Admin |
 | DELETE | `/api/users/:id` | Delete user | Admin |
+| GET | `/api/planning?from=&to=&userId?` | Planning data (weekly view) | authenticated |
+| PUT | `/api/planning/draft` | Save planning draft | authenticated |
+| DELETE | `/api/planning/draft` | Discard draft | authenticated |
+| POST | `/api/planning/confirm` | Confirm planning | authenticated |
+| GET | `/api/daily?date=YYYY-MM-DD` | Daily view (tasks, habits, appointments) | authenticated |
+| GET | `/api/migration/status` | Migration status (maintenance mode) | Admin |
+| POST | `/api/migration/run` | Run migration (with backup) | Admin |
 
 ## Project structure
 
 ```
 TaskMaster/
 ├── .env.example           # Commented environment-variable template
-├── .github/workflows/     # CI (build+test) and Publish (GHCR multi-arch)
+├── .github/workflows/     # CI (build+test) and Docker publish (GHCR multi-arch)
 ├── Dockerfile             # Multi-stage: web-build → server-build → runtime
 ├── docker-compose.yml     # Commented compose for homelab/CasaOS
 ├── CONTRIBUTING.md
@@ -270,17 +309,17 @@ TaskMaster/
 ├── server/                # Fastify + TypeScript backend
 │   ├── src/
 │   │   ├── config.ts      # Env configuration (zod, commented)
-│   │   ├── db/            # Schema, migrations, client, seed
-│   │   ├── modules/       # Auth, Tasks, Categories, Users, Calendar
-│   │   └── middleware/    # JWT guards, visibility filter, error handler
-│   └── test/              # Vitest (32 tests, in-memory DB)
+│   │   ├── db/            # Schema, migrations (12 files, SCHEMA_VERSION=9), client, seed
+│   │   ├── modules/       # Auth, Tasks, Categories, Users, Calendar, Planning, Daily, Migration
+│   │   └── middleware/    # JWT guards (auth.hooks.ts), visibility filter, error handler
+│   └── test/              # Vitest (102 tests in 9 files, in-memory DB)
 └── web/                   # React 19 + Vite + MUI PWA
     └── src/
         ├── api/           # Axios clients (401-refresh interceptor)
-        ├── components/    # Layout, tasks, auth …
+        ├── components/    # Layout, auth, tasks (incl. TaskTree, TaskGraph, TaskForm, modals)
         ├── context/       # Auth, theme, notify
         ├── hooks/         # incl. useOverdueCount (60 s polling)
-        └── pages/         # Dashboard, Calendar, Matrix, Categories, Overdue, Admin
+        └── pages/         # Dashboard, Calendar, Matrix, Daily, Planning, Categories, Overdue, Admin, Profile, Migration
 ```
 
 ## Contributing

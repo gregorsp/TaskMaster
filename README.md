@@ -33,19 +33,30 @@
 
 - **Nutzer & Rollen** – Registrierung, Login und Admin-Rollen; Admins verwalten Nutzer (Rolle ändern, löschen)
 - **Aufgaben** – Titel, Beschreibung, Fälligkeit (Datum + optionale Uhrzeit), mehrere Verantwortliche, Kategorien (Tags)
+- **Aufgaben-Hierarchie** – Subtasks (Parent/Child) mit Baumansicht und Blockierung des Abschlusses bei offenen Kind-Aufgaben
+- **Aufgaben-Verknüpfungen** – bidirektionale Links zwischen Aufgaben mit interaktivem Graph (DAG, via @xyflow/react)
 - **Wiederholungen** – drei Typen:
   - *Einmalig*: wird abgeschlossen und bleibt erledigt
   - *Regelmäßig* (RRULE / RFC 5545): z. B. „alle 2 Wochen mittwochs", „jeden 3. Mittwoch im Monat", „immer am 1. des Monats"
   - *Bei Erledigung*: Nach dem Abschließen gibst du an, wann die Aufgabe das nächste Mal ansteht
+  - *Gewohnheiten (Habits)*: tägliche/wöchentliche Ziele mit Bestätigung bei Abschluss und Fortschrittsanzeige
+- **Vorkommnisse (Task Occurrences)** – einzelne Wiederholungstermine können übersprungen oder manuell geplant werden
 - **Sichtbarkeit** – Private Aufgaben sehen nur Ersteller, zugewiesene Nutzer und Admins (serverseitig gefiltert)
 - **Kalender** – Monats- und Wochenansicht inkl. berechneter Wiederholungstermine
 - **Eisenhower-Matrix** – Aufgaben per Drag & Drop in 4 Quadranten sortieren (wichtig/dringend)
 - **Überfällige Aufgaben** – roter Badge in der Kopfzeile (Polling), eigene Seite und Toast nach dem Login
+- **Tagesansicht** – Heutige Aufgaben, Habits und anstehende Termine auf einer Seite
+- **Planungsansicht** – wochenweise Aufgabenplanung mit Draft/Confirm-Workflow; Admins sehen Planung pro Nutzer
+- **Kapazitätsplanung** – Benutzer können ihre Arbeitskapazität (Stunden/Tag) hinterlegen; Wochenplanung berücksichtigt diese
 - **Task-Verlauf** – Chronologie, wer wann erledigt oder wieder geöffnet hat, plus Kommentare pro Aufgabe
 - **Kategorien** – Farbpalette, eigener Farbwähler und automatische Farbe mit maximalem Abstand zu bestehenden
 - **Dunkelmodus** – Light/Dark-Umschalter in der Kopfzeile (wird im Browser gespeichert)
+- **Pomodoro-Zähler** – Aufgaben können eine Pomodoro-Anzahl speichern
+- **Dringlichkeitsmodi** – „X Tage vor Fälligkeit" oder fester Termin; Aufgabe wird entsprechend früher als dringend markiert
+- **Profilseite** – Nutzer können Anzeigename, E-Mail, Passwort, Kapazität und Profilbild verwalten
 - **PWA** – Auf dem Handy als App installierbar, Offline-Caching via Service Worker
 - **REST-API** – JWT-Auth (Access-Token 15 min, Refresh-Token 7 Tage als HttpOnly-Cookie)
+- **Maintenance-Modus** – bei benötigter DB-Migration startet die App im Wartungsmodus; Admin führt Migration über Bootstrap-UI aus (mit Backup)
 
 ## Roadmap (geplant)
 
@@ -53,7 +64,7 @@ Nicht umgesetzt, aber angedacht:
 
 - **Benachrichtigungen** (E-Mail/Push) bei Fälligkeit und Überfälligkeit
 - **iCal-Import/-Export** (dank RRULE nahezu trivial)
-- **Sub-Tasks / Checklisten**
+- **Checklisten** innerhalb von Aufgaben
 - **Internationalisierung (i18n)** – die UI ist aktuell nur auf Deutsch
 - **Task-Attachments** – Dateien/Notizen an Aufgaben hängen
 
@@ -61,13 +72,17 @@ Nicht umgesetzt, aber angedacht:
 
 | Bereich | Technologie |
 |---|---|
-| Backend | Node.js 24 + TypeScript + Fastify |
+| Backend | Node.js 24 + TypeScript + Fastify 5 |
 | Datenbank | SQLite via sql.js (WASM, keine nativen Module) + Drizzle ORM |
 | Migrationen | Drizzle Kit |
 | Frontend | React 19 + Vite + MUI 7 + Tailwind 4 |
 | Auth | JWT (fastify-jwt) + scrypt + HttpOnly-Cookies |
 | Wiederholungen | rrule (RFC 5545) |
 | Drag & Drop | dnd-kit |
+| Task-Graph | @xyflow/react + dagre |
+| Data Fetching | @tanstack/react-query |
+| Bildverarbeitung | sharp (Profilbilder) |
+| Date-Upload | @fastify/multipart |
 | PWA | vite-plugin-pwa |
 | Deployment | Docker (Multi-Arch: `linux/arm64` + `linux/amd64`), Image auf GHCR |
 
@@ -112,10 +127,10 @@ npm run dev                 # http://localhost:5173 (proxied /api zu 8080)
 
 ```bash
 cd server
-npm test        # Vitest mit In-Memory-Datenbank (32 Tests)
+npm test        # Vitest mit In-Memory-Datenbank (102 Tests in 9 Test-Dateien)
 ```
 
-Abgedeckt werden u. a. Auth-Flow (Login/Refresh), Aufgaben-CRUD, Sichtbarkeit privater Aufgaben, Wiederholungslogik und Kategorien.
+Abgedeckt werden u. a. Auth-Flow (Login/Refresh), Aufgaben-CRUD, Sichtbarkeit privater Aufgaben, Wiederholungslogik, Kategorien, Habits, Planung, Kapazität, Profil-Updates und Migrationen.
 
 ## Deployment (CasaOS / Raspberry Pi)
 
@@ -247,17 +262,34 @@ Fehlerantworten sind einheitlich: `{ "error": { "code", "message" } }`.
 | POST | `/api/auth/refresh` | Access-Token erneuern (Cookie) | öffentlich |
 | POST | `/api/auth/logout` | Refresh-Cookie löschen | angemeldet |
 | GET | `/api/auth/me` | Aktueller Nutzer | angemeldet |
-| GET | `/api/health` | Lebend-Check | öffentlich |
+| PUT | `/api/auth/me` | Eigenes Profil bearbeiten (Name, E-Mail) | angemeldet |
+| PUT | `/api/auth/me/password` | Eigenes Passwort ändern | angemeldet |
+| GET | `/api/auth/me/capacity` | Eigene Kapazität abrufen | angemeldet |
+| PUT | `/api/auth/me/capacity` | Eigene Kapazität setzen | angemeldet |
+| PUT | `/api/auth/me/habit-confirm` | Habit-Bestätigung ein/aus | angemeldet |
+| POST | `/api/auth/me/profile-picture` | Profilbild hochladen | angemeldet |
+| DELETE | `/api/auth/me/profile-picture` | Profilbild löschen | angemeldet |
+| GET | `/api/health` | Lebend-Check (Status, Version, Schema-Version) | öffentlich |
+| GET | `/api/avatars/:filename` | Profilbild ausliefern | öffentlich |
 | GET | `/api/tasks` | Aufgabenliste (Filter, Pagination, Suche) | angemeldet |
 | GET | `/api/tasks/overdue` | Überfällige Aufgaben | angemeldet |
 | POST | `/api/tasks` | Aufgabe erstellen | angemeldet |
 | GET | `/api/tasks/:id` | Einzelne Aufgabe | sichtbar |
 | PUT | `/api/tasks/:id` | Aufgabe bearbeiten | sichtbar |
-| DELETE | `/api/tasks/:id` | Aufgabe löschen | sichtbar |
-| POST | `/api/tasks/:id/complete` | Abschließen (Body: `nextDueAt?`, `comment?`) | sichtbar |
-| POST | `/api/tasks/:id/reopen` | Wieder öffnen (nur einmalig) | sichtbar |
+| DELETE | `/api/tasks/:id` | Aufgabe löschen (blockiert bei offenen Subtasks) | sichtbar |
+| POST | `/api/tasks/:id/complete` | Abschließen (Body: `nextDueAt?`, `comment?`, `force?`, `cascade?`, `occurrenceDate?`, `recurringCompletions?`) | sichtbar |
+| POST | `/api/tasks/:id/reopen` | Wieder öffnen | sichtbar |
 | GET | `/api/tasks/:id/events` | Verlauf (Erledigt/Wieder geöffnet/Kommentare) | sichtbar |
 | POST | `/api/tasks/:id/comment` | Kommentar hinzufügen | sichtbar |
+| GET | `/api/tasks/:id/subtasks` | Kinder-Aufgaben (Subtasks) | sichtbar |
+| GET | `/api/tasks/:id/siblings` | Geschwister-Aufgaben | sichtbar |
+| GET | `/api/tasks/:id/links` | Verknüpfte Aufgaben | sichtbar |
+| POST | `/api/tasks/:id/links` | Aufgaben-Verknüpfung erstellen | sichtbar |
+| DELETE | `/api/tasks/:id/links/:linkedTaskId` | Verknüpfung lösen | sichtbar |
+| GET | `/api/tasks/:id/occurrences` | Alle Vorkommnisse einer Aufgabe | sichtbar |
+| GET | `/api/tasks/:id/upcoming-occurrences` | Nächste Vorkommnisse (mit `?count=N&showPast=true`) | sichtbar |
+| POST | `/api/tasks/:id/occurrences` | Vorkommnis anlegen (`occurrenceDate`, `plannedDate?`) | sichtbar |
+| DELETE | `/api/tasks/:id/occurrences/:occurrenceId` | Vorkommnis löschen | sichtbar |
 | GET | `/api/calendar?from=&to=` | Kalendereinträge inkl. Wiederholungsterminen | angemeldet |
 | GET | `/api/categories` | Kategorien | angemeldet |
 | POST | `/api/categories` | Kategorie anlegen (Body: `{ name, color? }`) | angemeldet |
@@ -268,13 +300,20 @@ Fehlerantworten sind einheitlich: `{ "error": { "code", "message" } }`.
 | GET | `/api/users/:id` | Einzelner Nutzer | Admin |
 | PUT | `/api/users/:id` | Nutzer bearbeiten (Rolle, Passwort …) | Admin |
 | DELETE | `/api/users/:id` | Nutzer löschen | Admin |
+| GET | `/api/planning?from=&to=&userId?` | Planungsdaten (Wochenansicht) | angemeldet |
+| PUT | `/api/planning/draft` | Planungs-Entwurf speichern | angemeldet |
+| DELETE | `/api/planning/draft` | Entwurf verwerfen | angemeldet |
+| POST | `/api/planning/confirm` | Planung bestätigen | angemeldet |
+| GET | `/api/daily?date=YYYY-MM-DD` | Tagesansicht (Aufgaben, Habits, Termine) | angemeldet |
+| GET | `/api/migration/status` | Migrationsstatus (Maintenance-Modus) | Admin |
+| POST | `/api/migration/run` | Migration ausführen (mit Backup) | Admin |
 
 ## Projektstruktur
 
 ```
 TaskMaster/
 ├── .env.example           # Kommentierte Vorlage der Umgebungsvariablen
-├── .github/workflows/     # CI (Build+Test) und Publish (GHCR Multi-Arch)
+├── .github/workflows/     # CI (Build+Test) und Docker-Publish (GHCR Multi-Arch)
 ├── Dockerfile             # Multi-Stage: Web-Build → Server-Build → Runtime
 ├── docker-compose.yml     # Kommentiertes Compose für Homelab/CasaOS
 ├── CONTRIBUTING.md
@@ -282,17 +321,17 @@ TaskMaster/
 ├── server/                # Fastify + TypeScript Backend
 │   ├── src/
 │   │   ├── config.ts      # Env-Konfiguration (zod, kommentiert)
-│   │   ├── db/            # Schema, Migrationen, Client, Seed
-│   │   ├── modules/       # Auth, Tasks, Categories, Users, Calendar
-│   │   └── middleware/    # JWT-Guards, Sichtbarkeitsfilter, Error-Handler
-│   └── test/              # Vitest (32 Tests, In-Memory-DB)
+│   │   ├── db/            # Schema, Migrationen (12 Stück, SCHEMA_VERSION=9), Client, Seed
+│   │   ├── modules/       # Auth, Tasks, Categories, Users, Calendar, Planning, Daily, Migration
+│   │   └── middleware/    # JWT-Guards (auth.hooks.ts), Sichtbarkeitsfilter, Error-Handler
+│   └── test/              # Vitest (102 Tests in 9 Dateien, In-Memory-DB)
 └── web/                   # React 19 + Vite + MUI PWA
     └── src/
         ├── api/           # Axios-Clients (401-Refresh-Interceptor)
-        ├── components/    # Layout, Tasks, Auth …
+        ├── components/    # Layout, Auth, Tasks (inkl. TaskTree, TaskGraph, TaskForm, Modals)
         ├── context/       # Auth, Theme, Notify
         ├── hooks/         # u. a. useOverdueCount (Polling 60 s)
-        └── pages/         # Dashboard, Kalender, Matrix, Kategorien, Überfällig, Admin
+        └── pages/         # Dashboard, Kalender, Matrix, Tagesansicht, Planung, Kategorien, Überfällig, Admin, Profil, Migration
 ```
 
 ## Mitmachen
