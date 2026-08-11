@@ -7,6 +7,7 @@ import { RegisterPage } from "./components/auth/RegisterPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CalendarPage } from "./pages/CalendarPage";
 import { PlanningPage } from "./pages/PlanningPage";
+import { DailyPage } from "./pages/DailyPage";
 import { MatrixPage } from "./pages/MatrixPage";
 import { CategoriesPage } from "./pages/CategoriesPage";
 import { AdminPage } from "./pages/AdminPage";
@@ -59,6 +60,7 @@ export default function App() {
           }
         >
           <Route index element={<DashboardPage />} />
+          <Route path="daily" element={<DailyPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="plan" element={<PlanningPage />} />
           <Route path="matrix" element={<MatrixPage />} />

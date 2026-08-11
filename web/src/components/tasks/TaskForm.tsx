@@ -88,7 +88,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const [pomodoros, setPomodoros] = useState<number | null>(null);
   const [urgencyMode, setUrgencyMode] = useState<"never" | "always" | "before_days" | "before_percent">("before_days");
   const [urgencyValue, setUrgencyValue] = useState<number>(3);
-  const [recurrenceType, setRecurrenceType] = useState<"none" | "rrule" | "on_completion">("none");
+  const [recurrenceType, setRecurrenceType] = useState<"none" | "rrule" | "on_completion" | "habit">("none");
   const [freq, setFreq] = useState("WEEKLY");
   const [interval, setInterval] = useState(1);
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
@@ -106,6 +106,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const [loading, setLoading] = useState(false);
   const [recurrenceWarningOpen, setRecurrenceWarningOpen] = useState(false);
   const [recurrenceWarningCount, setRecurrenceWarningCount] = useState(0);
+  const [habitConversionOpen, setHabitConversionOpen] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState(false);
   const notify = useNotify();
   const { user: currentUser } = useAuth();
@@ -138,7 +139,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         setPomodoros(task.pomodoros ?? null);
         setUrgencyMode(task.urgencyMode || "before_days");
         setUrgencyValue(task.urgencyValue ?? 3);
-        setRecurrenceType(task.recurrenceType || "none");
+        setRecurrenceType(task.isHabit ? "habit" : (task.recurrenceType || "none"));
         setSelectedCategories((task.categories || []) as Category[]);
         setSelectedAssignees(task.assignees || []);
         if (task.parentId) {
@@ -209,19 +210,26 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
       notify("Bitte eine Wiederholungsregel angeben", "error");
       return;
     }
+    const isHabit = recurrenceType === "habit";
+    if (isEdit && task && isHabit && !task.isHabit && !forceRecurrence &&
+      (task.urgencyMode !== "never" || task.parentId || task.dueAt || task.plannedDate || task.recurrenceType !== "none")) {
+      setHabitConversionOpen(true);
+      return;
+    }
     setLoading(true);
     try {
-      if (isEdit && task) {
-        const input: UpdateTaskInput = {
+      if (isEdit && task) {        const input: UpdateTaskInput = {
           title: title.trim(),
           description: description.trim() || null,
-          dueAt: dueDate ? new Date(dueDate).toISOString() : null,
-          isImportant, isPrivate, pomodoros, recurrenceType, urgencyMode, urgencyValue,
-          recurrenceRule: ruleStr || null,
+          dueAt: !isHabit && dueDate ? new Date(dueDate).toISOString() : null,
+          isImportant, isPrivate, pomodoros, urgencyMode, urgencyValue,
+          isHabit,
+          recurrenceType: isHabit ? "none" : recurrenceType,
+          recurrenceRule: isHabit ? null : (ruleStr || null),
           categoryIds: selectedCategories.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
-          parentId: parentTask?.id || null,
-          plannedDate: plannedDate ? new Date(plannedDate).toISOString() : null,
+          parentId: isHabit ? null : (parentTask?.id || null),
+          plannedDate: isHabit ? null : (plannedDate ? new Date(plannedDate).toISOString() : null),
           forceUpdateRecurrence: forceRecurrence,
         };
         await updateTask(task.id, input);
@@ -230,13 +238,15 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         const input: CreateTaskInput = {
           title: title.trim(),
           description: description.trim() || undefined,
-          dueAt: dueDate ? new Date(dueDate).toISOString() : undefined,
-          isImportant, isPrivate, pomodoros, recurrenceType, urgencyMode, urgencyValue,
-          recurrenceRule: ruleStr,
+          dueAt: !isHabit && dueDate ? new Date(dueDate).toISOString() : undefined,
+          isImportant, isPrivate, pomodoros, urgencyMode, urgencyValue,
+          isHabit,
+          recurrenceType: isHabit ? "none" : recurrenceType,
+          recurrenceRule: isHabit ? undefined : ruleStr,
           categoryIds: selectedCategories.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
-          parentId: parentTask?.id || null,
-          plannedDate: plannedDate ? new Date(plannedDate).toISOString() : undefined,
+          parentId: isHabit ? null : (parentTask?.id || null),
+          plannedDate: isHabit ? undefined : (plannedDate ? new Date(plannedDate).toISOString() : undefined),
         };
         await createTask(input);
         notify("Aufgabe erstellt");
@@ -257,6 +267,25 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
     }
   };
 
+  useEffect(() => {
+    if (recurrenceType === "habit") {
+      setIsPrivate(true);
+      setPlannedDate("");
+      setDueDate("");
+    }
+  }, [recurrenceType]);
+
+  const habitRemovals = (() => {
+    if (!task) return [];
+    const items: string[] = [];
+    if (task.urgencyMode !== "never") items.push("Dringlichkeit");
+    if (task.parentId) items.push("Unteraufgaben-Verknüpfung");
+    if (task.dueAt) items.push("Fälligkeitsdatum");
+    if (task.plannedDate) items.push("Planungsdatum");
+    if (task.recurrenceType !== "none") items.push("Wiederholung");
+    return items;
+  })();
+
   return (<>
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{isEdit ? "Aufgabe bearbeiten" : "Neue Aufgabe"}</DialogTitle>
@@ -264,16 +293,28 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         <Stack spacing={2} mt={1}>
           <TextField label="Titel" value={title} onChange={(e) => setTitle(e.target.value)} required fullWidth autoFocus />
           <TextField label="Beschreibung" value={description} onChange={(e) => setDescription(e.target.value)} multiline rows={3} fullWidth />
-          <TextField label={recurrenceType === "rrule" ? "Startdatum (erste Fälligkeit) *" : "Fälligkeit"} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth required={recurrenceType === "rrule"} error={recurrenceType === "rrule" && !dueDate} helperText={recurrenceType === "rrule" && !dueDate ? "Pflichtfeld für wiederkehrende Aufgaben" : undefined} />
-          <TextField label="Geplant für" type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth helperText="Tag, an dem die Aufgabe erledigt werden soll" />
-          {plannedDate && dueDate && new Date(plannedDate) > new Date(dueDate) && (
-            <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
-              Das Planungsdatum liegt nach der Fälligkeit.
+          {recurrenceType !== "habit" && (
+            <>
+              <TextField label={recurrenceType === "rrule" ? "Startdatum (erste Fälligkeit) *" : "Fälligkeit"} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth required={recurrenceType === "rrule"} error={recurrenceType === "rrule" && !dueDate} helperText={recurrenceType === "rrule" && !dueDate ? "Pflichtfeld für wiederkehrende Aufgaben" : undefined} />
+              <TextField label="Geplant für" type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth helperText="Tag, an dem die Aufgabe erledigt werden soll" />
+              {plannedDate && dueDate && new Date(plannedDate) > new Date(dueDate) && (
+                <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
+                  Das Planungsdatum liegt nach der Fälligkeit.
+                </Alert>
+              )}
+            </>
+          )}
+          {recurrenceType === "habit" && (
+            <Alert severity="info" variant="outlined" sx={{ py: 0.5 }}>
+              Habits fallen täglich an, sind immer privat und werden in der Tagesansicht erledigt. Sie können nicht geplant werden.
             </Alert>
           )}
           <Stack direction="row" spacing={2}>
             <FormControlLabel control={<Switch checked={isImportant} onChange={(e) => setIsImportant(e.target.checked)} />} label="Wichtig" />
-            <FormControlLabel control={<Switch checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />} label="Privat" />
+            <FormControlLabel
+              control={<Switch checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} disabled={recurrenceType === "habit"} />}
+              label="Privat"
+            />
           </Stack>
 
           <TextField
@@ -318,8 +359,18 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
               <FormControlLabel value="none" control={<Radio />} label="Keine" />
               <FormControlLabel value="on_completion" control={<Radio />} label="Bei Erledigung" />
               <FormControlLabel value="rrule" control={<Radio />} label="Cron" />
+              <FormControlLabel value="habit" control={<Radio />} label="Habit" />
             </RadioGroup>
           </FormControl>
+          {recurrenceType === "rrule" && freq === "DAILY" && interval === 1 && (
+            <Alert severity="info" variant="outlined" sx={{ py: 0.5 }} action={
+              <Button size="small" color="primary" onClick={() => setRecurrenceType("habit")}>
+                Als Habit anlegen
+              </Button>
+            }>
+              Täglich wiederkehrende Aufgaben können als Habit getrackt werden – ohne Planung, mit Abhaken pro Tag.
+            </Alert>
+          )}
           {recurrenceType === "rrule" && (
             <Stack spacing={1}>
               <Stack direction="row" spacing={1}>
@@ -347,6 +398,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
             getOptionLabel={(t) => t.title}
             value={parentTask}
             onChange={(_, v) => setParentTask(v)}
+            disabled={recurrenceType === "habit"}
             renderInput={(p) => <TextField {...p} label="Unteraufgabe von (optional)" />}
             isOptionEqualToValue={(o, v) => o.id === v.id}
           />
@@ -374,6 +426,28 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         <Button onClick={() => { setRecurrenceWarningOpen(false); setPendingSubmit(false); }}>Abbrechen</Button>
         <Button variant="contained" color="warning" onClick={() => { setRecurrenceWarningOpen(false); setPendingSubmit(false); handleSubmit(true); }}>
           Trotzdem speichern
+        </Button>
+      </DialogActions>
+    </Dialog>
+    <Dialog open={habitConversionOpen} onClose={() => setHabitConversionOpen(false)} maxWidth="xs" fullWidth>
+      <DialogTitle>Als Habit umwandeln?</DialogTitle>
+      <DialogContent>
+        <Alert severity="warning" sx={{ mt: 1 }}>
+          Durch die Umwandlung in ein Habit werden folgende Angaben entfernt:
+        </Alert>
+        <Box component="ul" sx={{ mt: 1, mb: 1, pl: 2 }}>
+          {habitRemovals.map((item) => (
+            <Typography key={item} component="li" variant="body2">{item}</Typography>
+          ))}
+        </Box>
+        <Typography variant="body2" color="text.secondary">
+          Das Habit ist täglich, wird privat und erhält keine Dringlichkeit. Es kann nicht mehr geplant oder Unteraufgabe einer anderen Aufgabe sein.
+        </Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setHabitConversionOpen(false)}>Abbrechen</Button>
+        <Button variant="contained" color="warning" onClick={() => { setHabitConversionOpen(false); handleSubmit(true); }}>
+          Trotzdem umwandeln
         </Button>
       </DialogActions>
     </Dialog>

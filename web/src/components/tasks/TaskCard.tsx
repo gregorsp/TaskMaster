@@ -9,7 +9,7 @@ import {
   Lock as LockIcon, LockOpen as LockOpenIcon, Edit as EditIcon,
   Send as SendIcon, Warning as WarningIcon,
 } from "@mui/icons-material";
-import { getTask, completeTask, reopenTask, updateTask, deleteTask, getSubtasks, type TaskWithRelations, type Task } from "../../api/tasksApi";
+import { getTask, completeTask, reopenTask, updateTask, deleteTask, getSubtasks, getTaskOccurrences, type TaskWithRelations, type Task } from "../../api/tasksApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { TaskForm } from "./TaskForm";
@@ -58,6 +58,9 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
   const [parentTask, setParentTask] = useState<Task | null>(null);
   const [recurringCompleteOpen, setRecurringCompleteOpen] = useState(false);
   const [recurringOccurrenceDate, setRecurringOccurrenceDate] = useState("");
+  const [habitCompleteOpen, setHabitCompleteOpen] = useState(false);
+  const [habitCompleteDate, setHabitCompleteDate] = useState("");
+  const [habitCompletedToday, setHabitCompletedToday] = useState(false);
   const [cascadeDialogOpen, setCascadeDialogOpen] = useState(false);
   const [completableParent, setCompletableParent] = useState<{ id: string; title: string } | null>(null);
   const notify = useNotify();
@@ -86,6 +89,20 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
       setTask(t);
       setAllCats(cats);
       setAllUsers(usrs);
+
+      if (t.isHabit) {
+        const now = new Date();
+        const todayKey = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        getTaskOccurrences(taskId).then((occs) => {
+          const doneToday = occs.some((o) => {
+            const d = new Date(o.occurrenceDate);
+            return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() === todayKey && o.isCompleted;
+          });
+          setHabitCompletedToday(doneToday);
+        }).catch(() => setHabitCompletedToday(false));
+      } else {
+        setHabitCompletedToday(false);
+      }
 
       if (t.parentId) {
         import("../../api/tasksApi").then(({ getTask: gt }) => {
@@ -149,6 +166,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
       notify("Aufgabe erledigt");
       setCompleteDialog(false);
       setRecurringCompleteOpen(false);
+      setHabitCompleteOpen(false);
       setCompleteNote("");
       setNextDueOpen(false);
       setRecurringOccurrenceDate("");
@@ -224,6 +242,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
   };
 
   const fd = (d: string | null) => d ? new Date(d).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
+  const toInputDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   if (!task) return null;
 
   const taskCats = task.categories || [];
@@ -253,17 +272,20 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
         }}
       >
         <DialogContent sx={{ p: 0, display: "flex", flexDirection: { xs: "column", md: "row" } }}>
-          <TaskRelationsSidebar
-            taskId={taskId}
-            parentTask={parentTask}
-            onRefresh={() => { load(); onUpdated(); }}
-            onNavigateToTask={handleNavigateToTask}
-          />
+          {!task.isHabit && (
+            <TaskRelationsSidebar
+              taskId={taskId}
+              parentTask={parentTask}
+              onRefresh={() => { load(); onUpdated(); }}
+              onNavigateToTask={handleNavigateToTask}
+            />
+          )}
 
           <Box sx={{ flex: 1, p: { xs: 2, md: 3 }, minWidth: 0 }}>
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={2}>
               <Stack direction="row" alignItems="center" gap={1}>
                 <Typography variant="h5" fontWeight={600}>{task.title}</Typography>
+                {task.isHabit && <Chip size="small" label="Habit" color="success" variant="outlined" />}
                 {task.pomodoros != null && task.pomodoros > 0 && (
                   <Tooltip title={`${task.pomodoros} Pomodoro${task.pomodoros > 1 ? "s" : ""} ≈ ${task.pomodoros * 25} Minuten`}>
                     <Chip size="small" label={`${task.pomodoros} Pomo`} color="secondary" />
@@ -275,9 +297,11 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                   </Tooltip>
                 )}
                 <IconButton size="small" onClick={() => setEditOpen(true)}><EditIcon fontSize="small" /></IconButton>
-                <IconButton size="small" onClick={() => safeCall(async () => { await updateTask(taskId, { isPrivate: !task.isPrivate }); setTask({ ...task, isPrivate: !task.isPrivate }); })}>
-                  {task.isPrivate ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" color="disabled" />}
-                </IconButton>
+                {!task.isHabit && (
+                  <IconButton size="small" onClick={() => safeCall(async () => { await updateTask(taskId, { isPrivate: !task.isPrivate }); setTask({ ...task, isPrivate: !task.isPrivate }); })}>
+                    {task.isPrivate ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" color="disabled" />}
+                  </IconButton>
+                )}
               </Stack>
               <IconButton onClick={handleClose}><CloseIcon /></IconButton>
             </Stack>
@@ -302,7 +326,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                 <Paper variant="outlined" sx={{ p: 2 }}>
                   <Typography variant="caption" color="text.secondary">Fällig</Typography>
                   <Typography color={task.isOverdue ? "error" : undefined} fontWeight={task.isOverdue ? 600 : undefined}>
-                    {task.effectiveDueAt ? fd(task.effectiveDueAt) : task.dueAt ? fd(task.dueAt as string) : "Kein Datum"}
+                    {task.isHabit ? "Täglich" : task.effectiveDueAt ? fd(task.effectiveDueAt) : task.dueAt ? fd(task.dueAt as string) : "Kein Datum"}
                   </Typography>
                   {task.isOverdue && <Typography variant="caption" color="error">Überfällig</Typography>}
                 </Paper>
@@ -332,20 +356,22 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
               )}
             </Stack>
 
-            <Typography variant="subtitle2" mb={1}>Priorität</Typography>
-            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.5, width: 220, mb: 3 }}>
-              {[
-                ["Wichtig + Dringend", true, true],
-                ["Wichtig + Nicht Dringend", true, false],
-                ["Nicht Wichtig + Dringend", false, true],
-                ["Nicht Wichtig + Nicht Dringend", false, false],
-              ].map(([label, imp, urg]) => (
-                <Paper key={label as string} variant="outlined" sx={{ p: 1, textAlign: "center", fontSize: 12, cursor: "pointer", bgcolor: task.isImportant === imp && task.isUrgent === urg ? "primary.main" : "transparent", color: task.isImportant === imp && task.isUrgent === urg ? "white" : "text.secondary" }}
-                  onClick={() => safeCall(async () => { await updateTask(taskId, { isImportant: !!imp, isUrgent: !!urg }); setTask({ ...task, isImportant: !!imp, isUrgent: !!urg }); })}>
-                  {label as string}
-                </Paper>
-              ))}
-            </Box>
+            {!task.isHabit && (<>
+              <Typography variant="subtitle2" mb={1}>Priorität</Typography>
+              <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.5, width: 220, mb: 3 }}>
+                {[
+                  ["Wichtig + Dringend", true, true],
+                  ["Wichtig + Nicht Dringend", true, false],
+                  ["Nicht Wichtig + Dringend", false, true],
+                  ["Nicht Wichtig + Nicht Dringend", false, false],
+                ].map(([label, imp, urg]) => (
+                  <Paper key={label as string} variant="outlined" sx={{ p: 1, textAlign: "center", fontSize: 12, cursor: "pointer", bgcolor: task.isImportant === imp && task.isUrgent === urg ? "primary.main" : "transparent", color: task.isImportant === imp && task.isUrgent === urg ? "white" : "text.secondary" }}
+                    onClick={() => safeCall(async () => { await updateTask(taskId, { isImportant: !!imp, isUrgent: !!urg }); setTask({ ...task, isImportant: !!imp, isUrgent: !!urg }); })}>
+                    {label as string}
+                  </Paper>
+                ))}
+              </Box>
+            </>)}
 
             <Typography variant="subtitle2" mb={1}>Verantwortlich</Typography>
             <Stack direction="row" flexWrap="wrap" gap={1} mb={3} alignItems="center">
@@ -368,7 +394,23 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                 <Button variant="outlined" onClick={async () => { try { await reopenTask(taskId); load(); onUpdated(); } catch (e) { console.error(e); notify("Fehler", "error"); } }}>
                   Wieder öffnen
                 </Button>
-              ) : hasOpenSubtasks ? (
+              ) : task.isHabit && habitCompletedToday ? (
+                <Button
+                  variant="outlined"
+                  onClick={async () => {
+                    try {
+                      const now = new Date();
+                      const todayIso = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+                      await reopenTask(taskId, todayIso);
+                      setHabitCompletedToday(false);
+                      load();
+                      onUpdated();
+                    } catch (e) { console.error(e); notify("Fehler", "error"); }
+                  }}
+                >
+                  Heute rückgängig
+                </Button>
+              ) : hasOpenSubtasks && !task.isHabit ? (
                 <Stack alignItems="flex-end">
                   <Tooltip title={`${subtaskOpenCount} von ${subtaskTotalCount} Unteraufgaben noch offen`}>
                     <Button
@@ -385,6 +427,12 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                 <Button
                   variant="contained"
                   onClick={() => {
+                    if (task.isHabit) {
+                      setHabitCompleteDate(toInputDate(new Date()));
+                      setCompleteNote("");
+                      setHabitCompleteOpen(true);
+                      return;
+                    }
                     if (rt === "on_completion") { setNextDueOpen(true); return; }
                     if (rt === "rrule") { setRecurringCompleteOpen(true); return; }
                     setCompleteDialog(true);
@@ -454,6 +502,51 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
               <Stack direction="row" justifyContent="flex-end" gap={1}>
                 <Button onClick={() => setRecurringCompleteOpen(false)}>Abbrechen</Button>
                 <Button variant="contained" onClick={() => handleComplete(undefined, recurringOccurrenceDate || undefined)}>Erledigen</Button>
+              </Stack>
+            </Stack>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {habitCompleteOpen && (
+        <Dialog open={habitCompleteOpen} onClose={() => setHabitCompleteOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>Habit erledigen</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} mt={1}>
+              <Typography variant="body2" color="text.secondary">
+                Für welchen Tag soll "{task.title}" als erledigt markiert werden?
+              </Typography>
+              <TextField
+                label="Datum"
+                type="date"
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+                value={habitCompleteDate}
+                onChange={e => setHabitCompleteDate(e.target.value)}
+              />
+              <Stack direction="row" spacing={1}>
+                <Button
+                  size="small"
+                  onClick={() => setHabitCompleteDate(toInputDate(new Date()))}
+                  disabled={habitCompleteDate === toInputDate(new Date())}
+                >
+                  Heute
+                </Button>
+              </Stack>
+              <TextField label="Notiz (optional)" value={completeNote} onChange={e => setCompleteNote(e.target.value)} multiline rows={2} fullWidth />
+              <Stack direction="row" justifyContent="flex-end" gap={1}>
+                <Button onClick={() => setHabitCompleteOpen(false)}>Abbrechen</Button>
+                <Button
+                  variant="contained"
+                  color="success"
+                  disabled={!habitCompleteDate}
+                  onClick={() => {
+                    const d = new Date(`${habitCompleteDate}T00:00:00`);
+                    handleComplete(undefined, d.toISOString());
+                  }}
+                >
+                  Erledigen
+                </Button>
               </Stack>
             </Stack>
           </DialogContent>

@@ -23,7 +23,7 @@ export function MatrixPage() {
 
   const fetchTasks = useCallback(async () => {
     const res = await listTasks({ pageSize: 200 });
-    setTasks(res.items.filter((t: Task) => !t.isCompleted));
+    setTasks(res.items.filter((t: Task) => !t.isCompleted && !t.isHabit));
     setLoading(false);
   }, []);
 

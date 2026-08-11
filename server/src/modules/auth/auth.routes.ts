@@ -2,7 +2,7 @@ import { FastifyInstance } from "fastify";
 import { registerSchema, loginSchema } from "./auth.schema.js";
 import {
   registerUser, authenticateUser, getUserById, updateCurrentUser, changePassword,
-  getCurrentUserCapacity, updateCurrentUserCapacity,
+  getCurrentUserCapacity, updateCurrentUserCapacity, updateCurrentUserHabitConfirm,
 } from "./auth.service.js";
 import { authGuard } from "../../middleware/auth.hooks.js";
 import { config } from "../../config.js";
@@ -25,6 +25,10 @@ const changePasswordSchema = z.object({
 
 const updateCapacitySchema = z.object({
   capacity: capacitySchema.nullable(),
+});
+
+const updateHabitConfirmSchema = z.object({
+  confirmHabitCompletion: z.boolean(),
 });
 
 export async function authRoutes(app: FastifyInstance) {
@@ -133,6 +137,18 @@ export async function authRoutes(app: FastifyInstance) {
 
     try {
       return reply.send({ capacity: updateCurrentUserCapacity(authUser.id, input.capacity) });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string };
+      return reply.status(e.statusCode || 500).send({ error: { code: e.code || "UPDATE_FAILED", message: e.message } });
+    }
+  });
+
+  app.put("/me/habit-confirm", { preHandler: authGuard }, async (request, reply) => {
+    const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
+    const input = updateHabitConfirmSchema.parse(request.body);
+
+    try {
+      return reply.send({ user: await updateCurrentUserHabitConfirm(authUser.id, input.confirmHabitCompletion) });
     } catch (err) {
       const e = err as { statusCode?: number; code?: string; message?: string };
       return reply.status(e.statusCode || 500).send({ error: { code: e.code || "UPDATE_FAILED", message: e.message } });

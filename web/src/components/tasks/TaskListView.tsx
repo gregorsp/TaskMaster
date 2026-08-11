@@ -17,6 +17,11 @@ const formatDate = (d: string | null) => {
   return new Date(d).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 };
 
+function renderHabitChip(task: Task) {
+  if (!task.isHabit) return null;
+  return <Chip size="small" label="Habit" color="success" variant="outlined" />;
+}
+
 function renderPriorityChip(task: Task) {
   if (!(task.isImportant || task.isUrgent)) return null;
   const label = task.isImportant && task.isUrgent ? "W+D" : task.isImportant ? "Wichtig" : "Dringend";
@@ -100,6 +105,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
                 <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
                   <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, flex: 1 }}>
                     {task.isPrivate && <LockIcon fontSize="small" color="action" sx={{ flexShrink: 0 }} />}
+                    {renderHabitChip(task)}
                     <Typography variant="body2" sx={{ overflowWrap: "anywhere", textDecoration: task.isCompleted ? "line-through" : undefined }}>
                       {task.title}
                     </Typography>
@@ -148,6 +154,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
                     <TableCell>
                       <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
                         {task.isPrivate && <LockIcon fontSize="small" color="action" />}
+                        {renderHabitChip(task)}
                         <Typography variant="body2" sx={{ overflowWrap: "anywhere", textDecoration: task.isCompleted ? "line-through" : undefined }}>{task.title}</Typography>
                         <AssigneeAvatars assignees={task.assignees} />
                         {renderPriorityChip(task)}

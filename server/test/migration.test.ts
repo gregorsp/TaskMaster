@@ -27,6 +27,16 @@ describe("Migration – Version State Machine", () => {
     closeDb();
   });
 
+  it("Habits: is_habit and confirm_habit_completion columns exist after migration", async () => {
+    await initDb();
+    migrate(getDb(), { migrationsFolder: "./src/db/migrations" });
+    ensureSchemaVersion();
+    const taskCols = getRawDb().exec("PRAGMA table_info(tasks)")[0].values.map((c) => c[1]);
+    expect(taskCols).toContain("is_habit");
+    const userCols = getRawDb().exec("PRAGMA table_info(users)")[0].values.map((c) => c[1]);
+    expect(userCols).toContain("confirm_habit_completion");
+    closeDb();
+  });
   it("UP_TO_DATE: after applying all migrations", async () => {
     await initDb();
     migrate(getDb(), { migrationsFolder: "./src/db/migrations" });

@@ -27,6 +27,7 @@ export function DashboardPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "done">("open");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [overdueFilter, setOverdueFilter] = useState(false);
+  const [habitFilter, setHabitFilter] = useState<"all" | "habits" | "no_habits">("all");
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
   const [sort, setSort] = useState<"createdAt" | "dueAt">("createdAt");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
@@ -45,6 +46,7 @@ export function DashboardPage() {
         isCompleted: statusFilter === "all" ? undefined : statusFilter === "done",
         categoryId: categoryFilter || undefined,
         isOverdue: overdueFilter || undefined,
+        isHabit: habitFilter === "all" ? undefined : habitFilter === "habits",
         assigneeIds: assigneeFilter.length > 0 ? assigneeFilter : undefined,
         sort,
         order: sortOrder,
@@ -55,7 +57,7 @@ export function DashboardPage() {
     } catch {
       notify("Fehler beim Laden der Aufgaben", "error");
     }
-  }, [page, search, statusFilter, categoryFilter, overdueFilter, assigneeFilter, sort, sortOrder]);
+  }, [page, search, statusFilter, categoryFilter, overdueFilter, assigneeFilter, sort, sortOrder, habitFilter]);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
@@ -108,6 +110,7 @@ export function DashboardPage() {
     statusFilter !== "open",
     categoryFilter !== "",
     overdueFilter,
+    habitFilter !== "all",
     assigneeFilter.length > 0,
   ].filter(Boolean).length;
 
@@ -188,6 +191,14 @@ export function DashboardPage() {
                   {u.displayName}
                 </MenuItem>
               ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <InputLabel>Habits</InputLabel>
+            <Select value={habitFilter} label="Habits" onChange={(e) => { setHabitFilter(e.target.value as typeof habitFilter); setPage(1); }}>
+              <MenuItem value="all">Alle anzeigen</MenuItem>
+              <MenuItem value="habits">Nur Habits</MenuItem>
+              <MenuItem value="no_habits">Ohne Habits</MenuItem>
             </Select>
           </FormControl>
           {overdueCount > 0 ? (

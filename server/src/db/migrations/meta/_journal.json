@@ -78,6 +78,13 @@
       "when": 1786510000000,
       "tag": "0010_brave_occurrence_date",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1786600000000,
+      "tag": "0011_abandoned_slipstream",
+      "breakpoints": true
     }
   ]
 }

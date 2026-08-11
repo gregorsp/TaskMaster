@@ -37,6 +37,7 @@ function userToResponse(user: typeof users.$inferSelect) {
     isAdmin: user.isAdmin,
     profilePicture: getProfilePictureUrl(user.profilePicture),
     capacity: parseCapacity(user.capacity),
+    confirmHabitCompletion: user.confirmHabitCompletion,
   };
 }
 
@@ -176,4 +177,16 @@ export function updateCurrentUserCapacity(id: string, capacity: Capacity | null)
   const serialized = serializeCapacity(capacity);
   db.update(users).set({ capacity: serialized }).where(eq(users.id, id)).run();
   return parseCapacity(serialized);
+}
+
+export async function updateCurrentUserHabitConfirm(id: string, confirmHabitCompletion: boolean) {
+  const db = getDb();
+  const existing = db.select().from(users).where(eq(users.id, id)).get();
+  if (!existing) {
+    throw Object.assign(new Error("User not found"), { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+
+  db.update(users).set({ confirmHabitCompletion }).where(eq(users.id, id)).run();
+  const updated = db.select().from(users).where(eq(users.id, id)).get()!;
+  return userToResponse(updated);
 }

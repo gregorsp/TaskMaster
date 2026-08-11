@@ -1,6 +1,6 @@
-import { eq, and, SQL, ne, isNotNull } from "drizzle-orm";
+import { eq, and, SQL, ne, isNotNull, inArray } from "drizzle-orm";
 import { getDb } from "../../db/client.js";
-import { tasks, taskAssignees, appMeta, taskOccurrences, users } from "../../db/schema.js";
+import { tasks, taskAssignees, appMeta, taskOccurrences, users, taskCategories, categories } from "../../db/schema.js";
 import { visibilityFilter } from "../../middleware/visibility.js";
 import { WEEKDAYS, parseCapacity } from "../../lib/capacity.js";
 import { enrichTask } from "../tasks/tasks.service.js";
@@ -37,11 +37,22 @@ interface PlanningDraft {
   lastModified: string;
 }
 
+export interface PlanningHabit {
+  id: string;
+  title: string;
+  description: string | null;
+  isImportant: boolean;
+  pomodoros: number | null;
+  categories: { id: string; name: string; color: string }[];
+  completedToday: boolean;
+}
+
 export interface PlanningData {
   tasks: ReturnType<typeof enrichTask>[];
   days: LoadDay[];
   draft: PlanningDraft | null;
   horizonWarnings: HorizonWarning[];
+  habits: PlanningHabit[];
 }
 
 function startOfDay(date: Date): Date {
@@ -80,7 +91,56 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
     .all()
     .map((r) => r.tasks);
 
-  const enriched = taskRows.map(enrichTask);
+  const habitRows = taskRows.filter((t) => t.isHabit);
+  const normalRows = taskRows.filter((t) => !t.isHabit);
+
+  const enriched = normalRows.map(enrichTask);
+
+  // Habit completion status for today (habits are shown fixed, not plannable)
+  const todayKey = isoDate(new Date());
+  const habitIds = habitRows.map((h) => h.id);
+  const habitOccurrences = habitIds.length > 0
+    ? db.select().from(taskOccurrences)
+        .where(inArray(taskOccurrences.taskId, habitIds))
+        .all()
+    : [];
+  const completedToday = new Set<string>();
+  for (const o of habitOccurrences) {
+    const d = o.occurrenceDate instanceof Date ? o.occurrenceDate : new Date(o.occurrenceDate as unknown as string);
+    if (o.isCompleted && isoDate(d) === todayKey) completedToday.add(o.taskId);
+  }
+
+  const habitCategories = new Map<string, { id: string; name: string; color: string }[]>();
+  if (habitIds.length > 0) {
+    const catRows = db.select({
+      taskId: taskCategories.taskId,
+      id: categories.id,
+      name: categories.name,
+      color: categories.color,
+    })
+      .from(taskCategories)
+      .innerJoin(categories, eq(taskCategories.categoryId, categories.id))
+      .where(inArray(taskCategories.taskId, habitIds))
+      .all();
+    for (const r of catRows) {
+      const list = habitCategories.get(r.taskId) || [];
+      list.push({ id: r.id, name: r.name, color: r.color });
+      habitCategories.set(r.taskId, list);
+    }
+  }
+
+  const habits: PlanningHabit[] = habitRows
+    .filter((h) => h.createdById === userId)
+    .map((h) => ({
+      id: h.id,
+      title: h.title,
+      description: h.description,
+      isImportant: h.isImportant,
+      pomodoros: h.pomodoros,
+      categories: habitCategories.get(h.id) || [],
+      completedToday: completedToday.has(h.id),
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title, "de"));
 
   const taskById = new Map(enriched.map((t) => [t.id, t]));
 
@@ -194,7 +254,7 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
 
   const draft = loadDraft(userId);
 
-  return { tasks: enriched, days, draft, horizonWarnings };
+  return { tasks: enriched, days, draft, horizonWarnings, habits };
 }
 
 export function loadDraft(userId: string): PlanningDraft | null {
@@ -248,6 +308,8 @@ export function confirmPlanning(userId: string): { updated: number } {
 
   let updated = 0;
   for (const [taskId, plannedDateStr] of Object.entries(draft.changes)) {
+    const target = db.select({ isHabit: tasks.isHabit }).from(tasks).where(eq(tasks.id, taskId)).get();
+    if (target?.isHabit) continue;
     const plannedDate = plannedDateStr ? new Date(plannedDateStr) : null;
     db.update(tasks)
       .set({ plannedDate })

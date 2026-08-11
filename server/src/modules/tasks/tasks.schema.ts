@@ -7,6 +7,7 @@ export const createTaskSchema = z.object({
   isImportant: z.boolean().default(false),
   pomodoros: z.number().int().min(1).max(999).nullable().optional(),
   isPrivate: z.boolean().default(false),
+  isHabit: z.boolean().default(false),
   urgencyMode: z.enum(["never", "always", "before_days", "before_percent"]).default("before_days"),
   urgencyValue: z.number().int().min(1).max(99).optional().nullable(),
   recurrenceType: z.enum(["none", "rrule", "on_completion"]).default("none"),
@@ -24,6 +25,7 @@ export const updateTaskSchema = z.object({
   isImportant: z.boolean().optional(),
   pomodoros: z.number().int().min(1).max(999).nullable().optional(),
   isPrivate: z.boolean().optional(),
+  isHabit: z.boolean().optional(),
   urgencyMode: z.enum(["never", "always", "before_days", "before_percent"]).optional(),
   urgencyValue: z.number().int().min(1).max(99).optional().nullable(),
   recurrenceType: z.enum(["none", "rrule", "on_completion"]).optional(),
@@ -42,6 +44,10 @@ export const completeTaskSchema = z.object({
   cascade: z.boolean().optional(),
   occurrenceDate: z.string().optional(),
   recurringCompletions: z.record(z.string()).optional(),
+});
+
+export const reopenTaskSchema = z.object({
+  occurrenceDate: z.string().optional(),
 });
 
 export const addLinkSchema = z.object({

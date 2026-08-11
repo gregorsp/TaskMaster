@@ -25,6 +25,7 @@ export interface Task {
   urgencyMode: "never" | "always" | "before_days" | "before_percent";
   urgencyValue: number | null;
   isPrivate: boolean;
+  isHabit: boolean;
   recurrenceType: "none" | "rrule" | "on_completion";
   recurrenceRule: string | null;
   parentId: string | null;
@@ -64,6 +65,7 @@ export interface TaskFilters {
   isOverdue?: boolean;
   important?: boolean;
   urgent?: boolean;
+  isHabit?: boolean;
   search?: string;
   sort?: "createdAt" | "dueAt" | "title";
   order?: "asc" | "desc";
@@ -78,6 +80,7 @@ export interface CreateTaskInput {
   isImportant?: boolean;
   pomodoros?: number | null;
   isPrivate?: boolean;
+  isHabit?: boolean;
   urgencyMode?: "never" | "always" | "before_days" | "before_percent";
   urgencyValue?: number | null;
   recurrenceType?: "none" | "rrule" | "on_completion";
@@ -117,6 +120,7 @@ export interface UpdateTaskInput {
   isUrgent?: boolean;
   pomodoros?: number | null;
   isPrivate?: boolean;
+  isHabit?: boolean;
   urgencyMode?: "never" | "always" | "before_days" | "before_percent";
   urgencyValue?: number | null;
   recurrenceType?: "none" | "rrule" | "on_completion";
@@ -137,6 +141,7 @@ export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResp
   if (filters.isOverdue !== undefined) params.set("isOverdue", String(filters.isOverdue));
   if (filters.important !== undefined) params.set("important", String(filters.important));
   if (filters.urgent !== undefined) params.set("urgent", String(filters.urgent));
+  if (filters.isHabit !== undefined) params.set("isHabit", String(filters.isHabit));
   if (filters.search) params.set("search", filters.search);
   if (filters.sort) params.set("sort", filters.sort);
   if (filters.order) params.set("order", filters.order);
@@ -171,8 +176,8 @@ export async function completeTask(id: string, nextDueAt?: string, comment?: str
   return data;
 }
 
-export async function reopenTask(id: string): Promise<void> {
-  await client.post(`/tasks/${id}/reopen`);
+export async function reopenTask(id: string, occurrenceDate?: string): Promise<void> {
+  await client.post(`/tasks/${id}/reopen`, occurrenceDate ? { occurrenceDate } : {});
 }
 
 export async function getSubtasks(id: string): Promise<SubtaskResponse> {

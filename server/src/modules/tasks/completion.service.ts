@@ -22,6 +22,46 @@ export async function completeTask(
 
   const now = new Date();
 
+  const parentId = task.parentId;
+
+  if (task.isHabit) {
+    const occDate = occurrenceDate
+      ? new Date(new Date(occurrenceDate).getFullYear(), new Date(occurrenceDate).getMonth(), new Date(occurrenceDate).getDate())
+      : new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const existing = db.select().from(taskOccurrences)
+      .where(and(eq(taskOccurrences.taskId, taskId), eq(taskOccurrences.occurrenceDate, occDate)))
+      .get();
+
+    if (existing) {
+      db.update(taskOccurrences).set({
+        isCompleted: true, completedAt: now, completedById, note: comment || null,
+      }).where(eq(taskOccurrences.id, existing.id)).run();
+    } else {
+      db.insert(taskOccurrences).values({
+        id: uuid(), taskId, occurrenceDate: occDate,
+        isCompleted: true, completedAt: now, completedById,
+        note: comment || null, createdAt: now,
+      }).run();
+    }
+
+    db.update(tasks).set({ lastCompletedAt: now, completedAt: now, completedById })
+      .where(eq(tasks.id, taskId)).run();
+
+    const evtHabit = {
+      id: uuid(),
+      taskId,
+      userId: completedById,
+      type: "completed" as const,
+      content: comment || null,
+      occurrenceDate: occDate,
+      createdAt: now,
+    };
+    db.insert(taskEvents).values(evtHabit).run();
+
+    return { completed: true, nextDueAt: null, parentId };
+  }
+
   const hasOpenSubtasks = getOpenSubtaskCount(taskId) > 0;
 
   if (cascade && hasOpenSubtasks) {
@@ -91,8 +131,6 @@ export async function completeTask(
   };
   db.insert(taskEvents).values(evt).run();
 
-  const parentId = task.parentId;
-
   if (task.recurrenceType === "rrule") {
     if (occurrenceDate) {
       const occDate = new Date(occurrenceDate);
@@ -149,10 +187,39 @@ export async function completeTask(
   return { completed: true, nextDueAt: null, parentId };
 }
 
-export function reopenTask(taskId: string) {
+export function reopenTask(taskId: string, occurrenceDate?: string) {
   const db = getDb();
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) throw Object.assign(new Error("Task not found"), { statusCode: 404, code: "NOT_FOUND" });
+
+  if (task.isHabit) {
+    const occDate = occurrenceDate
+      ? new Date(occurrenceDate)
+      : new Date(task.lastCompletedAt ?? new Date());
+    const occDay = new Date(occDate.getFullYear(), occDate.getMonth(), occDate.getDate());
+
+    const existing = db.select().from(taskOccurrences)
+      .where(and(eq(taskOccurrences.taskId, taskId), eq(taskOccurrences.occurrenceDate, occDay)))
+      .get();
+    if (existing) {
+      db.update(taskOccurrences).set({
+        isCompleted: false, completedAt: null, completedById: null,
+      }).where(eq(taskOccurrences.id, existing.id)).run();
+    }
+
+    const evt = {
+      id: uuid(),
+      taskId,
+      userId: task.completedById || task.createdById,
+      type: "reopened" as const,
+      content: null,
+      occurrenceDate: occDay,
+      createdAt: new Date(),
+    };
+    db.insert(taskEvents).values(evt).run();
+
+    return { ok: true };
+  }
 
   if (task.recurrenceType !== "none") {
     throw Object.assign(new Error("Only one-time tasks can be reopened"), { statusCode: 400, code: "CANNOT_REOPEN" });

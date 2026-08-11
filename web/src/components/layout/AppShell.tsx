@@ -24,6 +24,7 @@ import {
   Dashboard as DashboardIcon,
   CalendarMonth as CalendarIcon,
   EventNote as PlanIcon,
+  Today as TodayIcon,
   GridView as MatrixIcon,
   Label as LabelIcon,
   AdminPanelSettings as AdminIcon,
@@ -65,6 +66,7 @@ export function AppShell() {
 
   const navItems: NavItem[] = [
     { path: "/", label: "Aufgaben", icon: <DashboardIcon /> },
+    { path: "/daily", label: "Tagesansicht", icon: <TodayIcon /> },
     { path: "/calendar", label: "Kalender", icon: <CalendarIcon /> },
     { path: "/plan", label: "Planung", icon: <PlanIcon /> },
     { path: "/matrix", label: "Matrix", icon: <MatrixIcon /> },

@@ -4,7 +4,7 @@ import {
   CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
   Chip,
 } from "@mui/material";
-import { ChevronLeft, ChevronRight } from "@mui/icons-material";
+import { ChevronLeft, ChevronRight, CheckCircle as CheckCircleIcon } from "@mui/icons-material";
 import { fetchPlanning, saveDraft, discardDraft, confirmPlanning, type LoadDay, type PlanningDraft, type PlanningData } from "../api/planningApi";
 import type { Task } from "../api/tasksApi";
 import { createTaskOccurrence, deleteTaskOccurrence } from "../api/tasksApi";
@@ -482,6 +482,37 @@ export function PlanningPage() {
         </Stack>
       )}
 
+      {!loading && !error && data && data.habits.length > 0 && (
+        <Paper variant="outlined" sx={{ mt: 2, p: 1.5 }}>
+          <Stack direction="row" alignItems="center" spacing={1} mb={0.75}>
+            <CheckCircleIcon fontSize="small" color="success" />
+            <Typography variant="subtitle2" fontWeight={600}>
+              Habits (heute)
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {data.habits.filter((h) => h.completedToday).length}/{data.habits.length} erledigt
+            </Typography>
+          </Stack>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            {data.habits.map((habit) => (
+              <Chip
+                key={habit.id}
+                label={habit.title}
+                icon={<CheckCircleIcon sx={{ fontSize: 16 }} />}
+                onClick={() => push({ id: habit.id, title: habit.title })}
+                color={habit.completedToday ? "success" : "default"}
+                variant={habit.completedToday ? "filled" : "outlined"}
+                sx={{
+                  textDecoration: habit.completedToday ? "line-through" : undefined,
+                  cursor: "pointer",
+                }}
+                title="Habit öffnen"
+              />
+            ))}
+          </Stack>
+        </Paper>
+      )}
+
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2 }} spacing={2}>
         <Box>
           {hasUnconfirmed && (
@@ -561,6 +592,6 @@ export function PlanningPage() {
           </DialogContent>
         </Dialog>
       )}
-    </Box>
-  );
+
+    </Box>  );
 }

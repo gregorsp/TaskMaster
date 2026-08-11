@@ -31,11 +31,22 @@ export interface PlanningDraft {
   lastModified: string;
 }
 
+export interface PlanningHabit {
+  id: string;
+  title: string;
+  description: string | null;
+  isImportant: boolean;
+  pomodoros: number | null;
+  categories: { id: string; name: string; color: string }[];
+  completedToday: boolean;
+}
+
 export interface PlanningData {
   tasks: import("./tasksApi").Task[];
   days: LoadDay[];
   draft: PlanningDraft | null;
   horizonWarnings: HorizonWarning[];
+  habits: PlanningHabit[];
 }
 
 export async function fetchPlanning(from: string, to: string, userId?: string): Promise<PlanningData> {

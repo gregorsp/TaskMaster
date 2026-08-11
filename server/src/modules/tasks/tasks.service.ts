@@ -81,6 +81,11 @@ export function listTasks(
   if (query.urgent !== undefined && (query.urgent === "true" || query.urgent === true))
     conditions.push(eq(tasks.isUrgent, true));
 
+  if (query.isHabit !== undefined) {
+    const isHabit = query.isHabit === "true" || query.isHabit === true;
+    conditions.push(eq(tasks.isHabit, isHabit));
+  }
+
   if (query.search) {
     const term = `%${query.search}%`;
     conditions.push(or(like(tasks.title, term), like(tasks.description, term)) as SQL);
@@ -187,9 +192,11 @@ export async function getTask(id: string, userId: string, isAdmin: boolean) {
 
 export function createTask(input: CreateTaskInput, createdById: string) {
   const db = getDb();
-  const dueAtVal = input.recurrenceType === "rrule" ? null
+  const isHabit = input.isHabit ?? false;
+  const dueAtVal = isHabit ? null
+    : input.recurrenceType === "rrule" ? null
     : input.dueAt ? new Date(input.dueAt) : null;
-  const baseDateVal = input.recurrenceType === "rrule" && input.dueAt
+  const baseDateVal = !isHabit && input.recurrenceType === "rrule" && input.dueAt
     ? new Date(input.dueAt) : null;
 
   const task = {
@@ -205,13 +212,14 @@ export function createTask(input: CreateTaskInput, createdById: string) {
     isImportant: input.isImportant ?? false,
     pomodoros: input.pomodoros ?? null,
     isUrgent: false, // computed field
-    urgencyMode: input.urgencyMode ?? "before_days",
-    urgencyValue: input.urgencyValue ?? 3,
-    isPrivate: input.isPrivate ?? false,
-    recurrenceType: input.recurrenceType ?? "none",
-    recurrenceRule: input.recurrenceRule || null,
-    parentId: input.parentId || null,
-    plannedDate: input.plannedDate ? new Date(input.plannedDate) : null,
+    urgencyMode: isHabit ? "never" : (input.urgencyMode ?? "before_days"),
+    urgencyValue: isHabit ? null : (input.urgencyValue ?? 3),
+    isPrivate: isHabit ? true : (input.isPrivate ?? false),
+    isHabit,
+    recurrenceType: isHabit ? "none" : (input.recurrenceType ?? "none"),
+    recurrenceRule: isHabit ? null : (input.recurrenceRule || null),
+    parentId: isHabit ? null : (input.parentId || null),
+    plannedDate: isHabit ? null : (input.plannedDate ? new Date(input.plannedDate) : null),
     createdById,
     createdAt: new Date(),
   };
@@ -222,10 +230,12 @@ export function createTask(input: CreateTaskInput, createdById: string) {
   seen.add(createdById);
   db.insert(taskAssignees).values({ taskId: task.id, userId: createdById }).run();
 
-  for (const assigneeId of (input.assigneeIds || [])) {
-    if (!seen.has(assigneeId)) {
-      seen.add(assigneeId);
-      db.insert(taskAssignees).values({ taskId: task.id, userId: assigneeId }).run();
+  if (!isHabit) {
+    for (const assigneeId of (input.assigneeIds || [])) {
+      if (!seen.has(assigneeId)) {
+        seen.add(assigneeId);
+        db.insert(taskAssignees).values({ taskId: task.id, userId: assigneeId }).run();
+      }
     }
   }
   for (const catId of (input.categoryIds || [])) {
@@ -240,19 +250,35 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
   const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
   if (!existing) return null;
 
+  const isHabit = input.isHabit ?? existing.isHabit;
+
   const updates: Record<string, unknown> = {};
   if (input.title !== undefined) updates.title = input.title;
   if (input.description !== undefined) updates.description = input.description;
   if (input.isImportant !== undefined) updates.isImportant = input.isImportant;
   if (input.pomodoros !== undefined) updates.pomodoros = input.pomodoros;
-  if (input.isPrivate !== undefined) updates.isPrivate = input.isPrivate;
+  if (input.isPrivate !== undefined && !isHabit) updates.isPrivate = input.isPrivate;
   if (input.urgencyMode !== undefined) updates.urgencyMode = input.urgencyMode;
   if (input.urgencyValue !== undefined) updates.urgencyValue = input.urgencyValue;
+  if (input.isHabit !== undefined && input.isHabit !== existing.isHabit) updates.isHabit = input.isHabit;
+
+  const becomingHabit = input.isHabit === true && existing.isHabit !== true;
+  if (becomingHabit) {
+    updates.isPrivate = true;
+    updates.plannedDate = null;
+    updates.dueAt = null;
+    updates.baseDate = null;
+    updates.recurrenceType = "none";
+    updates.recurrenceRule = null;
+    updates.parentId = null;
+    updates.urgencyMode = "never";
+    updates.urgencyValue = null;
+  }
 
   const recurrenceChanging = (input.recurrenceType !== undefined && input.recurrenceType !== existing.recurrenceType)
     || (input.recurrenceRule !== undefined && input.recurrenceRule !== existing.recurrenceRule);
 
-  if (recurrenceChanging && !input.forceUpdateRecurrence) {
+  if (recurrenceChanging && !input.forceUpdateRecurrence && !becomingHabit) {
     const plannedRows = db.select({ id: taskOccurrences.id })
       .from(taskOccurrences)
       .where(and(eq(taskOccurrences.taskId, id), isNotNull(taskOccurrences.plannedDate)))
@@ -262,12 +288,12 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
     }
   }
 
-  if (input.recurrenceType !== undefined) updates.recurrenceType = input.recurrenceType;
-  if (input.recurrenceRule !== undefined) updates.recurrenceRule = input.recurrenceRule;
-  if (input.parentId !== undefined) updates.parentId = input.parentId;
-  if (input.plannedDate !== undefined) updates.plannedDate = input.plannedDate ? new Date(input.plannedDate) : null;
+  if (input.recurrenceType !== undefined && !isHabit) updates.recurrenceType = input.recurrenceType;
+  if (input.recurrenceRule !== undefined && !isHabit) updates.recurrenceRule = input.recurrenceRule;
+  if (input.parentId !== undefined && !isHabit) updates.parentId = input.parentId;
+  if (input.plannedDate !== undefined && !isHabit) updates.plannedDate = input.plannedDate ? new Date(input.plannedDate) : null;
 
-  if (input.dueAt !== undefined) {
+  if (input.dueAt !== undefined && !isHabit) {
     if (input.recurrenceType === "rrule" || existing.recurrenceType === "rrule") {
       updates.baseDate = input.dueAt ? new Date(input.dueAt) : null;
       updates.dueAt = null;
@@ -286,11 +312,21 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
       .run();
   }
 
-  if (input.assigneeIds !== undefined) {
+  if (becomingHabit) {
+    db.delete(taskOccurrences)
+      .where(eq(taskOccurrences.taskId, id))
+      .run();
+  }
+
+  if (input.assigneeIds !== undefined && !isHabit) {
     db.delete(taskAssignees).where(eq(taskAssignees.taskId, id)).run();
     for (const aid of input.assigneeIds) {
       db.insert(taskAssignees).values({ taskId: id, userId: aid }).run();
     }
+  }
+  if (isHabit) {
+    db.delete(taskAssignees).where(eq(taskAssignees.taskId, id)).run();
+    db.insert(taskAssignees).values({ taskId: id, userId: userId }).run();
   }
   if (input.categoryIds !== undefined) {
     db.delete(taskCategories).where(eq(taskCategories.taskId, id)).run();

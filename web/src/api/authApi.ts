@@ -8,6 +8,7 @@ export interface User {
   isAdmin: boolean;
   profilePicture: string | null;
   capacity: Record<string, number> | null;
+  confirmHabitCompletion: boolean;
 }
 
 export interface AuthResponse {
@@ -80,4 +81,9 @@ export async function fetchCapacity(): Promise<Record<string, number> | null> {
 export async function updateCapacity(capacity: Record<string, number> | null): Promise<Record<string, number> | null> {
   const { data } = await client.put<{ capacity: Record<string, number> | null }>("/auth/me/capacity", { capacity });
   return data.capacity;
+}
+
+export async function updateHabitConfirm(confirmHabitCompletion: boolean): Promise<User> {
+  const { data } = await client.put<{ user: User }>("/auth/me/habit-confirm", { confirmHabitCompletion });
+  return data.user;
 }

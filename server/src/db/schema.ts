@@ -9,6 +9,7 @@ export const users = sqliteTable("users", {
   isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
   profilePicture: text("profile_picture"),
   capacity: text("capacity"),
+  confirmHabitCompletion: integer("confirm_habit_completion", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
@@ -38,6 +39,7 @@ export const tasks = sqliteTable("tasks", {
   urgencyMode: text("urgency_mode").notNull().default("before_days"),
   urgencyValue: integer("urgency_value"),
   isPrivate: integer("is_private", { mode: "boolean" }).notNull().default(false),
+  isHabit: integer("is_habit", { mode: "boolean" }).notNull().default(false),
   recurrenceType: text("recurrence_type").notNull().default("none"),
   recurrenceRule: text("recurrence_rule"),
   parentId: text("parent_id"),

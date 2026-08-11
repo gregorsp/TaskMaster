@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import {
   Box, Typography, TextField, Button, Stack, Avatar, Paper, Divider, Slider,
+  FormControlLabel, Switch,
 } from "@mui/material";
 import { PhotoCamera as PhotoCameraIcon, Delete as DeleteIcon, Edit as EditIcon } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
 import { useNotify } from "../context/NotifyContext";
-import { updateProfile, changePassword, uploadProfilePicture, deleteProfilePicture, updateCapacity } from "../api/authApi";
+import { updateProfile, changePassword, uploadProfilePicture, deleteProfilePicture, updateCapacity, updateHabitConfirm } from "../api/authApi";
 
 const WEEKDAYS = [
   { key: "mon", label: "Mo" },
@@ -53,6 +54,19 @@ export function ProfilePage() {
 
   const [capacity, setCapacity] = useState<Record<string, number>>(DEFAULT_CAPACITY);
   const [savingCapacity, setSavingCapacity] = useState(false);
+  const [confirmHabitCompletion, setConfirmHabitCompletion] = useState(user?.confirmHabitCompletion ?? true);
+
+  const handleHabitConfirmChange = async (value: boolean) => {
+    setConfirmHabitCompletion(value);
+    try {
+      const updated = await updateHabitConfirm(value);
+      login(updated);
+      notify("Einstellung gespeichert", "success");
+    } catch {
+      setConfirmHabitCompletion(user?.confirmHabitCompletion ?? true);
+      notify("Fehler beim Speichern", "error");
+    }
+  };
 
   useEffect(() => {
     const c = user?.capacity;
@@ -314,6 +328,27 @@ export function ProfilePage() {
           <Button variant="contained" onClick={handleSaveCapacity} loading={savingCapacity}>
             Speichern
           </Button>
+        </Stack>
+      </Paper>
+
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" mb={1}>Einstellungen</Typography>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+          <Box>
+            <Typography variant="body1">Habit-Erledigung bestätigen</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Beim Abhaken eines Habits in der Tagesansicht nachfragen. Deaktiviert, um Habits ohne Bestätigung abzuhaken.
+            </Typography>
+          </Box>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={confirmHabitCompletion}
+                onChange={(e) => handleHabitConfirmChange(e.target.checked)}
+              />
+            }
+            label=""
+          />
         </Stack>
       </Paper>
 

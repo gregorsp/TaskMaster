@@ -7,7 +7,7 @@ import {
   getTaskOccurrences, createTaskOccurrence, deleteTaskOccurrence, getUpcomingOccurrences,
 } from "./tasks.service.js";
 import { completeTask, reopenTask, getTaskEvents, addTaskComment } from "./completion.service.js";
-import { createTaskSchema, updateTaskSchema, completeTaskSchema, addLinkSchema, commentSchema } from "./tasks.schema.js";
+import { createTaskSchema, updateTaskSchema, completeTaskSchema, addLinkSchema, commentSchema, reopenTaskSchema } from "./tasks.schema.js";
 
 function getPayload(request: unknown) {
   return request as { id: string; isAdmin: boolean };
@@ -112,7 +112,8 @@ export async function tasksRoutes(app: FastifyInstance) {
     if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
     try {
-      return reopenTask(id);
+      const input = reopenTaskSchema.parse(request.body ?? {});
+      return reopenTask(id, input.occurrenceDate);
     } catch (err) {
       const e = err as { statusCode?: number; code?: string; message?: string };
       return reply.status(e.statusCode || 500).send({ error: { code: e.code || "INTERNAL_ERROR", message: e.message } });
