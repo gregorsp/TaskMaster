@@ -7,11 +7,13 @@ import {
 import { ChevronLeft, ChevronRight } from "@mui/icons-material";
 import { fetchPlanning, saveDraft, discardDraft, confirmPlanning, type LoadDay, type PlanningDraft, type PlanningData } from "../api/planningApi";
 import type { Task } from "../api/tasksApi";
+import { createTaskOccurrence, deleteTaskOccurrence } from "../api/tasksApi";
 import { listCategories, type Category } from "../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../api/usersApi";
 import { TaskTree } from "../components/tasks/TaskTree";
 import type { TaskWithMeta } from "../components/tasks/TaskTree";
 import { collectDescendantIds } from "../components/tasks/TaskTree";
+import { OccurrencePicker } from "../components/tasks/OccurrencePicker";
 import { useModalStack } from "../components/tasks/ModalStackProvider";
 import { useNotify } from "../context/NotifyContext";
 import { useAuth } from "../context/AuthContext";
@@ -65,6 +67,10 @@ export function PlanningPage() {
   const [saving, setSaving] = useState(false);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [userIdFilter, setUserIdFilter] = useState("");
+  const [occurrenceDialogOpen, setOccurrenceDialogOpen] = useState(false);
+  const [occurrenceTask, setOccurrenceTask] = useState<TaskWithMeta | null>(null);
+  const [occurrenceTargetDate, setOccurrenceTargetDate] = useState("");
+  const [occurrenceDate, setOccurrenceDate] = useState("");
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -114,6 +120,16 @@ export function PlanningPage() {
 
   const dropOnDay = useCallback(
     (taskIds: string[], targetDate: string) => {
+      const allTasks = (data?.tasks ?? []) as TaskWithMeta[];
+      const recurringTasks = allTasks.filter((t) => taskIds.includes(t.id) && t.recurrenceType === "rrule");
+      if (recurringTasks.length > 0) {
+        setOccurrenceTask(recurringTasks[0]);
+        setOccurrenceTargetDate(targetDate);
+        setOccurrenceDate("");
+        setOccurrenceDialogOpen(true);
+        return;
+      }
+
       const currentChanges = { ...draft?.changes ?? {} };
       for (const taskId of taskIds) {
         currentChanges[taskId] = targetDate;
@@ -122,8 +138,30 @@ export function PlanningPage() {
       setHasUnconfirmed(true);
       autosaveDraft(currentChanges);
     },
-    [draft, autosaveDraft]
+    [draft, autosaveDraft, data]
   );
+
+  const handleOccurrencePlan = async () => {
+    if (!occurrenceTask || !occurrenceTargetDate || !occurrenceDate) return;
+    try {
+      await createTaskOccurrence(occurrenceTask.id, occurrenceDate, occurrenceTargetDate);
+      notify("Wiederkehrende Aufgabe geplant");
+      setOccurrenceDialogOpen(false);
+      await fetchData();
+    } catch {
+      notify("Fehler beim Planen", "error");
+    }
+  };
+
+  const handleRemoveOccurrence = async (occurrenceId: string, taskId: string) => {
+    try {
+      await deleteTaskOccurrence(taskId, occurrenceId);
+      notify("Planung entfernt");
+      await fetchData();
+    } catch {
+      notify("Fehler beim Entfernen", "error");
+    }
+  };
 
   const removeFromDay = useCallback(
     (taskId: string) => {
@@ -206,10 +244,13 @@ export function PlanningPage() {
     task: TaskWithMeta;
     plannedDate: string | null;
     type: "due" | "planned";
+    occurrenceId: string | null;
+    occurrenceDate: string | null;
   }
 
   const getDayTasks = (dayDate: string): DayTaskEntry[] => {
     const entries: DayTaskEntry[] = [];
+    const day = days.find((d) => d.date === dayDate);
 
     for (const task of tasksWithMeta) {
       if (task.isCompleted) continue;
@@ -218,9 +259,26 @@ export function PlanningPage() {
       const effectiveDue = task.effectiveDueAt;
 
       if (effectivePlanned && isoDateOnly(new Date(effectivePlanned)) === dayDate) {
-        entries.push({ task, plannedDate: effectivePlanned, type: "planned" });
+        entries.push({ task, plannedDate: effectivePlanned, type: "planned", occurrenceId: null, occurrenceDate: null });
       } else if (effectiveDue && isoDateOnly(new Date(effectiveDue)) === dayDate && !effectivePlanned) {
-        entries.push({ task, plannedDate: null, type: "due" });
+        entries.push({ task, plannedDate: null, type: "due", occurrenceId: null, occurrenceDate: null });
+      }
+    }
+
+    if (day) {
+      for (const t of day.tasks) {
+        if (t.occurrenceId && t.occurrenceDate) {
+          const task = tasksWithMeta.find((twm) => twm.id === t.id);
+          if (task && !task.isCompleted) {
+            entries.push({
+              task,
+              plannedDate: t.occurrenceDate,
+              type: "planned",
+              occurrenceId: t.occurrenceId,
+              occurrenceDate: t.occurrenceDate,
+            });
+          }
+        }
       }
     }
 
@@ -233,7 +291,7 @@ export function PlanningPage() {
   };
 
   function renderDayTask(entry: DayTaskEntry, level: number, dayDate: string) {
-    const { task, plannedDate, type } = entry;
+    const { task, plannedDate, type, occurrenceId, occurrenceDate } = entry;
     const isPlanned = type === "planned";
     const isOverdue = task.isOverdue;
     const isCompleted = task.isCompleted;
@@ -279,6 +337,14 @@ export function PlanningPage() {
                 {formatPlannedDate(plannedDate)}
               </Typography>
             )}
+            {occurrenceDate && (
+              <Chip
+                size="small"
+                label={`Fällig: ${new Date(occurrenceDate).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`}
+                onDelete={occurrenceId ? () => handleRemoveOccurrence(occurrenceId, task.id) : undefined}
+                sx={{ fontSize: 10, height: 18 }}
+              />
+            )}
             {isOverdue && (
               <Typography variant="caption" color="error.main" fontWeight={600}>
                 überfällig
@@ -301,7 +367,7 @@ export function PlanningPage() {
       if (!effectivePlanned) continue;
       if (isoDateOnly(new Date(effectivePlanned)) !== dayDate) continue;
 
-      result.push({ task, plannedDate: effectivePlanned, type: "planned" });
+      result.push({ task, plannedDate: effectivePlanned, type: "planned", occurrenceId: null, occurrenceDate: null });
     }
     return result;
   };
@@ -470,6 +536,31 @@ export function PlanningPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {occurrenceTask && (
+        <Dialog open={occurrenceDialogOpen} onClose={() => setOccurrenceDialogOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>Wiederkehrende Aufgabe planen</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} mt={1}>
+              <Typography variant="body2">
+                "{occurrenceTask.title}" für den {new Date(occurrenceTargetDate).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" })} planen.
+              </Typography>
+              <OccurrencePicker
+                taskId={occurrenceTask.id}
+                value={occurrenceDate}
+                onChange={setOccurrenceDate}
+                label="Welche Fälligkeit planen?"
+              />
+              <Stack direction="row" justifyContent="flex-end" gap={1}>
+                <Button onClick={() => setOccurrenceDialogOpen(false)}>Abbrechen</Button>
+                <Button variant="contained" onClick={handleOccurrencePlan} disabled={!occurrenceDate}>
+                  Planen
+                </Button>
+              </Stack>
+            </Stack>
+          </DialogContent>
+        </Dialog>
+      )}
     </Box>
   );
 }

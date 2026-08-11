@@ -66,6 +66,50 @@ export function isTaskOverdue(task: TaskLike): boolean {
   return false;
 }
 
+export interface OccurrenceInfo {
+  date: Date;
+  iso: string;
+  isCompleted: boolean;
+  completedAt: string | null;
+  isPlanned: boolean;
+  plannedDate: string | null;
+}
+
+export function getExpandedOccurrences(
+  ruleStr: string,
+  baseDate: Date,
+  count: number,
+  completedDates: Set<string>,
+  plannedOccurrences: Map<string, string>,
+  from?: Date
+): OccurrenceInfo[] {
+  try {
+    const base = RRule.parseString(ruleStr);
+    const rule = new RRule({ ...base, dtstart: baseDate });
+    const start = from || new Date();
+    const to = new Date();
+    to.setFullYear(to.getFullYear() + 2);
+    const dates = rule.between(start, to, true).slice(0, count);
+    return dates.map((d) => {
+      const iso = isoDateOnly(d);
+      return {
+        date: d,
+        iso,
+        isCompleted: completedDates.has(iso),
+        completedAt: null,
+        isPlanned: plannedOccurrences.has(iso),
+        plannedDate: plannedOccurrences.get(iso) || null,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+function isoDateOnly(d: Date): string {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+}
+
 export function computeIsUrgent(task: TaskLike): boolean {
   if (task.urgencyMode === "always") return true;
   if (task.urgencyMode === "never") return false;

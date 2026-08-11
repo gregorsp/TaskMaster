@@ -84,6 +84,7 @@ export const taskEvents = sqliteTable("task_events", {
     .references(() => users.id),
   type: text("type").notNull(),
   content: text("content"),
+  occurrenceDate: integer("occurrence_date", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
@@ -100,6 +101,20 @@ export const taskLinks = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.taskIdA, table.taskIdB] })]
 );
+
+export const taskOccurrences = sqliteTable("task_occurrences", {
+  id: text("id").primaryKey(),
+  taskId: text("task_id")
+    .notNull()
+    .references(() => tasks.id),
+  occurrenceDate: integer("occurrence_date", { mode: "timestamp_ms" }).notNull(),
+  plannedDate: integer("planned_date", { mode: "timestamp_ms" }),
+  isCompleted: integer("is_completed", { mode: "boolean" }).notNull().default(false),
+  completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  completedById: text("completed_by_id").references(() => users.id),
+  note: text("note"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
 
 export const appMeta = sqliteTable("app_meta", {
   key: text("key").primaryKey(),

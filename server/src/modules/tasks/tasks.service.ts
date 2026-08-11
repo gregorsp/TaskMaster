@@ -1,10 +1,10 @@
-import { eq, and, like, or, inArray, ne, SQL, sql as drizzleSql } from "drizzle-orm";
+import { eq, and, like, or, inArray, ne, SQL, sql as drizzleSql, isNotNull } from "drizzle-orm";
 import { v7 as uuid } from "uuid";
 import { getDb } from "../../db/client.js";
-import { tasks, taskAssignees, taskCategories, taskEvents, taskLinks, users, categories } from "../../db/schema.js";
+import { tasks, taskAssignees, taskCategories, taskEvents, taskLinks, taskOccurrences, users, categories } from "../../db/schema.js";
 import { visibilityFilter } from "../../middleware/visibility.js";
 import { parsePageQuery, paginate } from "../../lib/paging.js";
-import { getEffectiveDueAt, isTaskOverdue, computeIsUrgent } from "../calendar/recurrence.service.js";
+import { getEffectiveDueAt, isTaskOverdue, computeIsUrgent, getOccurrences } from "../calendar/recurrence.service.js";
 import { getProfilePictureUrl } from "../auth/profile.service.js";
 import type { CreateTaskInput, UpdateTaskInput } from "./tasks.schema.js";
 
@@ -248,6 +248,20 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
   if (input.isPrivate !== undefined) updates.isPrivate = input.isPrivate;
   if (input.urgencyMode !== undefined) updates.urgencyMode = input.urgencyMode;
   if (input.urgencyValue !== undefined) updates.urgencyValue = input.urgencyValue;
+
+  const recurrenceChanging = (input.recurrenceType !== undefined && input.recurrenceType !== existing.recurrenceType)
+    || (input.recurrenceRule !== undefined && input.recurrenceRule !== existing.recurrenceRule);
+
+  if (recurrenceChanging && !input.forceUpdateRecurrence) {
+    const plannedRows = db.select({ id: taskOccurrences.id })
+      .from(taskOccurrences)
+      .where(and(eq(taskOccurrences.taskId, id), isNotNull(taskOccurrences.plannedDate)))
+      .all();
+    if (plannedRows.length > 0) {
+      return { blocked: true, code: "WILL_DELETE_PLANNED_OCCURRENCES", count: plannedRows.length };
+    }
+  }
+
   if (input.recurrenceType !== undefined) updates.recurrenceType = input.recurrenceType;
   if (input.recurrenceRule !== undefined) updates.recurrenceRule = input.recurrenceRule;
   if (input.parentId !== undefined) updates.parentId = input.parentId;
@@ -264,6 +278,12 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
 
   if (Object.keys(updates).length > 0) {
     db.update(tasks).set(updates).where(eq(tasks.id, id)).run();
+  }
+
+  if (recurrenceChanging && input.forceUpdateRecurrence) {
+    db.delete(taskOccurrences)
+      .where(and(eq(taskOccurrences.taskId, id), isNotNull(taskOccurrences.plannedDate)))
+      .run();
   }
 
   if (input.assigneeIds !== undefined) {
@@ -329,7 +349,7 @@ export function getSubtasks(taskId: string) {
   };
 }
 
-function collectDescendantIds(taskId: string, result: Set<string>) {
+export function collectDescendantIds(taskId: string, result: Set<string>) {
   const db = getDb();
   const children = db.select({ id: tasks.id }).from(tasks).where(eq(tasks.parentId, taskId)).all();
   for (const child of children) {
@@ -400,4 +420,95 @@ export function removeTaskLink(taskId: string, linkedTaskId: string) {
   return { ok: true };
 }
 
+export function getTaskOccurrences(taskId: string) {
+  const db = getDb();
+  return db.select().from(taskOccurrences).where(eq(taskOccurrences.taskId, taskId)).all();
+}
 
+export function createTaskOccurrence(taskId: string, occurrenceDate: string, plannedDate: string | null) {
+  const db = getDb();
+  const occDate = new Date(occurrenceDate);
+  const existing = db.select().from(taskOccurrences)
+    .where(and(eq(taskOccurrences.taskId, taskId), eq(taskOccurrences.occurrenceDate, occDate)))
+    .get();
+
+  if (existing) {
+    db.update(taskOccurrences).set({ plannedDate: plannedDate ? new Date(plannedDate) : null })
+      .where(eq(taskOccurrences.id, existing.id)).run();
+    return existing;
+  }
+
+  const row = {
+    id: uuid(),
+    taskId,
+    occurrenceDate: occDate,
+    plannedDate: plannedDate ? new Date(plannedDate) : null,
+    isCompleted: false,
+    completedAt: null,
+    completedById: null,
+    note: null,
+    createdAt: new Date(),
+  };
+  db.insert(taskOccurrences).values(row).run();
+  return row;
+}
+
+export function deleteTaskOccurrence(occurrenceId: string) {
+  const db = getDb();
+  db.delete(taskOccurrences).where(eq(taskOccurrences.id, occurrenceId)).run();
+  return { ok: true };
+}
+
+export function getUpcomingOccurrences(taskId: string, count = 3, showPast = false) {
+  const db = getDb();
+  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+  if (!task || task.recurrenceType !== "rrule" || !task.recurrenceRule || !task.baseDate) {
+    return [];
+  }
+
+  const rows = db.select().from(taskOccurrences).where(eq(taskOccurrences.taskId, taskId)).all();
+
+  const completedDates = new Set<string>();
+  const plannedMap = new Map<string, string>();
+
+  for (const r of rows) {
+    const iso = r.occurrenceDate instanceof Date
+      ? new Date(r.occurrenceDate.getFullYear(), r.occurrenceDate.getMonth(), r.occurrenceDate.getDate()).toISOString()
+      : "";
+    if (r.isCompleted) completedDates.add(iso);
+    if (r.plannedDate) plannedMap.set(iso, r.plannedDate instanceof Date ? r.plannedDate.toISOString() : String(r.plannedDate));
+  }
+
+  const now = new Date();
+  const to = new Date();
+  to.setFullYear(to.getFullYear() + 2);
+
+  let dates: Date[];
+  if (showPast && task.baseDate) {
+    const past = getOccurrences(task.recurrenceRule, task.baseDate, now, task.baseDate);
+    const future = getOccurrences(task.recurrenceRule, now, to, task.baseDate).slice(0, count);
+    const seen = new Set<string>();
+    dates = [];
+    for (const d of [...past, ...future]) {
+      const key = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+      if (!seen.has(key)) {
+        seen.add(key);
+        dates.push(d);
+      }
+    }
+  } else {
+    dates = getOccurrences(task.recurrenceRule, now, to, task.baseDate).slice(0, count);
+  }
+
+  return dates.map((d) => {
+    const iso = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+    return {
+      date: d,
+      iso,
+      isCompleted: completedDates.has(iso),
+      completedAt: null,
+      isPlanned: plannedMap.has(iso),
+      plannedDate: plannedMap.get(iso) || null,
+    };
+  });
+}

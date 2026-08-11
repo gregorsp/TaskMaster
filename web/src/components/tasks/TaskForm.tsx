@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   Dialog, DialogContent, DialogTitle, TextField, Button, Stack, Box,
   FormControlLabel, Switch, MenuItem, Typography, Chip, Autocomplete,
-  RadioGroup, Radio, FormControl, FormLabel, Alert,
+  RadioGroup, Radio, FormControl, FormLabel, Alert, DialogActions,
 } from "@mui/material";
 import { createTask, updateTask, listTasks, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations, type Task } from "../../api/tasksApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
@@ -104,6 +104,9 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<UserPickerItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [recurrenceWarningOpen, setRecurrenceWarningOpen] = useState(false);
+  const [recurrenceWarningCount, setRecurrenceWarningCount] = useState(0);
+  const [pendingSubmit, setPendingSubmit] = useState(false);
   const notify = useNotify();
   const { user: currentUser } = useAuth();
 
@@ -196,8 +199,16 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
 
   const previewDates: Date[] = [];
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (forceRecurrence = false) => {
     if (!title.trim()) return;
+    if (recurrenceType === "rrule" && !dueDate) {
+      notify("Bitte ein Startdatum (erste Fälligkeit) für die wiederkehrende Aufgabe angeben", "error");
+      return;
+    }
+    if (recurrenceType === "rrule" && !ruleStr) {
+      notify("Bitte eine Wiederholungsregel angeben", "error");
+      return;
+    }
     setLoading(true);
     try {
       if (isEdit && task) {
@@ -211,6 +222,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           assigneeIds: selectedAssignees.map((u) => u.id),
           parentId: parentTask?.id || null,
           plannedDate: plannedDate ? new Date(plannedDate).toISOString() : null,
+          forceUpdateRecurrence: forceRecurrence,
         };
         await updateTask(task.id, input);
         notify("Aufgabe gespeichert");
@@ -230,21 +242,29 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         notify("Aufgabe erstellt");
       }
       onCreated();
-    } catch {
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: { code?: string; count?: number } }; status?: number } };
+      if (err?.response?.data?.error?.code === "WILL_DELETE_PLANNED_OCCURRENCES") {
+        setRecurrenceWarningCount(err.response.data.error.count || 0);
+        setPendingSubmit(true);
+        setRecurrenceWarningOpen(true);
+        setLoading(false);
+        return;
+      }
       notify("Fehler beim Speichern", "error");
     } finally {
-      setLoading(false);
+      if (!pendingSubmit) setLoading(false);
     }
   };
 
-  return (
+  return (<>
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{isEdit ? "Aufgabe bearbeiten" : "Neue Aufgabe"}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} mt={1}>
           <TextField label="Titel" value={title} onChange={(e) => setTitle(e.target.value)} required fullWidth autoFocus />
           <TextField label="Beschreibung" value={description} onChange={(e) => setDescription(e.target.value)} multiline rows={3} fullWidth />
-          <TextField label={recurrenceType === "rrule" ? "Startdatum (erste Fälligkeit)" : "Fälligkeit"} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
+          <TextField label={recurrenceType === "rrule" ? "Startdatum (erste Fälligkeit) *" : "Fälligkeit"} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth required={recurrenceType === "rrule"} error={recurrenceType === "rrule" && !dueDate} helperText={recurrenceType === "rrule" && !dueDate ? "Pflichtfeld für wiederkehrende Aufgaben" : undefined} />
           <TextField label="Geplant für" type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth helperText="Tag, an dem die Aufgabe erledigt werden soll" />
           {plannedDate && dueDate && new Date(plannedDate) > new Date(dueDate) && (
             <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
@@ -334,10 +354,28 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           <Autocomplete multiple options={users} getOptionLabel={u=>u.displayName} value={selectedAssignees} onChange={(_,v)=>setSelectedAssignees(v)} renderInput={p=><TextField {...p} label="Verantwortlich" />} />
           <Stack direction="row" justifyContent="flex-end" gap={1} mt={2}>
             <Button onClick={onClose}>Abbrechen</Button>
-            <Button variant="contained" onClick={handleSubmit} disabled={loading||!title.trim()}>{isEdit?"Speichern":"Erstellen"}</Button>
+            <Button variant="contained" onClick={() => handleSubmit()} disabled={loading||!title.trim()}>{isEdit?"Speichern":"Erstellen"}</Button>
           </Stack>
         </Stack>
       </DialogContent>
     </Dialog>
-  );
+
+    <Dialog open={recurrenceWarningOpen} onClose={() => { setRecurrenceWarningOpen(false); setPendingSubmit(false); }} maxWidth="xs" fullWidth>
+      <DialogTitle>Wiederholungsregel geändert</DialogTitle>
+      <DialogContent>
+        <Alert severity="warning" sx={{ mt: 1 }}>
+          Durch die Änderung der Wiederholungsregel werden {recurrenceWarningCount} geplante Wiederholung{recurrenceWarningCount !== 1 ? "en" : ""} gelöscht.
+        </Alert>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          Möchtest du die Änderung trotzdem speichern?
+        </Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => { setRecurrenceWarningOpen(false); setPendingSubmit(false); }}>Abbrechen</Button>
+        <Button variant="contained" color="warning" onClick={() => { setRecurrenceWarningOpen(false); setPendingSubmit(false); handleSubmit(true); }}>
+          Trotzdem speichern
+        </Button>
+      </DialogActions>
+    </Dialog>
+  </>);
 }

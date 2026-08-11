@@ -4,6 +4,7 @@ import { isVisibleToUser } from "../../middleware/visibility.js";
 import {
   listTasks, getTask, createTask, updateTask, deleteTask,
   getSubtasks, getSiblings, getTaskLinks, addTaskLink, removeTaskLink,
+  getTaskOccurrences, createTaskOccurrence, deleteTaskOccurrence, getUpcomingOccurrences,
 } from "./tasks.service.js";
 import { completeTask, reopenTask, getTaskEvents, addTaskComment } from "./completion.service.js";
 import { createTaskSchema, updateTaskSchema, completeTaskSchema, addLinkSchema, commentSchema } from "./tasks.schema.js";
@@ -71,6 +72,9 @@ export async function tasksRoutes(app: FastifyInstance) {
     const input = updateTaskSchema.parse(request.body);
     const task = await updateTask(id, input, p.id, p.isAdmin);
     if (!task) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    if ("blocked" in task && task.blocked) {
+      return reply.status(409).send({ error: { code: task.code, message: "Planned occurrences will be deleted", count: (task as { count: number }).count } });
+    }
     return task;
   });
 
@@ -94,11 +98,11 @@ export async function tasksRoutes(app: FastifyInstance) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
     const input = completeTaskSchema.parse(request.body);
     try {
-      const result = await completeTask(id, p.id, input.nextDueAt, input.comment, input.force);
+      const result = await completeTask(id, p.id, input.nextDueAt, input.comment, input.force, input.cascade, input.occurrenceDate, input.recurringCompletions);
       return result;
     } catch (err) {
-      const e = err as { statusCode?: number; code?: string; message?: string };
-      return reply.status(e.statusCode || 500).send({ error: { code: e.code || "INTERNAL_ERROR", message: e.message } });
+      const e = err as { statusCode?: number; code?: string; message?: string; openCount?: number };
+      return reply.status(e.statusCode || 500).send({ error: { code: e.code || "INTERNAL_ERROR", message: e.message, openCount: e.openCount } });
     }
   });
 
@@ -160,5 +164,46 @@ export async function tasksRoutes(app: FastifyInstance) {
     if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
     return removeTaskLink(id, linkedTaskId);
+  });
+
+  app.get("/:id/occurrences", async (request, reply) => {
+    const p = request.user as { id: string; isAdmin: boolean };
+    const { id } = request.params as { id: string };
+    if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    return getTaskOccurrences(id);
+  });
+
+  app.get("/:id/upcoming-occurrences", async (request, reply) => {
+    const p = request.user as { id: string; isAdmin: boolean };
+    const { id } = request.params as { id: string };
+    if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    const q = request.query as Record<string, unknown> | undefined;
+    const count = q && typeof q.count === "string" ? parseInt(q.count, 10) || 3 : 3;
+    const showPast = q && (q.showPast === "true" || q.showPast === true);
+    return getUpcomingOccurrences(id, count, showPast);
+  });
+
+  app.post("/:id/occurrences", async (request, reply) => {
+    const p = request.user as { id: string; isAdmin: boolean };
+    const { id } = request.params as { id: string };
+    if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    const body = request.body as { occurrenceDate?: string; plannedDate?: string | null };
+    const occurrenceDate = body?.occurrenceDate;
+    if (!occurrenceDate) {
+      return reply.status(400).send({ error: { code: "MISSING_OCCURRENCE_DATE", message: "occurrenceDate is required" } });
+    }
+    const result = createTaskOccurrence(id, occurrenceDate, body.plannedDate ?? null);
+    return reply.status(201).send(result);
+  });
+
+  app.delete("/:id/occurrences/:occurrenceId", async (request, reply) => {
+    const p = request.user as { id: string; isAdmin: boolean };
+    const { id, occurrenceId } = request.params as { id: string; occurrenceId: string };
+    if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    return deleteTaskOccurrence(occurrenceId);
   });
 }

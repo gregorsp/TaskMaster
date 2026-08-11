@@ -32,12 +32,16 @@ export const updateTaskSchema = z.object({
   categoryIds: z.array(z.string()).optional(),
   parentId: z.string().nullable().optional(),
   plannedDate: z.string().nullable().optional(),
+  forceUpdateRecurrence: z.boolean().optional(),
 });
 
 export const completeTaskSchema = z.object({
   nextDueAt: z.string().optional(),
   comment: z.string().max(2000).optional(),
   force: z.boolean().optional(),
+  cascade: z.boolean().optional(),
+  occurrenceDate: z.string().optional(),
+  recurringCompletions: z.record(z.string()).optional(),
 });
 
 export const addLinkSchema = z.object({

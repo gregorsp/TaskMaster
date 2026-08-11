@@ -88,6 +88,27 @@ export interface CreateTaskInput {
   plannedDate?: string | null;
 }
 
+export interface OccurrenceInfo {
+  date: string;
+  iso: string;
+  isCompleted: boolean;
+  completedAt: string | null;
+  isPlanned: boolean;
+  plannedDate: string | null;
+}
+
+export interface TaskOccurrence {
+  id: string;
+  taskId: string;
+  occurrenceDate: string;
+  plannedDate: string | null;
+  isCompleted: boolean;
+  completedAt: string | null;
+  completedById: string | null;
+  note: string | null;
+  createdAt: string;
+}
+
 export interface UpdateTaskInput {
   title?: string;
   description?: string | null;
@@ -104,6 +125,7 @@ export interface UpdateTaskInput {
   categoryIds?: string[];
   parentId?: string | null;
   plannedDate?: string | null;
+  forceUpdateRecurrence?: boolean;
 }
 
 export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResponse> {
@@ -144,8 +166,8 @@ export async function deleteTask(id: string): Promise<void> {
   await client.delete(`/tasks/${id}`);
 }
 
-export async function completeTask(id: string, nextDueAt?: string, comment?: string, force?: boolean): Promise<{ completed: boolean; nextDueAt: string | null }> {
-  const { data } = await client.post<{ completed: boolean; nextDueAt: string | null }>(`/tasks/${id}/complete`, { nextDueAt, comment, force });
+export async function completeTask(id: string, nextDueAt?: string, comment?: string, force?: boolean, cascade?: boolean, occurrenceDate?: string, recurringCompletions?: Record<string, string>): Promise<{ completed: boolean; nextDueAt: string | null; parentId: string | null }> {
+  const { data } = await client.post<{ completed: boolean; nextDueAt: string | null; parentId: string | null }>(`/tasks/${id}/complete`, { nextDueAt, comment, force, cascade, occurrenceDate, recurringCompletions });
   return data;
 }
 
@@ -179,4 +201,24 @@ export async function addTaskLink(id: string, linkedTaskId: string): Promise<{ o
 export async function removeTaskLink(id: string, linkedTaskId: string): Promise<{ ok: boolean }> {
   const { data } = await client.delete<{ ok: boolean }>(`/tasks/${id}/links/${linkedTaskId}`);
   return data;
+}
+
+export async function getTaskOccurrences(id: string): Promise<TaskOccurrence[]> {
+  const { data } = await client.get<TaskOccurrence[]>(`/tasks/${id}/occurrences`);
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getUpcomingOccurrences(id: string, count = 3, showPast = false): Promise<OccurrenceInfo[]> {
+  const params = new URLSearchParams({ count: String(count), showPast: String(showPast) });
+  const { data } = await client.get<OccurrenceInfo[]>(`/tasks/${id}/upcoming-occurrences?${params}`);
+  return Array.isArray(data) ? data : [];
+}
+
+export async function createTaskOccurrence(id: string, occurrenceDate: string, plannedDate: string | null): Promise<TaskOccurrence> {
+  const { data } = await client.post<TaskOccurrence>(`/tasks/${id}/occurrences`, { occurrenceDate, plannedDate });
+  return data;
+}
+
+export async function deleteTaskOccurrence(taskId: string, occurrenceId: string): Promise<void> {
+  await client.delete(`/tasks/${taskId}/occurrences/${occurrenceId}`);
 }

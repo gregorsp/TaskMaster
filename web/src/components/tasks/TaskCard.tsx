@@ -14,7 +14,8 @@ import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { TaskForm } from "./TaskForm";
 import { TaskRelationsSidebar } from "./TaskRelationsSidebar";
-import { ForceCompleteDialog } from "./ForceCompleteDialog";
+import { CompleteBlockedDialog } from "./CompleteBlockedDialog";
+import { OccurrencePicker } from "./OccurrencePicker";
 import { hashColor } from "./AssigneeAvatars";
 import { useNotify } from "../../context/NotifyContext";
 import { useModalStack } from "./ModalStackProvider";
@@ -31,7 +32,7 @@ interface Props {
   isActive?: boolean;
 }
 
-interface TaskEvent { id: string; taskId: string; userId: string; type: string; content: string | null; createdAt: string; displayName?: string; profilePicture?: string | null; }
+interface TaskEvent { id: string; taskId: string; userId: string; type: string; content: string | null; occurrenceDate: string | null; createdAt: string; displayName?: string; profilePicture?: string | null; }
 
 function safeCall(fn: () => Promise<unknown>) {
   fn().catch(e => console.error("TaskCard async error:", e));
@@ -53,7 +54,12 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
   const [forceCompleteOpen, setForceCompleteOpen] = useState(false);
   const [subtaskOpenCount, setSubtaskOpenCount] = useState(0);
   const [subtaskTotalCount, setSubtaskTotalCount] = useState(0);
+  const [subtaskPomodorosTotal, setSubtaskPomodorosTotal] = useState(0);
   const [parentTask, setParentTask] = useState<Task | null>(null);
+  const [recurringCompleteOpen, setRecurringCompleteOpen] = useState(false);
+  const [recurringOccurrenceDate, setRecurringOccurrenceDate] = useState("");
+  const [cascadeDialogOpen, setCascadeDialogOpen] = useState(false);
+  const [completableParent, setCompletableParent] = useState<{ id: string; title: string } | null>(null);
   const notify = useNotify();
   const { push, closeAll } = useModalStack();
 
@@ -94,28 +100,68 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
       getSubtasks(taskId).then((r) => {
         setSubtaskOpenCount(r.progress.total - r.progress.completed);
         setSubtaskTotalCount(r.progress.total);
-      }).catch(() => {});
+        const pomoSum = r.subtasks.reduce((sum, s) => sum + (s.pomodoros ?? 0), 0);
+        setSubtaskPomodorosTotal(pomoSum);
+      }).catch((e) => { console.error("getSubtasks error:", e); });
     } catch (e) { console.error("TaskCard load error:", e); }
   };
 
   useEffect(() => { if (open) load(); }, [open, taskId]);
 
-  const handleComplete = async (nextDueAt?: string) => {
+  const checkParentCompletable = async (parentId: string | null | undefined) => {
+    if (!parentId) return;
     try {
-      await completeTask(taskId, nextDueAt, completeNote || undefined);
-      notify("Aufgabe erledigt");
-      setCompleteDialog(false);
-      setCompleteNote("");
-      setNextDueOpen(false);
+      const r = await getSubtasks(parentId);
+      if (r.progress.completed === r.progress.total && r.progress.total > 0) {
+        import("../../api/tasksApi").then(({ getTask: gt }) => {
+          gt(parentId).then((parent) => {
+            setCompletableParent({ id: parent.id, title: parent.title });
+          }).catch(() => {});
+        });
+      }
+    } catch { /* ignore */ }
+  };
+
+  const handleCompleteParent = async () => {
+    if (!completableParent) return;
+    try {
+      const result = await completeTask(completableParent.id, undefined, undefined, false);
+      notify("Mutteraufgabe erledigt");
+      setCompletableParent(null);
       load();
       onUpdated();
+      if (result.parentId) checkParentCompletable(result.parentId);
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { error?: { code?: string; openCount?: number; totalCount?: number } }; status?: number } };
+      const err = e as { response?: { data?: { error?: { code?: string } }; status?: number } };
+      if (err?.response?.data?.error?.code === "SUBTASKS_OPEN") {
+        notify("Die Mutteraufgabe hat noch offene Unteraufgaben", "error");
+      } else {
+        notify("Fehler beim Erledigen der Mutteraufgabe", "error");
+      }
+      console.error(e);
+      setCompletableParent(null);
+    }
+  };
+
+  const handleComplete = async (nextDueAt?: string, occurrenceDate?: string) => {
+    try {
+      const result = await completeTask(taskId, nextDueAt, completeNote || undefined, undefined, undefined, occurrenceDate);
+      notify("Aufgabe erledigt");
+      setCompleteDialog(false);
+      setRecurringCompleteOpen(false);
+      setCompleteNote("");
+      setNextDueOpen(false);
+      setRecurringOccurrenceDate("");
+      load();
+      onUpdated();
+      if (result.parentId) checkParentCompletable(result.parentId);
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: { code?: string; openCount?: number } }; status?: number } };
       const errData = err?.response?.data?.error;
       if (errData?.code === "SUBTASKS_OPEN") {
-        setSubtaskOpenCount(errData.openCount || 0);
+        setSubtaskOpenCount(errData?.openCount || 0);
         getSubtasks(taskId).then((r) => setSubtaskTotalCount(r.progress.total)).catch(() => {});
-        setForceCompleteOpen(true);
+        setCascadeDialogOpen(true);
         return;
       }
       console.error(e);
@@ -123,14 +169,30 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
     }
   };
 
-  const handleForceComplete = async (note: string) => {
+  const handleForceComplete = async (note: string, parentOccurrenceDate?: string) => {
     try {
-      await completeTask(taskId, undefined, note || undefined, true);
+      const result = await completeTask(taskId, undefined, note || undefined, true, undefined, parentOccurrenceDate);
       notify("Aufgabe erledigt (trotz offener Unteraufgaben)");
-      setForceCompleteOpen(false);
+      setCascadeDialogOpen(false);
       setCompleteNote("");
       load();
       onUpdated();
+      if (result.parentId) checkParentCompletable(result.parentId);
+    } catch (e) {
+      console.error(e);
+      notify("Fehler beim Erledigen", "error");
+    }
+  };
+
+  const handleCascadeComplete = async (note: string, recurringCompletions: Record<string, string>, parentOccurrenceDate?: string) => {
+    try {
+      const result = await completeTask(taskId, undefined, note || undefined, false, true, parentOccurrenceDate, recurringCompletions);
+      notify("Aufgabe und alle Unteraufgaben erledigt");
+      setCascadeDialogOpen(false);
+      setCompleteNote("");
+      load();
+      onUpdated();
+      if (result.parentId) checkParentCompletable(result.parentId);
     } catch (e) {
       console.error(e);
       notify("Fehler beim Erledigen", "error");
@@ -205,6 +267,11 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                 {task.pomodoros != null && task.pomodoros > 0 && (
                   <Tooltip title={`${task.pomodoros} Pomodoro${task.pomodoros > 1 ? "s" : ""} ≈ ${task.pomodoros * 25} Minuten`}>
                     <Chip size="small" label={`${task.pomodoros} Pomo`} color="secondary" />
+                  </Tooltip>
+                )}
+                {subtaskPomodorosTotal > 0 && (
+                  <Tooltip title={`${task.pomodoros ?? 0} eigene + ${subtaskPomodorosTotal} aus Unteraufgaben = ${(task.pomodoros ?? 0) + subtaskPomodorosTotal} Pomodoros gesamt`}>
+                    <Chip size="small" label={`+${subtaskPomodorosTotal} Pomo`} color="default" variant="outlined" />
                   </Tooltip>
                 )}
                 <IconButton size="small" onClick={() => setEditOpen(true)}><EditIcon fontSize="small" /></IconButton>
@@ -307,11 +374,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                     <Button
                       variant="contained"
                       color="warning"
-                      onClick={async () => {
-                        try {
-                          await handleComplete();
-                        } catch { /* handled in handleComplete */ }
-                      }}
+                      onClick={() => setCascadeDialogOpen(true)}
                       startIcon={<WarningIcon />}
                     >
                       Erledigen ({subtaskOpenCount}/{subtaskTotalCount} offen)
@@ -321,8 +384,9 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
               ) : (
                 <Button
                   variant="contained"
-                  onClick={async () => {
+                  onClick={() => {
                     if (rt === "on_completion") { setNextDueOpen(true); return; }
+                    if (rt === "rrule") { setRecurringCompleteOpen(true); return; }
                     setCompleteDialog(true);
                   }}>
                   Erledigen
@@ -351,7 +415,9 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                     </Typography>
                   </Stack>
                   <Typography variant="caption" color="text.secondary">
-                    {evt.type === "completed" ? "Erledigt" : evt.type === "reopened" ? "Wieder geöffnet" : "Kommentar"}
+                    {evt.type === "completed"
+                      ? (evt.occurrenceDate ? `Erledigt – ${fd(evt.occurrenceDate)}` : "Erledigt")
+                      : evt.type === "reopened" ? "Wieder geöffnet" : "Kommentar"}
                   </Typography>
                   {evt.content && <Typography variant="body2" sx={{ mt: 0.25 }}>{evt.content}</Typography>}
                 </Box>
@@ -378,12 +444,31 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
         </Dialog>
       )}
 
-      <ForceCompleteDialog
-        open={forceCompleteOpen}
+      {recurringCompleteOpen && (
+        <Dialog open={recurringCompleteOpen} onClose={() => setRecurringCompleteOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>Aufgabe erledigen</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} mt={1}>
+              <OccurrencePicker taskId={taskId} value={recurringOccurrenceDate} onChange={setRecurringOccurrenceDate} label="Welche Fälligkeit erledigen?" />
+              <TextField label="Notiz (optional)" value={completeNote} onChange={e => setCompleteNote(e.target.value)} multiline rows={2} fullWidth />
+              <Stack direction="row" justifyContent="flex-end" gap={1}>
+                <Button onClick={() => setRecurringCompleteOpen(false)}>Abbrechen</Button>
+                <Button variant="contained" onClick={() => handleComplete(undefined, recurringOccurrenceDate || undefined)}>Erledigen</Button>
+              </Stack>
+            </Stack>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <CompleteBlockedDialog
+        open={cascadeDialogOpen}
         openCount={subtaskOpenCount}
         totalCount={subtaskTotalCount}
-        onClose={() => setForceCompleteOpen(false)}
-        onConfirm={handleForceComplete}
+        taskId={taskId}
+        parentRecurrenceType={task.recurrenceType}
+        onClose={() => setCascadeDialogOpen(false)}
+        onForceComplete={handleForceComplete}
+        onCascadeComplete={handleCascadeComplete}
       />
 
       <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)}>
@@ -391,6 +476,19 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
       </Dialog>
 
       {editOpen && <TaskForm open={editOpen} task={task} onClose={() => setEditOpen(false)} onCreated={() => { setEditOpen(false); load(); onUpdated(); }} />}
+
+      <Dialog open={!!completableParent} onClose={() => setCompletableParent(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Mutteraufgabe erledigen?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Alle Unteraufgaben von "{completableParent?.title}" sind erledigt. Soll die Mutteraufgabe auch erledigt werden?
+          </Typography>
+          <Stack direction="row" justifyContent="flex-end" gap={1}>
+            <Button onClick={() => setCompletableParent(null)}>Nein</Button>
+            <Button variant="contained" onClick={handleCompleteParent}>Ja, erledigen</Button>
+          </Stack>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

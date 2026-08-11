@@ -1,33 +1,84 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { v7 as uuid } from "uuid";
 import { getDb } from "../../db/client.js";
-import { tasks, taskEvents, users } from "../../db/schema.js";
+import { tasks, taskEvents, taskOccurrences, users } from "../../db/schema.js";
 import { getNextOccurrence } from "../calendar/recurrence.service.js";
 import { getProfilePictureUrl } from "../auth/profile.service.js";
-import { getOpenSubtaskCount } from "./tasks.service.js";
+import { getOpenSubtaskCount, collectDescendantIds } from "./tasks.service.js";
 
 export async function completeTask(
   taskId: string,
   completedById: string,
   nextDueAt?: string,
   comment?: string,
-  force?: boolean
+  force?: boolean,
+  cascade?: boolean,
+  occurrenceDate?: string,
+  recurringCompletions?: Record<string, string>
 ) {
   const db = getDb();
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) throw Object.assign(new Error("Task not found"), { statusCode: 404, code: "NOT_FOUND" });
 
-  if (!force) {
-    const openCount = getOpenSubtaskCount(taskId);
-    if (openCount > 0) {
-      throw Object.assign(new Error(`${openCount} subtask(s) still open`), {
-        statusCode: 409, code: "SUBTASKS_OPEN",
-        openCount,
-      });
-    }
-  }
-
   const now = new Date();
+
+  const hasOpenSubtasks = getOpenSubtaskCount(taskId) > 0;
+
+  if (cascade && hasOpenSubtasks) {
+    const descendantIds = new Set<string>();
+    collectDescendantIds(taskId, descendantIds);
+
+    for (const id of descendantIds) {
+      const subtask = db.select().from(tasks).where(eq(tasks.id, id)).get();
+      if (!subtask || subtask.isCompleted) continue;
+
+      const occStr = recurringCompletions?.[id];
+
+      if (subtask.recurrenceType === "none") {
+        db.update(tasks).set({
+          isCompleted: true,
+          completedAt: now,
+          completedById,
+          lastCompletedAt: now,
+        }).where(eq(tasks.id, id)).run();
+
+        db.insert(taskEvents).values({
+          id: uuid(), taskId: id, userId: completedById,
+          type: "completed", content: comment || null, createdAt: now,
+        }).run();
+      } else if (subtask.recurrenceType === "rrule" && occStr) {
+        const occDate = new Date(occStr);
+        const existing = db.select().from(taskOccurrences)
+          .where(and(eq(taskOccurrences.taskId, id), eq(taskOccurrences.occurrenceDate, occDate)))
+          .get();
+
+        if (existing) {
+          db.update(taskOccurrences).set({
+            isCompleted: true, completedAt: now, completedById, note: comment || null,
+          }).where(eq(taskOccurrences.id, existing.id)).run();
+        } else {
+          db.insert(taskOccurrences).values({
+            id: uuid(), taskId: id, occurrenceDate: occDate,
+            isCompleted: true, completedAt: now, completedById,
+            note: comment || null, createdAt: now,
+          }).run();
+        }
+
+        db.update(tasks).set({ lastCompletedAt: now, completedAt: now, completedById })
+          .where(eq(tasks.id, id)).run();
+
+        db.insert(taskEvents).values({
+          id: uuid(), taskId: id, userId: completedById,
+          type: "completed", content: comment || null, occurrenceDate: occDate, createdAt: now,
+        }).run();
+      }
+    }
+  } else if (!force && hasOpenSubtasks) {
+    const openCount = getOpenSubtaskCount(taskId);
+    throw Object.assign(new Error(`${openCount} subtask(s) still open`), {
+      statusCode: 409, code: "SUBTASKS_OPEN", openCount,
+    });
+  }
 
   const evt = {
     id: uuid(),
@@ -35,18 +86,43 @@ export async function completeTask(
     userId: completedById,
     type: "completed" as const,
     content: comment || null,
+    occurrenceDate: task.recurrenceType === "rrule" && occurrenceDate ? new Date(occurrenceDate) : null,
     createdAt: now,
   };
   db.insert(taskEvents).values(evt).run();
 
-  if (task.recurrenceType === "none") {
+  const parentId = task.parentId;
+
+  if (task.recurrenceType === "rrule") {
+    if (occurrenceDate) {
+      const occDate = new Date(occurrenceDate);
+      const existing = db.select().from(taskOccurrences)
+        .where(and(eq(taskOccurrences.taskId, taskId), eq(taskOccurrences.occurrenceDate, occDate)))
+        .get();
+
+      if (existing) {
+        db.update(taskOccurrences).set({
+          isCompleted: true, completedAt: now, completedById, note: comment || null,
+        }).where(eq(taskOccurrences.id, existing.id)).run();
+      } else {
+        db.insert(taskOccurrences).values({
+          id: uuid(), taskId, occurrenceDate: occDate,
+          isCompleted: true, completedAt: now, completedById,
+          note: comment || null, createdAt: now,
+        }).run();
+      }
+    }
+
+    if (!task.recurrenceRule || !task.baseDate) {
+      throw Object.assign(new Error("Missing recurrence rule or base date"), {
+        statusCode: 400, code: "INVALID_RECURRENCE",
+      });
+    }
+    const effectiveDue = getNextOccurrence(task.recurrenceRule, task.lastCompletedAt || task.baseDate, task.baseDate);
     db.update(tasks).set({
-      isCompleted: true,
-      completedAt: now,
-      completedById,
-      lastCompletedAt: now,
+      lastCompletedAt: now, completedAt: now, completedById,
     }).where(eq(tasks.id, taskId)).run();
-    return { completed: true, nextDueAt: null };
+    return { completed: true, nextDueAt: effectiveDue, parentId };
   }
 
   if (task.recurrenceType === "on_completion") {
@@ -61,25 +137,16 @@ export async function completeTask(
       completedAt: now,
       completedById,
     }).where(eq(tasks.id, taskId)).run();
-    return { completed: true, nextDueAt: new Date(nextDueAt) };
+    return { completed: true, nextDueAt: new Date(nextDueAt), parentId };
   }
 
-  if (task.recurrenceType === "rrule") {
-    if (!task.recurrenceRule || !task.baseDate) {
-      throw Object.assign(new Error("Missing recurrence rule or base date"), {
-        statusCode: 400, code: "INVALID_RECURRENCE",
-      });
-    }
-    const effectiveDue = getNextOccurrence(task.recurrenceRule, task.lastCompletedAt || task.baseDate, task.baseDate);
-    db.update(tasks).set({
-      lastCompletedAt: now,
-      completedAt: now,
-      completedById,
-    }).where(eq(tasks.id, taskId)).run();
-    return { completed: true, nextDueAt: effectiveDue };
-  }
-
-  throw Object.assign(new Error("Unknown recurrence type"), { statusCode: 400, code: "UNKNOWN_RECURRENCE" });
+  db.update(tasks).set({
+    isCompleted: true,
+    completedAt: now,
+    completedById,
+    lastCompletedAt: now,
+  }).where(eq(tasks.id, taskId)).run();
+  return { completed: true, nextDueAt: null, parentId };
 }
 
 export function reopenTask(taskId: string) {
@@ -119,6 +186,7 @@ export function getTaskEvents(taskId: string) {
     userId: taskEvents.userId,
     type: taskEvents.type,
     content: taskEvents.content,
+    occurrenceDate: taskEvents.occurrenceDate,
     createdAt: taskEvents.createdAt,
     displayName: users.displayName,
     profilePicture: users.profilePicture,

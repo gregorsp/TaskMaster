@@ -64,6 +64,20 @@
       "when": 1786454415038,
       "tag": "0008_boring_impossible_man",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786500000000,
+      "tag": "0009_bright_task_occurrences",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "8",
+      "when": 1786510000000,
+      "tag": "0010_brave_occurrence_date",
+      "breakpoints": true
     }
   ]
 }

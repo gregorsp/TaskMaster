@@ -5,6 +5,8 @@ export interface LoadDayTask {
   title: string;
   pomodoros: number;
   type: "due" | "planned";
+  occurrenceId: string | null;
+  occurrenceDate: string | null;
 }
 
 export interface LoadDay {

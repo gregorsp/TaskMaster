@@ -24,6 +24,13 @@ interface TaskTreeNodeProps {
 
 export type CompletionMode = "hide_completed" | "show_all" | "hide_if_incomplete_parent";
 
+function sumPomodoros(task: TaskWithMeta): number {
+  let sum = task.pomodoros ?? 0;
+  const children = (task as any)._children as TaskWithMeta[] | undefined;
+  if (children) for (const c of children) sum += sumPomodoros(c);
+  return sum;
+}
+
 export function collectDescendantIds(task: TaskWithMeta): string[] {
   const ids = [task.id];
   const children = (task as any)._children as TaskWithMeta[] | undefined;
@@ -143,7 +150,9 @@ export function TaskTreeNode({
 
         {showPomodoros && (
           <Typography sx={{ fontSize: 11, color: "text.disabled", flexShrink: 0, ml: 0.5, fontFamily: "JetBrains Mono, monospace" }}>
-            {task.pomodoros != null ? `${task.pomodoros} Pomo` : ""}
+            {hasChildren
+              ? `${sumPomodoros(task)} Pomo`
+              : task.pomodoros != null ? `${task.pomodoros} Pomo` : ""}
           </Typography>
         )}
 

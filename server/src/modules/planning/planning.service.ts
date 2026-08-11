@@ -1,6 +1,6 @@
-import { eq, and, SQL } from "drizzle-orm";
+import { eq, and, SQL, ne, isNotNull } from "drizzle-orm";
 import { getDb } from "../../db/client.js";
-import { tasks, taskAssignees, appMeta, users } from "../../db/schema.js";
+import { tasks, taskAssignees, appMeta, taskOccurrences, users } from "../../db/schema.js";
 import { visibilityFilter } from "../../middleware/visibility.js";
 import { WEEKDAYS, parseCapacity } from "../../lib/capacity.js";
 import { enrichTask } from "../tasks/tasks.service.js";
@@ -11,6 +11,8 @@ interface LoadDayTask {
   title: string;
   pomodoros: number;
   type: "due" | "planned";
+  occurrenceId: string | null;
+  occurrenceDate: string | null;
 }
 
 interface LoadDay {
@@ -80,6 +82,17 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
 
   const enriched = taskRows.map(enrichTask);
 
+  const taskById = new Map(enriched.map((t) => [t.id, t]));
+
+  const occRows = db.select().from(taskOccurrences)
+    .where(isNotNull(taskOccurrences.plannedDate))
+    .all()
+    .filter((o) => {
+      if (!o.plannedDate) return false;
+      const d = o.plannedDate instanceof Date ? o.plannedDate : new Date(o.plannedDate as unknown as string);
+      return d >= start && d <= end;
+    });
+
   const capacity = parseCapacity(
     db.select({ capacity: users.capacity })
       .from(users)
@@ -112,7 +125,27 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
         const type = planned && isoDate(planned) === dayDate ? "planned" : "due";
         const sp = task.pomodoros ?? 0;
         usedSp += sp;
-        dayTasks.push({ id: task.id, title: task.title, pomodoros: sp, type });
+        dayTasks.push({ id: task.id, title: task.title, pomodoros: sp, type, occurrenceId: null, occurrenceDate: null });
+      }
+    }
+
+    for (const occ of occRows) {
+      const occPlannedDate = occ.plannedDate instanceof Date ? occ.plannedDate : new Date(occ.plannedDate as unknown as string);
+      if (isoDate(occPlannedDate) === dayDate) {
+        const t = taskById.get(occ.taskId);
+        if (t && !t.isCompleted) {
+          const occDate = occ.occurrenceDate instanceof Date ? occ.occurrenceDate : new Date(occ.occurrenceDate as unknown as string);
+          const sp = t.pomodoros ?? 0;
+          usedSp += sp;
+          dayTasks.push({
+            id: t.id,
+            title: t.title,
+            pomodoros: sp,
+            type: "planned" as const,
+            occurrenceId: occ.id,
+            occurrenceDate: occDate.toISOString(),
+          });
+        }
       }
     }
 
