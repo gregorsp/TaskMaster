@@ -7,6 +7,7 @@ import { NotifyProvider } from "./context/NotifyContext";
 import { ThemeContextProvider } from "./context/ThemeContext";
 import { ModalStackProvider } from "./components/tasks/ModalStackProvider";
 import { ModalStackRenderer } from "./components/tasks/ModalStackRenderer";
+import { LoadingProvider } from "./context/LoadingContext";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import App from "./App";
 import "./index.css";
@@ -39,10 +40,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <AuthProvider>
             <NotifyProvider>
               <ErrorBoundary>
-                <ModalStackProvider>
-                  <App />
-                  <ModalStackRenderer />
-                </ModalStackProvider>
+                <LoadingProvider>
+                  <ModalStackProvider>
+                    <App />
+                    <ModalStackRenderer />
+                  </ModalStackProvider>
+                </LoadingProvider>
               </ErrorBoundary>
             </NotifyProvider>
           </AuthProvider>

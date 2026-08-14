@@ -1,4 +1,11 @@
 import axios from "axios";
+import { startLoading, stopLoading } from "./loadingTracker";
+
+declare module "axios" {
+  export interface AxiosRequestConfig {
+    skipLoadingIndicator?: boolean;
+  }
+}
 
 const client = axios.create({
   baseURL: "/api",
@@ -23,12 +30,17 @@ client.interceptors.request.use((config) => {
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
+  if (!config.skipLoadingIndicator) startLoading();
   return config;
 });
 
 client.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (!response.config.skipLoadingIndicator) stopLoading();
+    return response;
+  },
   async (error) => {
+    if (!error.config?.skipLoadingIndicator) stopLoading();
     const original = error.config;
     const url = original?.url ?? "";
 
