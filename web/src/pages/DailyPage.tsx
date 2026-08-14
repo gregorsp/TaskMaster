@@ -78,7 +78,7 @@ export function DailyPage() {
     }
     setTogglingId(habit.id);
     try {
-      const dateIso = selectedDate.toISOString();
+      const dateIso = toInputDate(selectedDate);
       if (habit.completedOnDate) {
         await reopenTask(habit.id, dateIso);
       } else {

@@ -176,6 +176,31 @@ describe("Habits", () => {
     expect(habit.completedOnDate).toBe(false);
   });
 
+  it("completes a habit with a date-only string (YYYY-MM-DD) for that exact calendar day", async () => {
+    const res = await app.inject({
+      method: "POST", url: `/api/tasks/${habitId}/complete`,
+      headers: headers(userToken),
+      payload: { occurrenceDate: "2026-08-13" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().completed).toBe(true);
+
+    const daily = await app.inject({
+      method: "GET", url: "/api/daily?date=2026-08-13",
+      headers: headers(userToken),
+    });
+    const habit = daily.json().habits.find((h: { id: string }) => h.id === habitId);
+    expect(habit).toBeDefined();
+    expect(habit.completedOnDate).toBe(true);
+
+    const other = await app.inject({
+      method: "GET", url: "/api/daily?date=2026-08-14",
+      headers: headers(userToken),
+    });
+    const otherHabit = other.json().habits.find((h: { id: string }) => h.id === habitId);
+    expect(otherHabit.completedOnDate).toBe(false);
+  });
+
   it("completes a habit without date defaults to today", async () => {
     const res = await app.inject({
       method: "POST", url: `/api/tasks/${habitId}/complete`,

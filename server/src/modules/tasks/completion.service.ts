@@ -6,6 +6,23 @@ import { getNextOccurrence } from "../calendar/recurrence.service.js";
 import { getProfilePictureUrl } from "../auth/profile.service.js";
 import { getOpenSubtaskCount, collectDescendantIds } from "./tasks.service.js";
 
+/**
+ * Parsiert ein Datum aus dem Request als Kalenderdatum. Akzeptiert sowohl
+ * "YYYY-MM-DD" (clientseitig für Habits) als auch einen ISO-Timestamp.
+ * Wichtig: für "YYYY-MM-DD" wird das Datum NICHT über toISOString()/UTC
+ * geschickt, sonst verschiebt sich der Tag bei anderer Server-Timezone.
+ */
+export function parseOccurrenceDate(input?: string): Date | null {
+  if (!input) return null;
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input);
+  if (dateOnly) {
+    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+  }
+  const d = new Date(input);
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
 export async function completeTask(
   taskId: string,
   completedById: string,
@@ -25,8 +42,9 @@ export async function completeTask(
   const parentId = task.parentId;
 
   if (task.isHabit) {
-    const occDate = occurrenceDate
-      ? new Date(new Date(occurrenceDate).getFullYear(), new Date(occurrenceDate).getMonth(), new Date(occurrenceDate).getDate())
+    const parsedOcc = parseOccurrenceDate(occurrenceDate);
+    const occDate = parsedOcc
+      ? new Date(parsedOcc.getFullYear(), parsedOcc.getMonth(), parsedOcc.getDate())
       : new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     const existing = db.select().from(taskOccurrences)
@@ -193,9 +211,8 @@ export function reopenTask(taskId: string, occurrenceDate?: string) {
   if (!task) throw Object.assign(new Error("Task not found"), { statusCode: 404, code: "NOT_FOUND" });
 
   if (task.isHabit) {
-    const occDate = occurrenceDate
-      ? new Date(occurrenceDate)
-      : new Date(task.lastCompletedAt ?? new Date());
+    const parsedOcc = parseOccurrenceDate(occurrenceDate);
+    const occDate = parsedOcc ?? new Date(task.lastCompletedAt ?? new Date());
     const occDay = new Date(occDate.getFullYear(), occDate.getMonth(), occDate.getDate());
 
     const existing = db.select().from(taskOccurrences)

@@ -399,8 +399,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                   variant="outlined"
                   onClick={async () => {
                     try {
-                      const now = new Date();
-                      const todayIso = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+                      const todayIso = toInputDate(new Date());
                       await reopenTask(taskId, todayIso);
                       setHabitCompletedToday(false);
                       load();
@@ -541,8 +540,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                   color="success"
                   disabled={!habitCompleteDate}
                   onClick={() => {
-                    const d = new Date(`${habitCompleteDate}T00:00:00`);
-                    handleComplete(undefined, d.toISOString());
+                    handleComplete(undefined, habitCompleteDate);
                   }}
                 >
                   Erledigen
