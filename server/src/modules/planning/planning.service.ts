@@ -66,7 +66,14 @@ function getWeekday(date: Date): Weekday {
 }
 
 function isoDate(date: Date): string {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).toISOString();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export function parseCalendarDate(input: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const d = new Date(input);
+  return isNaN(d.getTime()) ? new Date() : d;
 }
 
 const DRAFT_KEY_PREFIX = "planning_draft:";
@@ -144,6 +151,9 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
 
   const taskById = new Map(enriched.map((t) => [t.id, t]));
 
+  const start = startOfDay(from);
+  const end = startOfDay(to);
+
   const occRows = db.select().from(taskOccurrences)
     .where(isNotNull(taskOccurrences.plannedDate))
     .all()
@@ -159,9 +169,6 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
       .where(eq(users.id, userId))
       .get()?.capacity ?? null
   );
-
-  const start = startOfDay(from);
-  const end = startOfDay(to);
 
   const days: LoadDay[] = [];
   const cursor = new Date(start);

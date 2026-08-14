@@ -84,9 +84,10 @@ export function DashboardPage() {
   }, [search, categoryFilter, assigneeFilter]);
 
   useEffect(() => {
+    const toDateOnly = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const today = new Date();
-    const from = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
-    const to = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 6).toISOString();
+    const from = toDateOnly(today);
+    const to = toDateOnly(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 6));
     fetchPlanning(from, to)
       .then((data) => {
         const warnings: string[] = [];
@@ -95,7 +96,7 @@ export function DashboardPage() {
           warnings.push(`Heute: ${todayDay.usedSp}/${todayDay.capacity} Pomodori geplant – ${todayDay.usedSp - todayDay.capacity} über Budget`);
         }
         for (const hw of data.horizonWarnings) {
-          const d = new Date(hw.deadlineDate).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+          const d = new Date(`${hw.deadlineDate}T00:00:00`).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
           warnings.push(`Bis ${d}: ${hw.requiredSp} Pomodori fällig, nur ${hw.availableSp} Kapazität (–${hw.shortfall})`);
         }
         setLoadWarnings(warnings);

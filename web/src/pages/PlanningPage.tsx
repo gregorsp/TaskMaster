@@ -34,12 +34,18 @@ function formatDateRange(start: Date, end: Date): string {
 }
 
 function isoDateOnly(date: Date): string {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).toISOString();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function parseDateOnly(iso: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Date(iso);
 }
 
 function formatPlannedDate(iso: string | null): string {
   if (!iso) return "";
-  const d = new Date(iso);
+  const d = parseDateOnly(iso);
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -83,8 +89,8 @@ export function PlanningPage() {
     setLoading(true);
     setError("");
     try {
-      const from = currentMonday.toISOString();
-      const to = weekEnd.toISOString();
+      const from = isoDateOnly(currentMonday);
+      const to = isoDateOnly(weekEnd);
       const result = await fetchPlanning(from, to, userIdFilter || undefined);
       setData(result);
       setDraft(result.draft);
@@ -391,7 +397,7 @@ export function PlanningPage() {
         <Stack spacing={0.5} mb={2}>
           {horizonWarnings.map((hw, i) => (
             <Alert key={i} severity="warning" variant="outlined" sx={{ py: 0 }}>
-              {`Bis ${new Date(hw.deadlineDate).toLocaleDateString("de-DE")}: ${hw.requiredSp} Pomodori fällig, nur ${hw.availableSp} Pomodori Kapazität (–${hw.shortfall})`}
+              {`Bis ${parseDateOnly(hw.deadlineDate).toLocaleDateString("de-DE")}: ${hw.requiredSp} Pomodori fällig, nur ${hw.availableSp} Pomodori Kapazität (–${hw.shortfall})`}
             </Alert>
           ))}
         </Stack>
@@ -403,7 +409,7 @@ export function PlanningPage() {
             {days.map((day) => {
               const isPast = day.date < todayStr;
               const dayTasks = getDayTasks(day.date);
-              const dayDate = new Date(day.date);
+              const dayDate = parseDateOnly(day.date);
 
               return (
                 <Paper
@@ -574,7 +580,7 @@ export function PlanningPage() {
           <DialogContent>
             <Stack spacing={2} mt={1}>
               <Typography variant="body2">
-                "{occurrenceTask.title}" für den {new Date(occurrenceTargetDate).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" })} planen.
+                "{occurrenceTask.title}" für den {parseDateOnly(occurrenceTargetDate).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" })} planen.
               </Typography>
               <OccurrencePicker
                 taskId={occurrenceTask.id}
