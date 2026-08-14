@@ -5,6 +5,7 @@ import { migrate } from "drizzle-orm/sql-js/migrator";
 import { getDbState, SCHEMA_VERSION } from "../src/db/version.js";
 import { createBackup, runMigration, ensureSchemaVersion } from "../src/db/migrations.js";
 import { scrypt, randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { users } from "../src/db/schema.js";
 import { v7 as uuid } from "uuid";
 import type { FastifyInstance } from "fastify";
@@ -97,6 +98,54 @@ describe("Migration – runMigration", () => {
 
     const state = getDbState(db, getRawDb());
     expect(state.state).toBe("UP_TO_DATE");
+    closeDb();
+  });
+
+  it("0012: repairs corrupted planned_date literal from broken 0008 migration", async () => {
+    await initDb();
+    const db = getDb();
+    migrate(db, { migrationsFolder: "./src/db/migrations" });
+
+    // Need a user + task so the corruption actually affects rows
+    const salt = randomBytes(16).toString("hex");
+    const pw = await hashPassword("test", salt);
+    const uid = uuid();
+    db.insert(users).values({
+      id: uid, username: "repair_user", email: "repair@test.com",
+      passwordHash: pw, displayName: "Repair", isAdmin: true, createdAt: new Date(),
+    }).run();
+    getRawDb().run(
+      `INSERT INTO tasks (id, title, is_completed, is_important, is_urgent, is_private, recurrence_type, created_by_id, created_at)
+       VALUES ('t1', 'Repair me', 0, 0, 0, 0, 'none', ?, ?)`,
+      [uid, Date.now()]
+    );
+
+    // Simulate the corruption introduced by 0008_boring_impossible_man:
+    // the old tasks table had no planned_date column, so SQLite treated the
+    // double-quoted "planned_date" as a string literal in the INSERT..SELECT.
+    getRawDb().run("UPDATE tasks SET planned_date = 'planned_date'");
+    const corrupted = getRawDb().exec("SELECT COUNT(*) FROM tasks WHERE planned_date = 'planned_date'")[0].values[0][0] as number;
+    expect(corrupted).toBe(1);
+
+    // Bump the version back and remove the 0012 journal record so the repair
+    // migration is considered pending again (simulating the pre-update prod DB)
+    getRawDb().run("UPDATE app_meta SET value = '9' WHERE key = 'schema_version'");
+    const j = JSON.parse(readFileSync("./src/db/migrations/meta/_journal.json", "utf8"));
+    const last = j.entries[j.entries.length - 1];
+    getRawDb().run("DELETE FROM __drizzle_migrations WHERE created_at = ?", [last.when]);
+    let state = getDbState(db, getRawDb());
+    expect(state.state).toBe("MIGRATION_NEEDED");
+
+    runMigration();
+
+    state = getDbState(db, getRawDb());
+    expect(state.state).toBe("UP_TO_DATE");
+    expect(state.currentVersion).toBe(SCHEMA_VERSION);
+
+    const remaining = getRawDb().exec("SELECT COUNT(*) FROM tasks WHERE planned_date = 'planned_date'")[0].values[0][0] as number;
+    expect(remaining).toBe(0);
+    const isNull = getRawDb().exec("SELECT planned_date FROM tasks WHERE id = 't1'")[0].values[0][0];
+    expect(isNull).toBeNull();
     closeDb();
   });
 });
