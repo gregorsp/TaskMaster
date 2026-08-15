@@ -3,7 +3,7 @@ import { getDb } from "../../db/client.js";
 import { tasks, taskAssignees, appMeta, taskOccurrences, users, taskCategories, categories } from "../../db/schema.js";
 import { visibilityFilter } from "../../middleware/visibility.js";
 import { WEEKDAYS, parseCapacity } from "../../lib/capacity.js";
-import { enrichTask } from "../tasks/tasks.service.js";
+import { enrichTask, withRelations } from "../tasks/tasks.service.js";
 import type { Weekday } from "../../lib/capacity.js";
 
 interface LoadDayTask {
@@ -101,7 +101,7 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
   const habitRows = taskRows.filter((t) => t.isHabit);
   const normalRows = taskRows.filter((t) => !t.isHabit);
 
-  const enriched = normalRows.map(enrichTask);
+  const enriched = withRelations(normalRows.map(enrichTask));
 
   // Habit completion status for today (habits are shown fixed, not plannable)
   const todayKey = isoDate(new Date());

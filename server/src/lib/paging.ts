@@ -13,7 +13,9 @@ export interface PageResponse<T> {
 
 export function parsePageQuery(query: Record<string, unknown>): PageRequest {
   const page = Math.max(1, Number(query.page) || 1);
-  const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 20));
+  const pageSize = query.pageSize === "all"
+    ? 1_000_000
+    : Math.min(100, Math.max(1, Number(query.pageSize) || 20));
   return { page, pageSize };
 }
 

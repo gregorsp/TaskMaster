@@ -7,6 +7,12 @@ export interface TaskAssignee {
   profilePicture: string | null;
 }
 
+export interface TaskCategory {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -33,10 +39,12 @@ export interface Task {
   createdById: string;
   createdAt: string;
   assignees: TaskAssignee[];
+  categories?: TaskCategory[];
+  linkCount?: number;
 }
 
 export interface TaskWithRelations extends Task {
-  categories: { id: string; name: string; color: string }[];
+  categories: TaskCategory[];
 }
 
 export interface SubtaskProgress {
@@ -70,7 +78,7 @@ export interface TaskFilters {
   sort?: "createdAt" | "dueAt" | "title";
   order?: "asc" | "desc";
   page?: number;
-  pageSize?: number;
+  pageSize?: number | "all";
 }
 
 export interface CreateTaskInput {

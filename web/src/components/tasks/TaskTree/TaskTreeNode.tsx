@@ -1,49 +1,39 @@
-import { useState } from "react";
+import type { ReactNode } from "react";
 import { Box, Typography } from "@mui/material";
-import type { Task } from "../../../api/tasksApi";
-import type { Category } from "../../../api/categoriesApi";
+import { Link as LinkIcon } from "@mui/icons-material";
+import type { TaskWithMeta, CompletionMode } from "../taskFilterModel";
+import { collectDescendantIds } from "../taskFilterModel";
+import { TaskTags } from "../TaskTags";
 
-export interface TaskWithMeta extends Task {
-  categories?: Category[];
-}
+export type { TaskWithMeta, CompletionMode } from "../taskFilterModel";
+export { collectDescendantIds } from "../taskFilterModel";
 
 interface TaskTreeNodeProps {
   task: TaskWithMeta;
   level: number;
   isLast: boolean;
-  expanded: boolean;
-  onToggle: () => void;
-  onClick: () => void;
+  expandedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onClick: (task: TaskWithMeta) => void;
+  onLinkClick?: (task: TaskWithMeta) => void;
   draggable?: boolean;
   showPomodoros?: boolean;
   showPlannedDate?: boolean;
+  showLinkBadge?: boolean;
   accentColor: string;
-  parentChainIsCompleted: boolean;
   completionMode: CompletionMode;
-}
-
-export type CompletionMode = "hide_completed" | "show_all" | "hide_if_incomplete_parent";
-
-function sumPomodoros(task: TaskWithMeta): number {
-  let sum = task.pomodoros ?? 0;
-  const children = (task as any)._children as TaskWithMeta[] | undefined;
-  if (children) for (const c of children) sum += sumPomodoros(c);
-  return sum;
-}
-
-export function collectDescendantIds(task: TaskWithMeta): string[] {
-  const ids = [task.id];
-  const children = (task as any)._children as TaskWithMeta[] | undefined;
-  if (children) {
-    for (const child of children) {
-      ids.push(...collectDescendantIds(child));
-    }
-  }
-  return ids;
+  parentChainIsCompleted: boolean;
+  renderExtra?: (task: TaskWithMeta) => ReactNode;
 }
 
 const LINE_COLOR = "divider";
 const INDENT = 20;
+
+function sumPomodoros(task: TaskWithMeta): number {
+  let sum = task.pomodoros ?? 0;
+  if (task._children) for (const c of task._children) sum += sumPomodoros(c);
+  return sum;
+}
 
 function formatPlannedDate(iso: string | null): string {
   if (!iso) return "";
@@ -59,11 +49,15 @@ function formatPlannedDate(iso: string | null): string {
 }
 
 export function TaskTreeNode({
-  task, level, isLast, expanded, onToggle, onClick,
-  draggable, showPomodoros, showPlannedDate, accentColor, parentChainIsCompleted, completionMode,
+  task, level, isLast, expandedIds, onToggle, onClick, onLinkClick,
+  draggable, showPomodoros, showPlannedDate, showLinkBadge, accentColor,
+  completionMode, parentChainIsCompleted, renderExtra,
 }: TaskTreeNodeProps) {
-  const hasChildren = (task as any)._children?.length > 0;
+  const children = task._children ?? [];
+  const hasChildren = children.length > 0;
   const isCompleted = task.isCompleted;
+  const expanded = expandedIds.has(task.id);
+
   const shouldHide =
     completionMode === "hide_completed" ? isCompleted :
     completionMode === "hide_if_incomplete_parent" ? isCompleted && !parentChainIsCompleted :
@@ -72,6 +66,7 @@ export function TaskTreeNode({
   if (shouldHide) return null;
 
   const plannedWhen = showPlannedDate && task.plannedDate ? formatPlannedDate(task.plannedDate) : "";
+  const effectivePomodoros = hasChildren ? sumPomodoros(task) : task.pomodoros;
 
   return (
     <Box>
@@ -80,13 +75,12 @@ export function TaskTreeNode({
           display: "flex", alignItems: "center", gap: 1,
           py: 0.5, px: 1.5, cursor: "pointer", borderRadius: 1,
           position: "relative", pl: `${level * INDENT + 12}px`,
-          ml: level > 0 ? 0 : undefined,
           transition: "background 120ms",
           "&:hover": { bgcolor: "action.hover" },
           textDecoration: isCompleted ? "line-through" : undefined,
           opacity: isCompleted ? 0.55 : 1,
         }}
-        onClick={onClick}
+        onClick={() => onClick(task)}
         draggable={draggable}
         onDragStart={(e) => {
           if (!draggable) return;
@@ -114,7 +108,7 @@ export function TaskTreeNode({
             width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center",
             flexShrink: 0, color: hasChildren ? accentColor : "text.disabled", zIndex: 1,
           }}
-          onClick={(e) => { e.stopPropagation(); if (hasChildren) onToggle(); }}
+          onClick={(e) => { e.stopPropagation(); if (hasChildren) onToggle(task.id); }}
         >
           {hasChildren ? (
             <Box component="span" sx={{ fontSize: 12, transition: "transform 180ms", transform: expanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>
@@ -130,7 +124,7 @@ export function TaskTreeNode({
             fontFamily: "Inter, sans-serif",
             fontSize: 13,
             fontWeight: level === 0 && hasChildren ? 600 : 400,
-            color: isCompleted ? "text.disabled" : level === 0 ? "text.primary" : hasChildren ? "text.secondary" : "text.secondary",
+            color: isCompleted ? "text.disabled" : "text.primary",
             flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             letterSpacing: level === 0 ? "-0.01em" : 0,
           }}
@@ -138,23 +132,35 @@ export function TaskTreeNode({
           {task.title}
         </Typography>
 
-        {task.isImportant && (
-          <Box component="span" sx={{ fontSize: 11, color: "error.main", flexShrink: 0 }} title="Wichtig">W</Box>
-        )}
-        {task.isUrgent && (
-          <Box component="span" sx={{ fontSize: 11, color: "warning.main", flexShrink: 0 }} title="Dringend">D</Box>
-        )}
-        {task.isOverdue && (
-          <Box component="span" sx={{ fontSize: 11, color: "error.main", flexShrink: 0 }} title="Überfällig">!</Box>
+        <TaskTags
+          important={task.isImportant}
+          urgent={task.isUrgent}
+          overdue={task.isOverdue}
+          habit={task.isHabit}
+          isPrivate={task.isPrivate}
+          categoryColor={task.categories?.[0]?.color}
+          categoryName={task.categories?.[0]?.name}
+          pomodoros={showPomodoros ? effectivePomodoros : undefined}
+          assignees={task.assignees}
+        />
+
+        {showLinkBadge && (task.linkCount ?? 0) > 0 && (
+          <Box
+            component="span"
+            onClick={(e) => { e.stopPropagation(); onLinkClick?.(task); }}
+            title="Verknüpfungen öffnen"
+            sx={{
+              display: "inline-flex", alignItems: "center", gap: 0.25,
+              fontSize: 11, color: "secondary.main", flexShrink: 0,
+              cursor: "pointer", px: 0.5, py: 0.25, borderRadius: 1,
+              "&:hover": { bgcolor: "action.hover" },
+            }}
+          >
+            <LinkIcon sx={{ fontSize: 12 }} />{task.linkCount}
+          </Box>
         )}
 
-        {showPomodoros && (
-          <Typography sx={{ fontSize: 11, color: "text.disabled", flexShrink: 0, ml: 0.5, fontFamily: "JetBrains Mono, monospace" }}>
-            {hasChildren
-              ? `${sumPomodoros(task)} Pomo`
-              : task.pomodoros != null ? `${task.pomodoros} Pomo` : ""}
-          </Typography>
-        )}
+        {renderExtra?.(task)}
 
         {showPlannedDate && plannedWhen && (
           <Typography sx={{ fontSize: 11, color: task.isOverdue ? "error.main" : "text.disabled", flexShrink: 0, ml: 0.5 }}>
@@ -165,21 +171,24 @@ export function TaskTreeNode({
 
       {hasChildren && expanded && (
         <Box>
-          {(task as any)._children.map((child: TaskWithMeta, i: number, arr: TaskWithMeta[]) => (
+          {children.map((child, i) => (
             <TaskTreeNode
               key={child.id}
               task={child}
               level={level + 1}
-              isLast={i === arr.length - 1}
-              expanded={(child as any)._expanded ?? false}
-              onToggle={() => { (child as any)._onToggle?.(); }}
-              onClick={() => onClick?.()}
+              isLast={i === children.length - 1}
+              expandedIds={expandedIds}
+              onToggle={onToggle}
+              onClick={onClick}
+              onLinkClick={onLinkClick}
               draggable={draggable}
               showPomodoros={showPomodoros}
               showPlannedDate={showPlannedDate}
+              showLinkBadge={showLinkBadge}
               accentColor={accentColor}
-              parentChainIsCompleted={parentChainIsCompleted && isCompleted}
               completionMode={completionMode}
+              parentChainIsCompleted={parentChainIsCompleted && isCompleted}
+              renderExtra={renderExtra}
             />
           ))}
         </Box>
