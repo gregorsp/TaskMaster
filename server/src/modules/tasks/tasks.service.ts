@@ -53,9 +53,67 @@ function assigneesByTaskId(taskIds: string[]) {
   return map;
 }
 
-function withAssignees<T extends { id: string }>(items: T[]): (T & { assignees: TaskAssignee[] })[] {
-  const map = assigneesByTaskId(items.map((i) => i.id));
-  return items.map((item) => ({ ...item, assignees: map.get(item.id) || [] }));
+export interface TaskCategory {
+  id: string;
+  name: string;
+  color: string;
+}
+
+function categoriesByTaskId(taskIds: string[]): Map<string, TaskCategory[]> {
+  const db = getDb();
+  const map = new Map<string, TaskCategory[]>();
+  if (taskIds.length === 0) return map;
+  const rows = db
+    .select({
+      taskId: taskCategories.taskId,
+      id: categories.id,
+      name: categories.name,
+      color: categories.color,
+    })
+    .from(taskCategories)
+    .innerJoin(categories, eq(taskCategories.categoryId, categories.id))
+    .where(inArray(taskCategories.taskId, taskIds))
+    .all();
+  for (const r of rows) {
+    const list = map.get(r.taskId) || [];
+    list.push({ id: r.id, name: r.name, color: r.color });
+    map.set(r.taskId, list);
+  }
+  return map;
+}
+
+function linkCountsByTaskId(taskIds: string[]): Map<string, number> {
+  const db = getDb();
+  const map = new Map<string, number>();
+  if (taskIds.length === 0) return map;
+  const rows = db
+    .select({ a: taskLinks.taskIdA, b: taskLinks.taskIdB })
+    .from(taskLinks)
+    .all();
+  for (const id of taskIds) {
+    const linked = new Set<string>();
+    for (const r of rows) {
+      if (r.a === id) linked.add(r.b);
+      if (r.b === id) linked.add(r.a);
+    }
+    map.set(id, linked.size);
+  }
+  return map;
+}
+
+export function withRelations<T extends { id: string }>(
+  items: T[]
+): (T & { assignees: TaskAssignee[]; categories: TaskCategory[]; linkCount: number })[] {
+  const ids = items.map((i) => i.id);
+  const assignees = assigneesByTaskId(ids);
+  const cats = categoriesByTaskId(ids);
+  const links = linkCountsByTaskId(ids);
+  return items.map((item) => ({
+    ...item,
+    assignees: assignees.get(item.id) || [],
+    categories: cats.get(item.id) || [],
+    linkCount: links.get(item.id) || 0,
+  }));
 }
 
 export function listTasks(
@@ -168,7 +226,7 @@ export function listTasks(
   const start = (paging.page - 1) * paging.pageSize;
   const items = sorted.slice(start, start + paging.pageSize);
 
-  return paginate(withAssignees(items), total, paging);
+  return paginate(withRelations(items), total, paging);
 }
 
 export async function getTask(id: string, userId: string, isAdmin: boolean) {
@@ -377,7 +435,7 @@ export function getSubtasks(taskId: string) {
   }
 
   return {
-    subtasks: withAssignees(children.map(enrichTask)),
+    subtasks: withRelations(children.map(enrichTask)),
     progress: {
       completed: completedDescendants,
       total: allDescendants.length,
@@ -419,7 +477,7 @@ export function getSiblings(taskId: string) {
     .where(eq(tasks.parentId, task.parentId))
     .all();
   const filtered = siblings.filter((s) => s.id !== taskId);
-  return withAssignees(filtered.map(enrichTask));
+  return withRelations(filtered.map(enrichTask));
 }
 
 export function getTaskLinks(taskId: string) {
@@ -434,7 +492,7 @@ export function getTaskLinks(taskId: string) {
 
   const linkedIds = rows.map((r) => r.taskId);
   const linkedTasks = db.select().from(tasks).where(inArray(tasks.id, linkedIds)).all();
-  return withAssignees(linkedTasks.map(enrichTask));
+  return withRelations(linkedTasks.map(enrichTask));
 }
 
 export function addTaskLink(taskId: string, linkedTaskId: string) {

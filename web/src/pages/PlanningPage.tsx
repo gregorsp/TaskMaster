@@ -13,6 +13,9 @@ import { listUsersPicker, type UserPickerItem } from "../api/usersApi";
 import { TaskTree } from "../components/tasks/TaskTree";
 import type { TaskWithMeta } from "../components/tasks/TaskTree";
 import { collectDescendantIds } from "../components/tasks/TaskTree";
+import { TaskFilters } from "../components/tasks/TaskFilters";
+import { useTaskFilters } from "../components/tasks/useTaskFilters";
+import { applyTaskFilters } from "../components/tasks/taskFilterModel";
 import { OccurrencePicker } from "../components/tasks/OccurrencePicker";
 import { useModalStack } from "../components/tasks/ModalStackProvider";
 import { useNotify } from "../context/NotifyContext";
@@ -73,6 +76,10 @@ export function PlanningPage() {
   const [saving, setSaving] = useState(false);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [userIdFilter, setUserIdFilter] = useState("");
+  const { filters: sidebarFilters, setFilter: setSidebarFilter, reset: resetSidebarFilters, activeCount: sidebarActiveCount } = useTaskFilters({
+    storageKey: "planning.sidebar.filters",
+    defaults: { status: "all" },
+  });
   const [occurrenceDialogOpen, setOccurrenceDialogOpen] = useState(false);
   const [occurrenceTask, setOccurrenceTask] = useState<TaskWithMeta | null>(null);
   const [occurrenceTargetDate, setOccurrenceTargetDate] = useState("");
@@ -234,6 +241,8 @@ export function PlanningPage() {
   };
 
   const tasksWithMeta: TaskWithMeta[] = (data?.tasks ?? []).map((t) => ({ ...t })) as TaskWithMeta[];
+
+  const sidebarTasks = applyTaskFilters(tasksWithMeta, sidebarFilters);
 
   const days = data?.days ?? [];
   const horizonWarnings = data?.horizonWarnings ?? [];
@@ -472,16 +481,25 @@ export function PlanningPage() {
             })}
           </Box>
 
-          <Box sx={{ width: 380, flexShrink: 0, display: "flex", flexDirection: "column" }}>
-            <TaskTree
-              tasks={tasksWithMeta}
-              draggable
-              onTaskClick={(taskId) => push({ id: taskId, title: tasksWithMeta.find((t) => t.id === taskId)?.title ?? "" })}
-              showFilters
-              showPomodoros
-              showPlannedDate
+          <Box sx={{ width: 380, flexShrink: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+            <TaskFilters
+              filters={sidebarFilters}
+              onChange={setSidebarFilter}
+              onReset={resetSidebarFilters}
+              activeCount={sidebarActiveCount}
               categories={categories}
               users={users}
+              show={{ status: false, habit: false, overdue: false, sort: false }}
+            />
+            <TaskTree
+              tasks={sidebarTasks}
+              draggable
+              onTaskClick={(task) => push({ id: task.id, title: task.title })}
+              showPomodoros
+              showPlannedDate
+              sort={sidebarFilters.sort}
+              order={sidebarFilters.order}
+              completionMode={sidebarFilters.completedDisplay}
               title="Aufgaben"
             />
           </Box>
