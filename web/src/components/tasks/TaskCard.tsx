@@ -5,7 +5,7 @@ import {
   Menu, MenuItem, Avatar, Tooltip,
 } from "@mui/material";
 import {
-  Close as CloseIcon, Add as AddIcon,
+  Close as CloseIcon, Add as AddIcon, Today as TodayIcon,
   Lock as LockIcon, LockOpen as LockOpenIcon, Edit as EditIcon,
   Send as SendIcon, Warning as WarningIcon,
 } from "@mui/icons-material";
@@ -241,6 +241,19 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
     catch (e) { console.error(e); notify("Fehler beim Senden", "error"); }
   };
 
+  const handlePlanToday = async () => {
+    try {
+      const now = new Date();
+      await updateTask(taskId, { plannedDate: new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString() });
+      notify("Für heute eingeplant");
+      load();
+      onUpdated();
+    } catch (e) {
+      console.error(e);
+      notify("Fehler beim Einplanen", "error");
+    }
+  };
+
   const fd = (d: string | null) => d ? new Date(d).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
   const toInputDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   if (!task) return null;
@@ -250,6 +263,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
   const availCats = allCats.filter(c => !taskCats.find(tc => tc.id === c.id));
   const rt = task.recurrenceType;
   const hasOpenSubtasks = subtaskOpenCount > 0;
+  const isPlannedToday = !!task.plannedDate && toInputDate(new Date(task.plannedDate)) === toInputDate(new Date());
 
   const translateX = isStacked ? -stackDepth * 48 : 0;
   const zIndex = isStacked ? 1300 - stackDepth : 1300;
@@ -387,10 +401,23 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
             </Stack>
 
             <Divider sx={{ my: 2 }} />
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
               <Button color="error" size="small" onClick={() => setConfirmDelete(true)}>Löschen</Button>
 
-              {task.isCompleted ? (
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                {!task.isCompleted && !task.isHabit && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    disabled={isPlannedToday}
+                    onClick={handlePlanToday}
+                    startIcon={<TodayIcon />}
+                  >
+                    {isPlannedToday ? "Heute geplant" : "Heute einplanen"}
+                  </Button>
+                )}
+
+                {task.isCompleted ? (
                 <Button variant="outlined" onClick={async () => { try { await reopenTask(taskId); load(); onUpdated(); } catch (e) { console.error(e); notify("Fehler", "error"); } }}>
                   Wieder öffnen
                 </Button>
@@ -439,6 +466,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                   Erledigen
                 </Button>
               )}
+              </Stack>
             </Stack>
           </Box>
 
