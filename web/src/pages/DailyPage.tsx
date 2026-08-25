@@ -5,10 +5,10 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, useTheme, useMediaQuery,
 } from "@mui/material";
 import {
-  ChevronLeft, ChevronRight, Today as TodayIcon, Repeat as RepeatIcon,
+  ChevronLeft, ChevronRight, Today as TodayIcon, Repeat as RepeatIcon, Add as AddIcon,
 } from "@mui/icons-material";
 import { fetchDaily, type DailyData, type DailyHabit, type DailyTask } from "../api/dailyApi";
-import { completeTask, reopenTask } from "../api/tasksApi";
+import { completeTask, reopenTask, createTask } from "../api/tasksApi";
 import { listCategories, type Category } from "../api/categoriesApi";
 import { useModalStack } from "../components/tasks/ModalStackProvider";
 import { useNotify } from "../context/NotifyContext";
@@ -46,6 +46,8 @@ export function DailyPage() {
   const [sortBy, setSortBy] = useState<"dueAt" | "title">("dueAt");
   const [pendingHabit, setPendingHabit] = useState<DailyHabit | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [quickAddTitle, setQuickAddTitle] = useState("");
+  const [quickAddLoading, setQuickAddLoading] = useState(false);
 
   const isToday = toInputDate(selectedDate) === toInputDate(new Date());
 
@@ -97,10 +99,37 @@ export function DailyPage() {
     await toggleHabit(pendingHabit, true);
   };
 
+  const handleQuickAdd = async () => {
+    const title = quickAddTitle.trim();
+    if (!title || quickAddLoading) return;
+    if (!user) {
+      notify("Fehler beim Erstellen", "error");
+      return;
+    }
+    setQuickAddLoading(true);
+    try {
+      const iso = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()).toISOString();
+      await createTask({
+        title,
+        dueAt: iso,
+        plannedDate: iso,
+        isPrivate: true,
+        assigneeIds: [user.id],
+      });
+      setQuickAddTitle("");
+      await fetchData();
+    } catch {
+      notify("Fehler beim Erstellen", "error");
+    }
+    setQuickAddLoading(false);
+  };
+
   const habits = data?.habits ?? [];
   const doneCount = habits.filter((h) => h.completedOnDate).length;
 
   const allTasks = data?.tasks ?? [];
+  const dayTaskIds = new Set(allTasks.map((t) => t.task.id));
+  const overdueTasks = (data?.overdue ?? []).filter((t) => !dayTaskIds.has(t.task.id));
   const filteredTasks = allTasks.filter((t) => {
     if (categoryFilter && !t.categories.some((c) => c.id === categoryFilter)) return false;
     if (taskFilter === "open" && t.task.isCompleted) return false;
@@ -302,12 +331,56 @@ export function DailyPage() {
               </Stack>
             </Stack>
 
+            <Paper variant="outlined" sx={{ p: 1, mb: 1 }}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder={`Aufgabe hinzufügen für ${isToday ? "heute" : toInputDate(selectedDate)}`}
+                  value={quickAddTitle}
+                  onChange={(e) => setQuickAddTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleQuickAdd();
+                    }
+                  }}
+                  inputProps={{ maxLength: 500 }}
+                />
+                <IconButton
+                  color="primary"
+                  onClick={handleQuickAdd}
+                  disabled={!quickAddTitle.trim() || quickAddLoading}
+                  aria-label="Aufgabe hinzufügen"
+                >
+                  {quickAddLoading ? <CircularProgress size={20} /> : <AddIcon />}
+                </IconButton>
+              </Stack>
+            </Paper>
+
             <Stack spacing={1}>
               {sortedTasks.map(renderTask)}
               {sortedTasks.length === 0 && (
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Typography color="text.secondary" textAlign="center">
                     Keine Aufgaben für diesen Tag {categoryFilter ? "(Filter aktiv)" : ""}.
+                  </Typography>
+                </Paper>
+              )}
+            </Stack>
+
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 3, mb: 1 }}>
+              <Typography variant="h6">(Über-)fällig</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "JetBrains Mono, monospace" }}>
+                {overdueTasks.length}
+              </Typography>
+            </Stack>
+            <Stack spacing={1}>
+              {overdueTasks.map(renderTask)}
+              {overdueTasks.length === 0 && (
+                <Paper variant="outlined" sx={{ p: 3 }}>
+                  <Typography color="text.secondary" textAlign="center">
+                    Alles erledigt – keine überfälligen Aufgaben.
                   </Typography>
                 </Paper>
               )}

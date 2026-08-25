@@ -51,6 +51,7 @@ export interface DailyData {
   date: string;
   habits: DailyHabit[];
   tasks: DailyTask[];
+  overdue: DailyTask[];
 }
 
 function categoriesByTaskId(taskIds: string[]): Map<string, TaskCategory[]> {
@@ -215,5 +216,31 @@ export function getDailyData(userId: string, isAdmin: boolean, date: Date): Dail
     return aDue - bDue;
   });
 
-  return { date: toDateString(date), habits, tasks: dailyTasks };
+  // Tasks due on or before the requested day (no habits, not completed).
+  // Duplicates with the day list are filtered out on the frontend.
+  const overdueForDay = enrichedTasks
+    .filter((t) => {
+      if (t.isCompleted || !t.effectiveDueAt) return false;
+      return toDateString(new Date(t.effectiveDueAt)) <= toDateString(date);
+    })
+    .sort((a, b) => {
+      const aDue = a.effectiveDueAt ? new Date(a.effectiveDueAt).getTime() : Number.MAX_SAFE_INTEGER;
+      const bDue = b.effectiveDueAt ? new Date(b.effectiveDueAt).getTime() : Number.MAX_SAFE_INTEGER;
+      return aDue - bDue;
+    });
+
+  const overdueTaskIds = overdueForDay.map((t) => t.id);
+  const overdueCategoriesMap = categoriesByTaskId(overdueTaskIds);
+  const overdueAssigneeMap = assigneesByTaskId(overdueTaskIds);
+
+  const overdue: DailyTask[] = overdueForDay.map((task) => ({
+    task,
+    type: "due",
+    occurrenceId: null,
+    occurrenceDate: null,
+    categories: overdueCategoriesMap.get(task.id) || [],
+    assignees: overdueAssigneeMap.get(task.id) || [],
+  }));
+
+  return { date: toDateString(date), habits, tasks: dailyTasks, overdue };
 }

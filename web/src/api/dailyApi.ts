@@ -26,6 +26,7 @@ export interface DailyData {
   date: string;
   habits: DailyHabit[];
   tasks: DailyTask[];
+  overdue: DailyTask[];
 }
 
 export async function fetchDaily(date?: string): Promise<DailyData> {
