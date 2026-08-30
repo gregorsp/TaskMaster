@@ -13,6 +13,7 @@ import { getTask, completeTask, reopenTask, updateTask, deleteTask, getSubtasks,
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { TaskForm } from "./TaskForm";
+import { Markdown } from "../common/Markdown";
 import { TaskRelationsSidebar } from "./TaskRelationsSidebar";
 import { CompleteBlockedDialog } from "./CompleteBlockedDialog";
 import { OccurrencePicker } from "./OccurrencePicker";
@@ -241,6 +242,17 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
     catch (e) { console.error(e); notify("Fehler beim Senden", "error"); }
   };
 
+  const handleToggleDescription = async (next: string) => {
+    try {
+      await updateTask(taskId, { description: next });
+      setTask(prev => (prev ? { ...prev, description: next } : prev));
+      onUpdated();
+    } catch (e) {
+      console.error(e);
+      notify("Fehler beim Aktualisieren der Beschreibung", "error");
+    }
+  };
+
   const handlePlanToday = async () => {
     try {
       const now = new Date();
@@ -333,7 +345,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
               </>)}
             </Stack>
 
-            {task.description && <Typography variant="body2" color="text.secondary" mb={3}>{task.description}</Typography>}
+            {task.description && <Box mb={3}><Markdown color="text.secondary" onToggleTask={handleToggleDescription}>{task.description}</Markdown></Box>}
 
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} mb={3}>
               <Box sx={{ flex: 1 }}>
@@ -494,7 +506,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                       ? (evt.occurrenceDate ? `Erledigt – ${fd(evt.occurrenceDate)}` : "Erledigt")
                       : evt.type === "reopened" ? "Wieder geöffnet" : "Kommentar"}
                   </Typography>
-                  {evt.content && <Typography variant="body2" sx={{ mt: 0.25 }}>{evt.content}</Typography>}
+                  {evt.content && <Box sx={{ mt: 0.25 }}><Markdown>{evt.content}</Markdown></Box>}
                 </Box>
               ))}
             </Box>
