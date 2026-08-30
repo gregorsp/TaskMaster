@@ -194,7 +194,132 @@ export async function getTask(id: string, userId: string, isAdmin: boolean) {
   return enrichTask({ ...task, assignees, categories: cats } as unknown as typeof task);
 }
 
-export function createTask(input: CreateTaskInput, createdById: string) {
+export interface DueDateConflict {
+  taskId: string;
+  title: string;
+  dueAt: string | null;
+  requiredDueAt: string | null;
+}
+
+export interface DueDateBlocked {
+  blocked: true;
+  code: "SUBTASK_DUE_CONFLICT";
+  conflicts: DueDateConflict[];
+}
+
+function taskDueDate(task: { dueAt: Date | null; baseDate: Date | null }): Date | null {
+  return task.dueAt ?? task.baseDate;
+}
+
+function dayKey(d: Date | string | null): string {
+  if (!d) return "";
+  const date = typeof d === "string" ? new Date(d) : d;
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+export function collectAncestorIds(taskId: string, result: Set<string>) {
+  const db = getDb();
+  const row = db.select({ id: tasks.id, parentId: tasks.parentId }).from(tasks).where(eq(tasks.id, taskId)).get();
+  if (!row) return;
+  if (!result.has(row.id)) {
+    result.add(row.id);
+    if (row.parentId && !result.has(row.parentId)) collectAncestorIds(row.parentId, result);
+  }
+}
+
+function checkDueDateConflicts(opts: {
+  parentId?: string | null;
+  dueDate?: Date | null;
+  taskId?: string;
+}): DueDateConflict[] {
+  const db = getDb();
+  if (!opts.dueDate) return [];
+  const due = dayKey(opts.dueDate);
+  const conflicts: DueDateConflict[] = [];
+
+  if (opts.parentId) {
+    const ancestorIds = new Set<string>();
+    collectAncestorIds(opts.parentId, ancestorIds);
+    if (ancestorIds.size > 0) {
+      const rows = db.select().from(tasks).where(inArray(tasks.id, [...ancestorIds])).all();
+      for (const a of rows) {
+        const aDue = taskDueDate(a);
+        if (aDue && dayKey(aDue) < due) {
+          conflicts.push({ taskId: a.id, title: a.title, dueAt: aDue.toISOString(), requiredDueAt: opts.dueDate.toISOString() });
+        }
+      }
+    }
+  }
+
+  if (opts.taskId) {
+    const descendantIds = new Set<string>();
+    collectDescendantIds(opts.taskId, descendantIds);
+    if (descendantIds.size > 0) {
+      const rows = db.select().from(tasks).where(inArray(tasks.id, [...descendantIds])).all();
+      for (const d of rows) {
+        const dDue = taskDueDate(d);
+        if (dDue && dayKey(dDue) > due) {
+          conflicts.push({ taskId: d.id, title: d.title, dueAt: dDue.toISOString(), requiredDueAt: opts.dueDate.toISOString() });
+        }
+      }
+    }
+  }
+
+  return conflicts;
+}
+
+function applyDueDateResolution(opts: {
+  parentId?: string | null;
+  dueDate?: Date | null;
+  taskId?: string;
+}): number {
+  const db = getDb();
+  if (!opts.dueDate) return 0;
+  const due = dayKey(opts.dueDate);
+  let changed = 0;
+
+  const setTaskDue = (row: { id: string; recurrenceType: string; dueAt: Date | null; baseDate: Date | null }, date: Date) => {
+    if (row.recurrenceType === "rrule") {
+      if (dayKey(row.baseDate) !== due) {
+        db.update(tasks).set({ baseDate: date }).where(eq(tasks.id, row.id)).run();
+        changed++;
+      }
+    } else {
+      if (dayKey(row.dueAt) !== due) {
+        db.update(tasks).set({ dueAt: date }).where(eq(tasks.id, row.id)).run();
+        changed++;
+      }
+    }
+  };
+
+  if (opts.parentId) {
+    const ancestorIds = new Set<string>();
+    collectAncestorIds(opts.parentId, ancestorIds);
+    if (ancestorIds.size > 0) {
+      const rows = db.select().from(tasks).where(inArray(tasks.id, [...ancestorIds])).all();
+      for (const a of rows) {
+        const aDue = taskDueDate(a);
+        if (aDue && dayKey(aDue) < due) setTaskDue(a, opts.dueDate);
+      }
+    }
+  }
+
+  if (opts.taskId) {
+    const descendantIds = new Set<string>();
+    collectDescendantIds(opts.taskId, descendantIds);
+    if (descendantIds.size > 0) {
+      const rows = db.select().from(tasks).where(inArray(tasks.id, [...descendantIds])).all();
+      for (const d of rows) {
+        const dDue = taskDueDate(d);
+        if (dDue && dayKey(dDue) > due) setTaskDue(d, opts.dueDate);
+      }
+    }
+  }
+
+  return changed;
+}
+
+export function createTask(input: CreateTaskInput, createdById: string): (typeof tasks.$inferInsert) | DueDateBlocked {
   const db = getDb();
   const isHabit = input.isHabit ?? false;
   const dueAtVal = isHabit ? null
@@ -202,6 +327,18 @@ export function createTask(input: CreateTaskInput, createdById: string) {
     : input.dueAt ? new Date(input.dueAt) : null;
   const baseDateVal = !isHabit && input.recurrenceType === "rrule" && input.dueAt
     ? new Date(input.dueAt) : null;
+
+  const dueDateVal = dueAtVal ?? baseDateVal;
+  if (!isHabit && input.parentId && dueDateVal && !input.forceDueDate) {
+    const conflicts = checkDueDateConflicts({ parentId: input.parentId, dueDate: dueDateVal });
+    if (conflicts.length > 0) {
+      if (input.resolveDueDateConflicts) {
+        applyDueDateResolution({ parentId: input.parentId, dueDate: dueDateVal });
+      } else {
+        return { blocked: true, code: "SUBTASK_DUE_CONFLICT", conflicts };
+      }
+    }
+  }
 
   const task = {
     id: uuid(),
@@ -303,6 +440,29 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
       updates.dueAt = null;
     } else {
       updates.dueAt = input.dueAt ? new Date(input.dueAt) : null;
+    }
+  }
+
+  if (!isHabit) {
+    const finalParentId = input.parentId !== undefined ? input.parentId : existing.parentId;
+    const finalRecurrenceType = input.recurrenceType ?? existing.recurrenceType;
+    let dueDate: Date | null;
+    if (input.dueAt !== undefined) {
+      dueDate = input.dueAt ? new Date(input.dueAt) : null;
+    } else if (finalRecurrenceType === "rrule") {
+      dueDate = existing.baseDate;
+    } else {
+      dueDate = existing.dueAt;
+    }
+    if (!input.forceDueDate) {
+      const conflicts = checkDueDateConflicts({ parentId: finalParentId, dueDate, taskId: id });
+      if (conflicts.length > 0) {
+        if (input.resolveDueDateConflicts) {
+          applyDueDateResolution({ parentId: finalParentId, dueDate, taskId: id });
+        } else {
+          return { blocked: true, code: "SUBTASK_DUE_CONFLICT", conflicts };
+        }
+      }
     }
   }
 

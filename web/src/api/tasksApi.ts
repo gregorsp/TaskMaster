@@ -90,6 +90,8 @@ export interface CreateTaskInput {
   categoryIds?: string[];
   parentId?: string | null;
   plannedDate?: string | null;
+  forceDueDate?: boolean;
+  resolveDueDateConflicts?: boolean;
 }
 
 export interface OccurrenceInfo {
@@ -131,6 +133,8 @@ export interface UpdateTaskInput {
   parentId?: string | null;
   plannedDate?: string | null;
   forceUpdateRecurrence?: boolean;
+  forceDueDate?: boolean;
+  resolveDueDateConflicts?: boolean;
 }
 
 export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResponse> {

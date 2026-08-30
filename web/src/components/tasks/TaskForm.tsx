@@ -4,7 +4,7 @@ import {
   FormControlLabel, Switch, MenuItem, Typography, Chip, Autocomplete,
   RadioGroup, Radio, FormControl, FormLabel, Alert, DialogActions,
 } from "@mui/material";
-import { createTask, updateTask, listTasks, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations, type Task } from "../../api/tasksApi";
+import { createTask, updateTask, listTasks, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations } from "../../api/tasksApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { useNotify } from "../../context/NotifyContext";
@@ -99,8 +99,8 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const [yearDay, setYearDay] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
   const [selectedAssignees, setSelectedAssignees] = useState<UserPickerItem[]>([]);
-  const [parentTask, setParentTask] = useState<Task | null>(null);
-  const [parentOptions, setParentOptions] = useState<Task[]>([]);
+  const [parentTask, setParentTask] = useState<TaskWithRelations | null>(null);
+  const [parentOptions, setParentOptions] = useState<TaskWithRelations[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<UserPickerItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -108,6 +108,8 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const [recurrenceWarningCount, setRecurrenceWarningCount] = useState(0);
   const [habitConversionOpen, setHabitConversionOpen] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState(false);
+  const [dueDateConflictOpen, setDueDateConflictOpen] = useState(false);
+  const [dueDateConflicts, setDueDateConflicts] = useState<{ taskId: string; title: string; dueAt: string | null; requiredDueAt: string | null }[]>([]);
   const notify = useNotify();
   const { user: currentUser } = useAuth();
 
@@ -122,7 +124,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         }
       }).catch(() => []);
       listTasks({ isCompleted: false, pageSize: 200 }).then((r) => {
-        setParentOptions(r.items.filter((t) => !task || t.id !== task.id));
+        setParentOptions(r.items.filter((t) => !task || t.id !== task.id).map((t) => ({ ...t, categories: [] })));
       }).catch(() => []);
     }
   }, [open]);
@@ -175,7 +177,13 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   useEffect(() => {
     if (open && !task && parentId) {
       import("../../api/tasksApi").then(({ getTask: gt }) => {
-        gt(parentId).then(setParentTask).catch(() => setParentTask(null));
+        gt(parentId).then((parent) => {
+          setParentTask(parent);
+          setDueDate(toInputDate(parent.dueAt ? new Date(parent.dueAt) : (parent.baseDate ? new Date(parent.baseDate) : null)));
+          setIsImportant(parent.isImportant ?? false);
+          setIsPrivate(parent.isPrivate ?? false);
+          setSelectedCategories((parent.categories || []) as Category[]);
+        }).catch(() => setParentTask(null));
       });
     }
   }, [open, task, parentId]);
@@ -200,7 +208,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
 
   const previewDates: Date[] = [];
 
-  const handleSubmit = async (forceRecurrence = false) => {
+  const handleSubmit = async (forceRecurrence = false, forceDue = false, resolveDue = false) => {
     if (!title.trim()) return;
     if (recurrenceType === "rrule" && !dueDate) {
       notify("Bitte ein Startdatum (erste Fälligkeit) für die wiederkehrende Aufgabe angeben", "error");
@@ -231,6 +239,8 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           parentId: isHabit ? null : (parentTask?.id || null),
           plannedDate: isHabit ? null : (plannedDate ? new Date(plannedDate).toISOString() : null),
           forceUpdateRecurrence: forceRecurrence,
+          forceDueDate: forceDue,
+          resolveDueDateConflicts: resolveDue,
         };
         await updateTask(task.id, input);
         notify("Aufgabe gespeichert");
@@ -247,17 +257,25 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           assigneeIds: selectedAssignees.map((u) => u.id),
           parentId: isHabit ? null : (parentTask?.id || null),
           plannedDate: isHabit ? undefined : (plannedDate ? new Date(plannedDate).toISOString() : undefined),
+          forceDueDate: forceDue,
+          resolveDueDateConflicts: resolveDue,
         };
         await createTask(input);
         notify("Aufgabe erstellt");
       }
       onCreated();
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { error?: { code?: string; count?: number } }; status?: number } };
+      const err = e as { response?: { data?: { error?: { code?: string; count?: number; conflicts?: { taskId: string; title: string; dueAt: string | null; requiredDueAt: string | null }[] } }; status?: number } };
       if (err?.response?.data?.error?.code === "WILL_DELETE_PLANNED_OCCURRENCES") {
         setRecurrenceWarningCount(err.response.data.error.count || 0);
         setPendingSubmit(true);
         setRecurrenceWarningOpen(true);
+        setLoading(false);
+        return;
+      }
+      if (err?.response?.data?.error?.code === "SUBTASK_DUE_CONFLICT") {
+        setDueDateConflicts(err.response.data.error.conflicts || []);
+        setDueDateConflictOpen(true);
         setLoading(false);
         return;
       }
@@ -426,6 +444,38 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         <Button onClick={() => { setRecurrenceWarningOpen(false); setPendingSubmit(false); }}>Abbrechen</Button>
         <Button variant="contained" color="warning" onClick={() => { setRecurrenceWarningOpen(false); setPendingSubmit(false); handleSubmit(true); }}>
           Trotzdem speichern
+        </Button>
+      </DialogActions>
+    </Dialog>
+    <Dialog open={dueDateConflictOpen} onClose={() => setDueDateConflictOpen(false)} maxWidth="xs" fullWidth>
+      <DialogTitle>Fälligkeits-Konflikt</DialogTitle>
+      <DialogContent>
+        <Alert severity="warning" sx={{ mt: 1 }}>
+          Die Fälligkeit dieser Aufgabe widerspricht der Fälligkeit einer zugehörigen Aufgabe (Mutter- oder Unteraufgabe).
+        </Alert>
+        {dueDateConflicts.length > 0 && (
+          <Box component="ul" sx={{ mt: 1, mb: 1, pl: 2 }}>
+            {dueDateConflicts.slice(0, 5).map((c) => (
+              <Typography key={c.taskId} component="li" variant="body2">
+                „{c.title}" ({c.dueAt ? new Date(c.dueAt).toLocaleDateString("de-DE") : "ohne Datum"})
+              </Typography>
+            ))}
+            {dueDateConflicts.length > 5 && (
+              <Typography component="li" variant="body2">… und {dueDateConflicts.length - 5} weitere</Typography>
+            )}
+          </Box>
+        )}
+        <Typography variant="body2" color="text.secondary">
+          Möchtest du die Änderung verwerfen, trotzdem speichern oder die zugehörigen Aufgaben automatisch anpassen?
+        </Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setDueDateConflictOpen(false)}>Änderungen verwerfen</Button>
+        <Button color="warning" onClick={() => { setDueDateConflictOpen(false); handleSubmit(false, true, false); }}>
+          Trotzdem speichern
+        </Button>
+        <Button variant="contained" onClick={() => { setDueDateConflictOpen(false); handleSubmit(false, false, true); }}>
+          Aufgaben mitändern
         </Button>
       </DialogActions>
     </Dialog>

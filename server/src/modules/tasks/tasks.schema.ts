@@ -16,6 +16,8 @@ export const createTaskSchema = z.object({
   categoryIds: z.array(z.string()).default([]),
   parentId: z.string().nullable().optional(),
   plannedDate: z.string().nullable().optional(),
+  forceDueDate: z.boolean().optional(),
+  resolveDueDateConflicts: z.boolean().optional(),
 });
 
 export const updateTaskSchema = z.object({
@@ -35,6 +37,8 @@ export const updateTaskSchema = z.object({
   parentId: z.string().nullable().optional(),
   plannedDate: z.string().nullable().optional(),
   forceUpdateRecurrence: z.boolean().optional(),
+  forceDueDate: z.boolean().optional(),
+  resolveDueDateConflicts: z.boolean().optional(),
 });
 
 export const completeTaskSchema = z.object({

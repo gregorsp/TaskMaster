@@ -61,6 +61,9 @@ export async function tasksRoutes(app: FastifyInstance) {
     const p = request.user as { id: string };
     const input = createTaskSchema.parse(request.body);
     const task = createTask(input, p.id);
+    if ("blocked" in task && task.blocked) {
+      return reply.status(409).send({ error: { code: task.code, message: "Due date conflicts with an ancestor task", conflicts: task.conflicts } });
+    }
     return reply.status(201).send(task);
   });
 
@@ -73,6 +76,9 @@ export async function tasksRoutes(app: FastifyInstance) {
     const task = await updateTask(id, input, p.id, p.isAdmin);
     if (!task) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
     if ("blocked" in task && task.blocked) {
+      if (task.code === "SUBTASK_DUE_CONFLICT") {
+        return reply.status(409).send({ error: { code: task.code, message: "Due date conflicts with a related task", conflicts: task.conflicts } });
+      }
       return reply.status(409).send({ error: { code: task.code, message: "Planned occurrences will be deleted", count: (task as { count: number }).count } });
     }
     return task;

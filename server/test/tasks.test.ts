@@ -686,3 +686,168 @@ describe("Pomodoros", () => {
     await deleteTask(tid);
   });
 });
+
+describe("Due date constraints (parent/subtask)", () => {
+  const iso = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d)).toISOString();
+
+  const create = async (payload: Record<string, unknown>, token = adminToken) =>
+    app.inject({ method: "POST", url: "/api/tasks", headers: headers(token), payload });
+
+  const get = async (id: string) => {
+    const res = await app.inject({ method: "GET", url: `/api/tasks/${id}`, headers: headers(adminToken) });
+    return res.json();
+  };
+
+  const put = async (id: string, payload: Record<string, unknown>) =>
+    app.inject({ method: "PUT", url: `/api/tasks/${id}`, headers: headers(adminToken), payload });
+
+  const del = async (id: string) => {
+    await app.inject({ method: "DELETE", url: `/api/tasks/${id}`, headers: headers(adminToken) });
+  };
+
+  it("blocks creating a subtask due after its parent", async () => {
+    const parent = await create({ title: "P1", dueAt: iso(2026, 1, 10) });
+    expect(parent.statusCode).toBe(201);
+    const child = await create({ title: "C1", parentId: parent.json().id, dueAt: iso(2026, 1, 15) });
+    expect(child.statusCode).toBe(409);
+    expect(child.json().error.code).toBe("SUBTASK_DUE_CONFLICT");
+    expect(child.json().error.conflicts.length).toBeGreaterThan(0);
+    await del(parent.json().id);
+  });
+
+  it("allows a subtask due on the same day as its parent", async () => {
+    const parent = await create({ title: "P2", dueAt: iso(2026, 1, 10) });
+    const child = await create({ title: "C2", parentId: parent.json().id, dueAt: iso(2026, 1, 10) });
+    expect(child.statusCode).toBe(201);
+    await del(child.json().id);
+    await del(parent.json().id);
+  });
+
+  it("allows a subtask with a due date when the parent has none", async () => {
+    const parent = await create({ title: "P3" });
+    const child = await create({ title: "C3", parentId: parent.json().id, dueAt: iso(2026, 1, 15) });
+    expect(child.statusCode).toBe(201);
+    await del(child.json().id);
+    await del(parent.json().id);
+  });
+
+  it("forces creating a conflicting subtask with forceDueDate", async () => {
+    const parent = await create({ title: "P4", dueAt: iso(2026, 1, 10) });
+    const child = await create({ title: "C4", parentId: parent.json().id, dueAt: iso(2026, 1, 15), forceDueDate: true });
+    expect(child.statusCode).toBe(201);
+    expect(child.json().dueAt.slice(0, 10)).toBe("2026-01-15");
+    await del(child.json().id);
+    await del(parent.json().id);
+  });
+
+  it("resolve pushes the parent's due date forward on create", async () => {
+    const parent = await create({ title: "P5", dueAt: iso(2026, 1, 10) });
+    const pid = parent.json().id;
+    const child = await create({ title: "C5", parentId: pid, dueAt: iso(2026, 1, 15), resolveDueDateConflicts: true });
+    expect(child.statusCode).toBe(201);
+    const updatedParent = await get(pid);
+    expect(updatedParent.dueAt.slice(0, 10)).toBe("2026-01-15");
+    await del(child.json().id);
+    await del(pid);
+  });
+
+  it("blocks updating a subtask due after its parent and resolves by pushing the parent", async () => {
+    const parent = await create({ title: "P6", dueAt: iso(2026, 1, 10) });
+    const pid = parent.json().id;
+    const child = await create({ title: "C6", parentId: pid, dueAt: iso(2026, 1, 5) });
+    const cid = child.json().id;
+
+    const blocked = await put(cid, { dueAt: iso(2026, 1, 12) });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().error.code).toBe("SUBTASK_DUE_CONFLICT");
+
+    const resolved = await put(cid, { dueAt: iso(2026, 1, 12), resolveDueDateConflicts: true });
+    expect(resolved.statusCode).toBe(200);
+    const updatedParent = await get(pid);
+    expect(updatedParent.dueAt.slice(0, 10)).toBe("2026-01-12");
+
+    await del(cid);
+    await del(pid);
+  });
+
+  it("forces updating a parent earlier than a child with forceDueDate", async () => {
+    const parent = await create({ title: "P7", dueAt: iso(2026, 1, 10) });
+    const pid = parent.json().id;
+    const child = await create({ title: "C7", parentId: pid, dueAt: iso(2026, 1, 8) });
+    const cid = child.json().id;
+
+    const forced = await put(pid, { dueAt: iso(2026, 1, 5), forceDueDate: true });
+    expect(forced.statusCode).toBe(200);
+    const unchangedChild = await get(cid);
+    expect(unchangedChild.dueAt.slice(0, 10)).toBe("2026-01-08");
+
+    await del(cid);
+    await del(pid);
+  });
+
+  it("blocks moving a parent earlier than a child and resolves by clamping the child", async () => {
+    const parent = await create({ title: "P8", dueAt: iso(2026, 1, 10) });
+    const pid = parent.json().id;
+    const child = await create({ title: "C8", parentId: pid, dueAt: iso(2026, 1, 8) });
+    const cid = child.json().id;
+
+    const blocked = await put(pid, { dueAt: iso(2026, 1, 5) });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().error.code).toBe("SUBTASK_DUE_CONFLICT");
+
+    const resolved = await put(pid, { dueAt: iso(2026, 1, 5), resolveDueDateConflicts: true });
+    expect(resolved.statusCode).toBe(200);
+    const updatedChild = await get(cid);
+    expect(updatedChild.dueAt.slice(0, 10)).toBe("2026-01-05");
+
+    await del(cid);
+    await del(pid);
+  });
+
+  it("blocks moving a task under a parent with an earlier due date and resolves by pushing the chain", async () => {
+    const parent = await create({ title: "P9", dueAt: iso(2026, 1, 10) });
+    const pid = parent.json().id;
+    const mover = await create({ title: "M9", dueAt: iso(2026, 1, 12) });
+    const mid = mover.json().id;
+
+    const blocked = await put(mid, { parentId: pid });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().error.code).toBe("SUBTASK_DUE_CONFLICT");
+
+    const resolved = await put(mid, { parentId: pid, resolveDueDateConflicts: true });
+    expect(resolved.statusCode).toBe(200);
+    const updatedParent = await get(pid);
+    expect(updatedParent.dueAt.slice(0, 10)).toBe("2026-01-12");
+
+    await del(mid);
+    await del(pid);
+  });
+
+  it("enforces the constraint across the whole ancestor chain (grandparent)", async () => {
+    const grandparent = await create({ title: "GP10", dueAt: iso(2026, 1, 10) });
+    const gpid = grandparent.json().id;
+    const parent = await create({ title: "P10", parentId: gpid });
+    const pid = parent.json().id;
+    const grandchild = await create({ title: "GC10", parentId: pid, dueAt: iso(2026, 1, 15) });
+    expect(grandchild.statusCode).toBe(409);
+    expect(grandchild.json().error.code).toBe("SUBTASK_DUE_CONFLICT");
+
+    await del(pid);
+    await del(gpid);
+  });
+
+  it("uses the rrule baseDate as the parent's due date for the constraint", async () => {
+    const parent = await create({ title: "P11", recurrenceType: "rrule", recurrenceRule: "FREQ=WEEKLY;INTERVAL=1", dueAt: iso(2026, 1, 10) });
+    const pid = parent.json().id;
+    const child = await create({ title: "C11", parentId: pid, dueAt: iso(2026, 1, 15) });
+    expect(child.statusCode).toBe(409);
+
+    const resolved = await create({ title: "C11b", parentId: pid, dueAt: iso(2026, 1, 15), resolveDueDateConflicts: true });
+    expect(resolved.statusCode).toBe(201);
+    const updatedParent = await get(pid);
+    expect(updatedParent.baseDate.slice(0, 10)).toBe("2026-01-15");
+
+    await del(resolved.json().id);
+    await del(pid);
+  });
+});
