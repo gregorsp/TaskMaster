@@ -30,6 +30,7 @@ export interface Task {
   recurrenceRule: string | null;
   parentId: string | null;
   plannedDate: string | null;
+  colorHue: number | null;
   createdById: string;
   createdAt: string;
   assignees: TaskAssignee[];

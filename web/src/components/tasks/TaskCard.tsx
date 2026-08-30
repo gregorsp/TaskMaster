@@ -21,6 +21,8 @@ import { hashColor } from "./AssigneeAvatars";
 import { useNotify } from "../../context/NotifyContext";
 import { useModalStack } from "./ModalStackProvider";
 import client from "../../api/client";
+import { useTheme } from "@mui/material/styles";
+import { colorFrom, withAlpha } from "../../lib/taskColor";
 
 interface Props {
   taskId: string;
@@ -66,6 +68,8 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
   const [completableParent, setCompletableParent] = useState<{ id: string; title: string } | null>(null);
   const notify = useNotify();
   const { push, closeAll } = useModalStack();
+  const theme = useTheme();
+  const mode = theme.palette.mode;
 
   const handleNavigateToTask = (target: Task) => {
     import("../../api/tasksApi").then(({ getTask: gt }) => {
@@ -307,7 +311,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
             />
           )}
 
-          <Box sx={{ flex: 1, p: { xs: 2, md: 3 }, minWidth: 0 }}>
+          <Box sx={{ flex: 1, p: { xs: 2, md: 3 }, minWidth: 0, borderLeft: { xs: 0, md: `4px solid ${colorFrom(task, mode)}` } }}>
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={2}>
               <Stack direction="row" alignItems="center" gap={1}>
                 <Typography variant="h5" fontWeight={600}>{task.title}</Typography>
@@ -334,7 +338,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
 
             <Stack direction="row" flexWrap="wrap" gap={1} mb={2}>
               {taskCats.map(cat => (
-                <Chip key={cat.id} label={cat.name} size="small" sx={{ bgcolor: cat.color + "20", color: cat.color, fontWeight: 500 }}
+                <Chip key={cat.id} label={cat.name} size="small" sx={{ bgcolor: withAlpha(cat.color, 0.13), color: cat.color, fontWeight: 500 }}
                   onDelete={() => safeCall(async () => { await updateTask(taskId, { categoryIds: taskCats.filter(c => c.id !== cat.id).map(c => c.id) }); load(); })} />
               ))}
               {availCats.length > 0 && (<>

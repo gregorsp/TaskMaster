@@ -5,17 +5,19 @@ import {
   Select, MenuItem, Alert, FormControlLabel, Switch,
 } from "@mui/material";
 import { ChevronLeft, ChevronRight } from "@mui/icons-material";
+import { useTheme } from "@mui/material/styles";
 import client from "../api/client";
 import { useModalStack } from "../components/tasks/ModalStackProvider";
 import { listUsers, type User } from "../api/usersApi";
 import { useAuth } from "../context/AuthContext";
 import { listCategories, type Category } from "../api/categoriesApi";
+import { colorFrom, withAlpha } from "../lib/taskColor";
 
 interface CalendarItem {
   taskId: string;
   title: string;
   date: string;
-  color: string | null;
+  colorHue: number | null;
   isCompleted: boolean;
   isOverdue: boolean;
   plannedDate: string | null;
@@ -39,6 +41,8 @@ export function CalendarPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const isAdmin = user?.isAdmin ?? false;
+  const theme = useTheme();
+  const themeMode = theme.palette.mode;
 
   useEffect(() => {
     listCategories().then(setCategories).catch(() => {});
@@ -219,6 +223,7 @@ export function CalendarPage() {
                   {dayItems.slice(0, 3).map((item) => {
                     const isDue = item.type === "due";
                     const isPlanned = item.type === "planned";
+                    const accent = colorFrom({ colorHue: item.colorHue }, themeMode);
                     return (
                     <Box
                       key={item.taskId}
@@ -227,14 +232,14 @@ export function CalendarPage() {
                         py: 0.25, px: 0.5, borderRadius: 0.5, mt: 0.25, cursor: "pointer",
                         fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                         textDecoration: item.isCompleted ? "line-through" : undefined,
-                        border: isPlanned ? `1.5px dashed ${item.color || "primary.main"}` : undefined,
+                        border: isPlanned ? `1.5px dashed ${accent}` : undefined,
                         bgcolor: item.isCompleted ? "action.disabledBackground"
                           : item.isOverdue && isDue ? "error.light"
-                          : isDue ? (item.color ? item.color + "30" : "primary.light")
+                          : isDue ? withAlpha(accent, 0.18)
                           : "transparent",
                         color: item.isCompleted ? "text.disabled"
                           : item.isOverdue && isDue ? "error.contrastText"
-                          : item.color || "primary.dark",
+                          : accent,
                       }}
                     >
                       {isPlanned ? "□" : "■"} {item.title}
@@ -268,6 +273,7 @@ export function CalendarPage() {
               {dayItems.slice(0, 6).map((item) => {
                 const isDue = item.type === "due";
                 const isPlanned = item.type === "planned";
+                const accent = colorFrom({ colorHue: item.colorHue }, themeMode);
                 return (
                 <Box
                   key={item.taskId}
@@ -276,14 +282,14 @@ export function CalendarPage() {
                     py: 0.25, px: 0.5, borderRadius: 0.5, mt: 0.25, cursor: "pointer",
                     fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                     textDecoration: item.isCompleted ? "line-through" : undefined,
-                    border: isPlanned ? `1.5px dashed ${item.color || "primary.main"}` : undefined,
+                    border: isPlanned ? `1.5px dashed ${accent}` : undefined,
                     bgcolor: item.isCompleted ? "action.disabledBackground"
                       : item.isOverdue && isDue ? "error.light"
-                      : isDue ? (item.color ? item.color + "30" : "primary.light")
+                      : isDue ? withAlpha(accent, 0.18)
                       : "transparent",
                     color: item.isCompleted ? "text.disabled"
                       : item.isOverdue && isDue ? "error.contrastText"
-                      : item.color || "primary.dark",
+                      : accent,
                   }}
                 >
                   {isPlanned ? "□" : "■"} {item.title}

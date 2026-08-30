@@ -7,10 +7,12 @@ import {
 import {
   Lock as LockIcon, Edit as EditIcon, Delete as DeleteIcon,
 } from "@mui/icons-material";
+import { useTheme } from "@mui/material/styles";
 import { deleteTask, type Task } from "../../api/tasksApi";
 import { AssigneeAvatars } from "./AssigneeAvatars";
 import { useNotify } from "../../context/NotifyContext";
 import { useModalStack } from "./ModalStackProvider";
+import { colorFrom, withAlpha } from "../../lib/taskColor";
 
 const formatDate = (d: string | null) => {
   if (!d) return "";
@@ -60,6 +62,8 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const notify = useNotify();
   const { push, setOnRootUpdated } = useModalStack();
+  const theme = useTheme();
+  const mode = theme.palette.mode;
 
   useEffect(() => {
     setOnRootUpdated(onUpdated);
@@ -100,7 +104,10 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
                 key={task.id}
                 variant="outlined"
                 onClick={() => handleOpenTask(task)}
-                sx={{ p: 1.5, mb: 1, cursor: "pointer", opacity: task.isCompleted ? 0.5 : 1 }}
+                sx={{
+                  p: 1.5, mb: 1, cursor: "pointer", opacity: task.isCompleted ? 0.5 : 1,
+                  borderLeft: `4px solid ${colorFrom(task, mode)}`,
+                }}
               >
                 <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
                   <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, flex: 1 }}>
@@ -153,6 +160,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
                   <TableRow key={task.id} hover onClick={() => handleOpenTask(task)} sx={{ cursor: "pointer", opacity: task.isCompleted ? 0.5 : 1 }}>
                     <TableCell>
                       <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                        <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: colorFrom(task, mode), flexShrink: 0, boxShadow: (t) => `0 0 0 3px ${withAlpha(colorFrom(task, mode), 0.15)}` }} />
                         {task.isPrivate && <LockIcon fontSize="small" color="action" />}
                         {renderHabitChip(task)}
                         <Typography variant="body2" sx={{ overflowWrap: "anywhere", textDecoration: task.isCompleted ? "line-through" : undefined }}>{task.title}</Typography>

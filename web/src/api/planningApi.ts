@@ -37,6 +37,7 @@ export interface PlanningHabit {
   description: string | null;
   isImportant: boolean;
   pomodoros: number | null;
+  colorHue: number | null;
   categories: { id: string; name: string; color: string }[];
   completedToday: boolean;
 }

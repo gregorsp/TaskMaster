@@ -38,6 +38,15 @@ describe("Migration – Version State Machine", () => {
     expect(userCols).toContain("confirm_habit_completion");
     closeDb();
   });
+
+  it("Tasks: color_hue column exists after migration", async () => {
+    await initDb();
+    migrate(getDb(), { migrationsFolder: "./src/db/migrations" });
+    ensureSchemaVersion();
+    const taskCols = getRawDb().exec("PRAGMA table_info(tasks)")[0].values.map((c) => c[1]);
+    expect(taskCols).toContain("color_hue");
+    closeDb();
+  });
   it("UP_TO_DATE: after applying all migrations", async () => {
     await initDb();
     migrate(getDb(), { migrationsFolder: "./src/db/migrations" });
@@ -131,8 +140,15 @@ describe("Migration – runMigration", () => {
     // migration is considered pending again (simulating the pre-update prod DB)
     getRawDb().run("UPDATE app_meta SET value = '9' WHERE key = 'schema_version'");
     const j = JSON.parse(readFileSync("./src/db/migrations/meta/_journal.json", "utf8"));
-    const last = j.entries[j.entries.length - 1];
-    getRawDb().run("DELETE FROM __drizzle_migrations WHERE created_at = ?", [last.when]);
+    const pending = j.entries.filter(
+      (e: { tag: string }) => e.tag === "0012_repair_planned_date" || e.tag === "0013_robust_shinko_yamashiro"
+    );
+    for (const e of pending) {
+      getRawDb().run("DELETE FROM __drizzle_migrations WHERE created_at = ?", [e.when]);
+    }
+    // Undo 0013 so both pending migrations can be re-applied (simulating the
+    // pre-update DB that predates the color_hue column)
+    getRawDb().run("ALTER TABLE tasks DROP COLUMN color_hue");
     let state = getDbState(db, getRawDb());
     expect(state.state).toBe("MIGRATION_NEEDED");
 

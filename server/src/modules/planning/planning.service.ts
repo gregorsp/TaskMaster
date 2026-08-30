@@ -207,6 +207,7 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
       description: h.description,
       isImportant: h.isImportant,
       pomodoros: h.pomodoros,
+      colorHue: h.colorHue,
       categories: habitCategories.get(h.id) || [],
       completedToday: completedToday.has(h.id),
     }))

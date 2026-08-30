@@ -153,6 +153,7 @@ export function getDailyData(userId: string, isAdmin: boolean, date: Date): Dail
       description: h.description,
       isImportant: h.isImportant,
       pomodoros: h.pomodoros,
+      colorHue: h.colorHue,
       categories: habitCategories.get(h.id) || [],
       assignees: habitAssignees.get(h.id) || [],
       completedOnDate: done?.isCompleted ?? false,

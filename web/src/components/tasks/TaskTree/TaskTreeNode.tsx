@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Box, Typography } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import type { Task } from "../../../api/tasksApi";
 import type { Category } from "../../../api/categoriesApi";
+import { colorFrom } from "../../../lib/taskColor";
 
 export interface TaskWithMeta extends Task {
   categories?: Category[];
@@ -64,6 +66,8 @@ export function TaskTreeNode({
 }: TaskTreeNodeProps) {
   const hasChildren = (task as any)._children?.length > 0;
   const isCompleted = task.isCompleted;
+  const theme = useTheme();
+  const mode = theme.palette.mode;
   const shouldHide =
     completionMode === "hide_completed" ? isCompleted :
     completionMode === "hide_if_incomplete_parent" ? isCompleted && !parentChainIsCompleted :
@@ -108,6 +112,13 @@ export function TaskTreeNode({
             }}
           />
         ))}
+
+        <Box
+          sx={{
+            width: 9, height: 9, borderRadius: "50%", bgcolor: colorFrom(task, mode),
+            flexShrink: 0, zIndex: 1, opacity: isCompleted ? 0.4 : 0.9,
+          }}
+        />
 
         <Box
           sx={{

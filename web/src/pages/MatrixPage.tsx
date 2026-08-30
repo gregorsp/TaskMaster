@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { Box, Typography, Paper, Stack, CircularProgress } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import { DndContext, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { listTasks, updateTask, type Task } from "../api/tasksApi";
 import { useModalStack } from "../components/tasks/ModalStackProvider";
+import { colorFrom } from "../lib/taskColor";
 
 interface Quadrant {
   label: string;
@@ -92,6 +94,8 @@ function Droppable({ id, label, count, children }: { id: string; label: string; 
 
 function DraggableTask({ task, onClick }: { task: Task; onClick: () => void }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: task.id });
+  const theme = useTheme();
+  const mode = theme.palette.mode;
   const style = transform ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 10 } : undefined;
   return (
     <Paper
@@ -103,6 +107,7 @@ function DraggableTask({ task, onClick }: { task: Task; onClick: () => void }) {
         p: 1.5,
         minWidth: 0,
         cursor: "grab",
+        borderLeft: `4px solid ${colorFrom(task, mode)}`,
         "&:active": { cursor: "grabbing" },
         ...style,
       }}
