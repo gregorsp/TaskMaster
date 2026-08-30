@@ -1,12 +1,9 @@
 import { useState, useMemo, useCallback, type ReactNode } from "react";
 import {
-  Box, Typography, TextField, FormControl, InputLabel, Select, MenuItem,
-  Stack, Button,
+  Box, Typography, Stack, Button,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { TaskTreeNode, type TaskWithMeta, type CompletionMode } from "./TaskTreeNode";
-import type { Category } from "../../../api/categoriesApi";
-import type { UserPickerItem } from "../../../api/usersApi";
 
 export type { CompletionMode, TaskWithMeta } from "./TaskTreeNode";
 
@@ -14,13 +11,11 @@ interface TaskTreeProps {
   tasks: TaskWithMeta[];
   draggable?: boolean;
   onTaskClick?: (taskId: string) => void;
-  showFilters?: boolean;
   showPomodoros?: boolean;
   showPlannedDate?: boolean;
-  categories?: Category[];
-  users?: UserPickerItem[];
   title?: string;
-  headerActions?: ReactNode;
+  filterBar?: ReactNode;
+  completionMode?: CompletionMode;
 }
 
 function buildTree(tasks: TaskWithMeta[]): TaskWithMeta[] {
@@ -45,17 +40,14 @@ function buildTree(tasks: TaskWithMeta[]): TaskWithMeta[] {
 }
 
 export function TaskTree({
-  tasks, draggable, onTaskClick, showFilters, showPomodoros,
-  showPlannedDate, categories, users, title, headerActions,
+  tasks, draggable, onTaskClick, showPomodoros,
+  showPlannedDate, title, filterBar,
+  completionMode = "hide_completed",
 }: TaskTreeProps) {
   const theme = useTheme();
   const accentColor = theme.palette.primary.main;
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [assigneeFilter, setAssigneeFilter] = useState("");
-  const [completionMode, setCompletionMode] = useState<CompletionMode>("hide_completed");
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -80,49 +72,26 @@ export function TaskTree({
     setExpandedIds(new Set());
   }, []);
 
-  const filteredTasks = useMemo(() => {
-    let result = tasks;
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (t) => t.title.toLowerCase().includes(q) || (t.description?.toLowerCase().includes(q) ?? false)
-      );
-    }
-
-    if (categoryFilter) {
-      result = result.filter((t) => {
-        const cats = (t as any).categories as Category[] | undefined;
-        return cats?.some((c) => c.id === categoryFilter);
-      });
-    }
-
-    if (assigneeFilter) {
-      result = result.filter((t) =>
-        t.assignees?.some((a) => a.id === assigneeFilter)
-      );
-    }
-
-    return result;
-  }, [tasks, search, categoryFilter, assigneeFilter]);
-
-  const tree = useMemo(() => buildTree(filteredTasks), [filteredTasks]);
-
-  const allExpandable = useMemo(() => {
-    const ids = new Set<string>();
-    for (const t of filteredTasks) {
-      if (filteredTasks.some((c) => c.parentId === t.id)) {
-        ids.add(t.id);
+  const tree = useMemo(() => {
+    const roots = buildTree(tasks);
+    const decorate = (nodes: TaskWithMeta[]) => {
+      for (const n of nodes) {
+        (n as any)._expanded = expandedIds.has(n.id);
+        (n as any)._onToggle = () => toggleExpand(n.id);
+        (n as any)._onClick = onTaskClick ? () => onTaskClick(n.id) : undefined;
+        const children = (n as any)._children as TaskWithMeta[] | undefined;
+        if (children) decorate(children);
       }
-    }
-    return ids;
-  }, [filteredTasks]);
+    };
+    decorate(roots);
+    return roots;
+  }, [tasks, expandedIds, toggleExpand, onTaskClick]);
 
   const taskMap = useMemo(() => {
     const m = new Map<string, TaskWithMeta>();
-    for (const t of filteredTasks) m.set(t.id, t);
+    for (const t of tasks) m.set(t.id, t);
     return m;
-  }, [filteredTasks]);
+  }, [tasks]);
 
   const isChainComplete = useCallback(
     (taskId: string | null): boolean => {
@@ -135,7 +104,7 @@ export function TaskTree({
     [taskMap]
   );
 
-  const totalCount = filteredTasks.length;
+  const totalCount = tasks.length;
 
   return (
     <Box
@@ -164,54 +133,15 @@ export function TaskTree({
         </Box>
       )}
 
-      {showFilters && (
-        <Stack direction="row" spacing={1} sx={{ p: 2, pb: 0 }} flexWrap="wrap" useFlexGap>
-          <TextField
-            size="small"
-            placeholder="Suchen..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            sx={{ minWidth: 140, flex: 1 }}
-          />
-          {categories && (
-            <FormControl size="small" sx={{ minWidth: 130 }}>
-              <InputLabel>Kategorie</InputLabel>
-              <Select value={categoryFilter} label="Kategorie" onChange={(e) => setCategoryFilter(e.target.value)}>
-                <MenuItem value="">Alle</MenuItem>
-                {categories.map((c) => (
-                  <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-          {users && (
-            <FormControl size="small" sx={{ minWidth: 130 }}>
-              <InputLabel>Nutzer</InputLabel>
-              <Select value={assigneeFilter} label="Nutzer" onChange={(e) => setAssigneeFilter(e.target.value)}>
-                <MenuItem value="">Alle</MenuItem>
-                {users.map((u) => (
-                  <MenuItem key={u.id} value={u.id}>{u.displayName}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-          <FormControl size="small" sx={{ minWidth: 160 }}>
-            <InputLabel>Erledigte</InputLabel>
-            <Select value={completionMode} label="Erledigte" onChange={(e) => setCompletionMode(e.target.value as CompletionMode)}>
-              <MenuItem value="hide_completed">ausblenden</MenuItem>
-              <MenuItem value="show_all">alle anzeigen</MenuItem>
-              <MenuItem value="hide_if_incomplete_parent">nur wenn Eltern erledigt</MenuItem>
-            </Select>
-          </FormControl>
-          {headerActions}
-        </Stack>
+      {filterBar && (
+        <Box sx={{ px: 2, pt: 1.5 }}>{filterBar}</Box>
       )}
 
       <Box sx={{ p: 1, maxHeight: "calc(100vh - 280px)", overflowY: "auto" }}>
         {tree.map((node, i, arr) => (
           <TaskTreeNode
             key={node.id}
-            task={{ ...node, _expanded: expandedIds.has(node.id), _onToggle: () => toggleExpand(node.id) } as any}
+            task={node}
             level={0}
             isLast={i === arr.length - 1}
             expanded={expandedIds.has(node.id)}

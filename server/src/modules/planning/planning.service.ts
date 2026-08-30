@@ -4,6 +4,7 @@ import { tasks, taskAssignees, appMeta, taskOccurrences, users, taskCategories, 
 import { visibilityFilter } from "../../middleware/visibility.js";
 import { WEEKDAYS, parseCapacity } from "../../lib/capacity.js";
 import { enrichTask } from "../tasks/tasks.service.js";
+import { getProfilePictureUrl } from "../auth/profile.service.js";
 import type { Weekday } from "../../lib/capacity.js";
 
 interface LoadDayTask {
@@ -47,8 +48,13 @@ export interface PlanningHabit {
   completedToday: boolean;
 }
 
+export interface PlanningTask extends ReturnType<typeof enrichTask> {
+  assignees: { id: string; username: string; displayName: string; profilePicture: string | null }[];
+  categories: { id: string; name: string; color: string }[];
+}
+
 export interface PlanningData {
-  tasks: ReturnType<typeof enrichTask>[];
+  tasks: PlanningTask[];
   days: LoadDay[];
   draft: PlanningDraft | null;
   horizonWarnings: HorizonWarning[];
@@ -82,6 +88,63 @@ function draftKey(userId: string): string {
   return DRAFT_KEY_PREFIX + userId;
 }
 
+function attachRelations(tasks: ReturnType<typeof enrichTask>[]): PlanningTask[] {
+  const db = getDb();
+  if (tasks.length === 0) return [];
+
+  const ids = tasks.map((t) => t.id);
+
+  const assigneeRows = db
+    .select({
+      taskId: taskAssignees.taskId,
+      id: users.id,
+      username: users.username,
+      displayName: users.displayName,
+      profilePicture: users.profilePicture,
+    })
+    .from(taskAssignees)
+    .innerJoin(users, eq(taskAssignees.userId, users.id))
+    .where(inArray(taskAssignees.taskId, ids))
+    .all();
+
+  const assigneesMap = new Map<string, PlanningTask["assignees"]>();
+  for (const r of assigneeRows) {
+    const list = assigneesMap.get(r.taskId) || [];
+    list.push({
+      id: r.id,
+      username: r.username,
+      displayName: r.displayName,
+      profilePicture: getProfilePictureUrl(r.profilePicture),
+    });
+    assigneesMap.set(r.taskId, list);
+  }
+
+  const catRows = db
+    .select({
+      taskId: taskCategories.taskId,
+      id: categories.id,
+      name: categories.name,
+      color: categories.color,
+    })
+    .from(taskCategories)
+    .innerJoin(categories, eq(taskCategories.categoryId, categories.id))
+    .where(inArray(taskCategories.taskId, ids))
+    .all();
+
+  const catsMap = new Map<string, PlanningTask["categories"]>();
+  for (const r of catRows) {
+    const list = catsMap.get(r.taskId) || [];
+    list.push({ id: r.id, name: r.name, color: r.color });
+    catsMap.set(r.taskId, list);
+  }
+
+  return tasks.map((t) => ({
+    ...t,
+    assignees: assigneesMap.get(t.id) || [],
+    categories: catsMap.get(t.id) || [],
+  }));
+}
+
 export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to: Date): PlanningData {
   const db = getDb();
 
@@ -101,7 +164,7 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
   const habitRows = taskRows.filter((t) => t.isHabit);
   const normalRows = taskRows.filter((t) => !t.isHabit);
 
-  const enriched = normalRows.map(enrichTask);
+  const enriched = attachRelations(normalRows.map(enrichTask));
 
   // Habit completion status for today (habits are shown fixed, not plannable)
   const todayKey = isoDate(new Date());

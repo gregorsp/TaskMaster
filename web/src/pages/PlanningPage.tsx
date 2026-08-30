@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Box, Typography, Stack, Paper, IconButton, Button, Alert,
   CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -14,6 +14,7 @@ import { TaskTree } from "../components/tasks/TaskTree";
 import type { TaskWithMeta } from "../components/tasks/TaskTree";
 import { collectDescendantIds } from "../components/tasks/TaskTree";
 import { OccurrencePicker } from "../components/tasks/OccurrencePicker";
+import { TaskFilterBar, createDefaultTaskFilterState, type TaskFilterState } from "../components/tasks/TaskFilterBar";
 import { useModalStack } from "../components/tasks/ModalStackProvider";
 import { useNotify } from "../context/NotifyContext";
 import { useAuth } from "../context/AuthContext";
@@ -77,6 +78,7 @@ export function PlanningPage() {
   const [occurrenceTask, setOccurrenceTask] = useState<TaskWithMeta | null>(null);
   const [occurrenceTargetDate, setOccurrenceTargetDate] = useState("");
   const [occurrenceDate, setOccurrenceDate] = useState("");
+  const [filters, setFilters] = useState<TaskFilterState>(createDefaultTaskFilterState);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -234,6 +236,32 @@ export function PlanningPage() {
   };
 
   const tasksWithMeta: TaskWithMeta[] = (data?.tasks ?? []).map((t) => ({ ...t })) as TaskWithMeta[];
+
+  const filteredSidebarTasks = useMemo(() => {
+    let result = tasksWithMeta;
+    const q = filters.search.trim().toLowerCase();
+    if (q) {
+      result = result.filter(
+        (t) => t.title.toLowerCase().includes(q) || (t.description?.toLowerCase().includes(q) ?? false)
+      );
+    }
+    if (filters.categoryId) {
+      result = result.filter((t) => (t as any).categories?.some((c: Category) => c.id === filters.categoryId));
+    }
+    if (filters.assigneeIds.length > 0) {
+      result = result.filter((t) => t.assignees?.some((a) => filters.assigneeIds.includes(a.id)));
+    }
+    if (filters.habitFilter !== "all") {
+      result = result.filter((t) => (filters.habitFilter === "habits") === !!t.isHabit);
+    }
+    if (filters.isOverdue) {
+      result = result.filter((t) => t.isOverdue);
+    }
+    if (filters.hidePlanned) {
+      result = result.filter((t) => !t.plannedDate);
+    }
+    return result;
+  }, [tasksWithMeta, filters]);
 
   const days = data?.days ?? [];
   const horizonWarnings = data?.horizonWarnings ?? [];
@@ -474,15 +502,25 @@ export function PlanningPage() {
 
           <Box sx={{ width: 380, flexShrink: 0, display: "flex", flexDirection: "column" }}>
             <TaskTree
-              tasks={tasksWithMeta}
+              tasks={filteredSidebarTasks}
               draggable
               onTaskClick={(taskId) => push({ id: taskId, title: tasksWithMeta.find((t) => t.id === taskId)?.title ?? "" })}
-              showFilters
               showPomodoros
               showPlannedDate
-              categories={categories}
-              users={users}
               title="Aufgaben"
+              completionMode={filters.completionMode}
+              filterBar={
+                <TaskFilterBar
+                  value={filters}
+                  onChange={setFilters}
+                  categories={categories}
+                  users={users}
+                  showStatus={false}
+                  showHabits={false}
+                  showSort={false}
+                  showCompletionMode
+                />
+              }
             />
           </Box>
         </Stack>

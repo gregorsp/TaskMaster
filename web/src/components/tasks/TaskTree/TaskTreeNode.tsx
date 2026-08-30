@@ -173,7 +173,7 @@ export function TaskTreeNode({
               isLast={i === arr.length - 1}
               expanded={(child as any)._expanded ?? false}
               onToggle={() => { (child as any)._onToggle?.(); }}
-              onClick={() => onClick?.()}
+              onClick={() => { (child as any)._onClick?.(); }}
               draggable={draggable}
               showPomodoros={showPomodoros}
               showPlannedDate={showPlannedDate}

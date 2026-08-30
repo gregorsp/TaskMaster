@@ -1,4 +1,4 @@
-import { eq, and, like, or, inArray, ne, SQL, sql as drizzleSql, isNotNull } from "drizzle-orm";
+import { eq, and, like, or, inArray, ne, SQL, sql as drizzleSql, isNotNull, isNull } from "drizzle-orm";
 import { v7 as uuid } from "uuid";
 import { getDb } from "../../db/client.js";
 import { tasks, taskAssignees, taskCategories, taskEvents, taskLinks, taskOccurrences, users, categories } from "../../db/schema.js";
@@ -84,6 +84,10 @@ export function listTasks(
   if (query.isHabit !== undefined) {
     const isHabit = query.isHabit === "true" || query.isHabit === true;
     conditions.push(eq(tasks.isHabit, isHabit));
+  }
+
+  if (query.hidePlanned === "true" || query.hidePlanned === true) {
+    conditions.push(isNull(tasks.plannedDate));
   }
 
   if (query.search) {

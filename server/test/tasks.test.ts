@@ -322,6 +322,18 @@ describe("Task filters", () => {
     await deleteTask(t2);
     await app.inject({ method: "DELETE", url: `/api/categories/${catId}`, headers: headers(adminToken) });
   });
+
+  it("hides already-planned tasks with hidePlanned", async () => {
+    const plannedId = await createTask({ title: "Planned Task", plannedDate: new Date(Date.now() + 86400000).toISOString() });
+    const unplannedId = await createTask({ title: "Unplanned Task" });
+
+    const ids = await listIds("hidePlanned=true");
+    expect(ids).toContain(unplannedId);
+    expect(ids).not.toContain(plannedId);
+
+    await deleteTask(plannedId);
+    await deleteTask(unplannedId);
+  });
 });
 
 describe("Pomodoros", () => {

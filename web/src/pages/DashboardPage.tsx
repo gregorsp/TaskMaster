@@ -1,21 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  Box, Typography, TextField, Select, MenuItem, FormControl, InputLabel,
-  Stack, Button, Pagination, Badge, Chip, Checkbox, useTheme, useMediaQuery, Alert,
+  Box, Typography,
+  Stack, Button, Pagination, Alert,
 } from "@mui/material";
-import { Add as AddIcon, FilterList as FilterListIcon } from "@mui/icons-material";
+import { Add as AddIcon } from "@mui/icons-material";
 import { listTasks, type Task } from "../api/tasksApi";
 import { fetchPlanning } from "../api/planningApi";
 import { listCategories, type Category } from "../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../api/usersApi";
 import { TaskListView } from "../components/tasks/TaskListView";
 import { TaskForm } from "../components/tasks/TaskForm";
+import { TaskFilterBar, createDefaultTaskFilterState, type TaskFilterState } from "../components/tasks/TaskFilterBar";
 import { useNotify } from "../context/NotifyContext";
 
 export function DashboardPage() {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<TaskFilterState>(createDefaultTaskFilterState);
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [total, setTotal] = useState(0);
@@ -23,33 +22,31 @@ export function DashboardPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<UserPickerItem[]>([]);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "done">("open");
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [overdueFilter, setOverdueFilter] = useState(false);
-  const [habitFilter, setHabitFilter] = useState<"all" | "habits" | "no_habits">("all");
-  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
-  const [sort, setSort] = useState<"createdAt" | "dueAt">("createdAt");
-  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [overdueCount, setOverdueCount] = useState(0);
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [dismissedWarnings, setDismissedWarnings] = useState<Set<number>>(new Set());
   const notify = useNotify();
 
+  const handleFilterChange = useCallback((next: TaskFilterState) => {
+    setFilters(next);
+    setPage(1);
+  }, []);
+
   const fetchTasks = useCallback(async () => {
     try {
       const res = await listTasks({
         page,
         pageSize: 20,
-        search: search || undefined,
-        isCompleted: statusFilter === "all" ? undefined : statusFilter === "done",
-        categoryId: categoryFilter || undefined,
-        isOverdue: overdueFilter || undefined,
-        isHabit: habitFilter === "all" ? undefined : habitFilter === "habits",
-        assigneeIds: assigneeFilter.length > 0 ? assigneeFilter : undefined,
-        sort,
-        order: sortOrder,
+        search: filters.search || undefined,
+        isCompleted: filters.status === "all" ? undefined : filters.status === "done",
+        categoryId: filters.categoryId || undefined,
+        isOverdue: filters.isOverdue || undefined,
+        isHabit: filters.habitFilter === "all" ? undefined : filters.habitFilter === "habits",
+        assigneeIds: filters.assigneeIds.length > 0 ? filters.assigneeIds : undefined,
+        hidePlanned: filters.hidePlanned || undefined,
+        sort: filters.sort,
+        order: filters.sortOrder,
       });
       setTasks(res.items);
       setTotal(res.total);
@@ -57,7 +54,7 @@ export function DashboardPage() {
     } catch {
       notify("Fehler beim Laden der Aufgaben", "error");
     }
-  }, [page, search, statusFilter, categoryFilter, overdueFilter, assigneeFilter, sort, sortOrder, habitFilter]);
+  }, [page, filters, notify]);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
@@ -74,14 +71,15 @@ export function DashboardPage() {
     listTasks({
       isOverdue: true,
       pageSize: 1,
-      search: search || undefined,
-      categoryId: categoryFilter || undefined,
-      assigneeIds: assigneeFilter.length > 0 ? assigneeFilter : undefined,
+      search: filters.search || undefined,
+      categoryId: filters.categoryId || undefined,
+      assigneeIds: filters.assigneeIds.length > 0 ? filters.assigneeIds : undefined,
+      hidePlanned: filters.hidePlanned || undefined,
     })
       .then((res) => { if (!cancelled) setOverdueCount(res.total); })
       .catch(() => { if (!cancelled) setOverdueCount(0); });
     return () => { cancelled = true; };
-  }, [search, categoryFilter, assigneeFilter]);
+  }, [filters]);
 
   useEffect(() => {
     const toDateOnly = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -104,26 +102,6 @@ export function DashboardPage() {
       .catch(() => setLoadWarnings([]));
   }, []);
 
-  const userById = new Map(users.map((u) => [u.id, u]));
-
-  const activeFilterCount = [
-    search.trim() !== "",
-    statusFilter !== "open",
-    categoryFilter !== "",
-    overdueFilter,
-    habitFilter !== "all",
-    assigneeFilter.length > 0,
-  ].filter(Boolean).length;
-
-  const overdueToggle = (
-    <Chip
-      label="Überfällig"
-      onClick={() => { setOverdueFilter((v) => !v); setPage(1); }}
-      color={overdueFilter ? "error" : "default"}
-      variant={overdueFilter ? "filled" : "outlined"}
-    />
-  );
-
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2} flexWrap="wrap" gap={1}>
@@ -133,91 +111,13 @@ export function DashboardPage() {
         </Button>
       </Stack>
 
-      {isMobile && (
-        <Button
-          variant="outlined"
-          startIcon={<FilterListIcon />}
-          onClick={() => setFiltersOpen((o) => !o)}
-          sx={{ mb: 2 }}
-        >
-          Suchen & Filtern
-          {activeFilterCount > 0 && <Badge badgeContent={activeFilterCount} color="error" sx={{ ml: 1 }} />}
-        </Button>
-      )}
-
-      {(!isMobile || filtersOpen) && (
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={2} mb={2} flexWrap="wrap" useFlexGap>
-          <TextField
-            size="small"
-            placeholder="Suchen..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            sx={{ minWidth: 200 }}
-          />
-          <FormControl size="small" sx={{ minWidth: 130 }}>
-            <InputLabel>Status</InputLabel>
-            <Select value={statusFilter} label="Status" onChange={(e) => { setStatusFilter(e.target.value as typeof statusFilter); setPage(1); }}>
-              <MenuItem value="open">Offen</MenuItem>
-              <MenuItem value="done">Erledigt</MenuItem>
-              <MenuItem value="all">Alle</MenuItem>
-            </Select>
-          </FormControl>
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Kategorie</InputLabel>
-            <Select value={categoryFilter} label="Kategorie" onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}>
-              <MenuItem value="">Alle</MenuItem>
-              {categories.map((c) => (
-                <MenuItem key={c.id} value={c.id}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: c.color }} />
-                    {c.name}
-                  </Box>
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl size="small" sx={{ minWidth: 200, maxWidth: 320 }}>
-            <InputLabel>Nutzer</InputLabel>
-            <Select
-              multiple
-              value={assigneeFilter}
-              label="Nutzer"
-              onChange={(e) => { setAssigneeFilter(e.target.value as string[]); setPage(1); }}
-              renderValue={(selected) => selected.map((id) => userById.get(id)?.displayName ?? id).join(", ")}
-              MenuProps={{ PaperProps: { style: { maxHeight: 300 } } }}
-            >
-              {users.map((u) => (
-                <MenuItem key={u.id} value={u.id}>
-                  <Checkbox checked={assigneeFilter.includes(u.id)} size="small" />
-                  {u.displayName}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Habits</InputLabel>
-            <Select value={habitFilter} label="Habits" onChange={(e) => { setHabitFilter(e.target.value as typeof habitFilter); setPage(1); }}>
-              <MenuItem value="all">Alle anzeigen</MenuItem>
-              <MenuItem value="habits">Nur Habits</MenuItem>
-              <MenuItem value="no_habits">Ohne Habits</MenuItem>
-            </Select>
-          </FormControl>
-          {overdueCount > 0 ? (
-            <Badge badgeContent={overdueCount} color="error">
-              {overdueToggle}
-            </Badge>
-          ) : overdueToggle}
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Sortierung</InputLabel>
-            <Select value={`${sort}-${sortOrder}`} label="Sortierung" onChange={(e) => { const [s, o] = e.target.value.split("-") as [typeof sort, typeof sortOrder]; setSort(s); setSortOrder(o); }}>
-              <MenuItem value="createdAt-desc">Neueste zuerst</MenuItem>
-              <MenuItem value="createdAt-asc">Alteste zuerst</MenuItem>
-              <MenuItem value="dueAt-asc">Fälligkeit aufsteigend</MenuItem>
-              <MenuItem value="dueAt-desc">Fälligkeit absteigend</MenuItem>
-            </Select>
-          </FormControl>
-        </Stack>
-      )}
+      <TaskFilterBar
+        value={filters}
+        onChange={handleFilterChange}
+        categories={categories}
+        users={users}
+        overdueCount={overdueCount}
+      />
 
       <TaskListView tasks={tasks} onUpdated={fetchTasks} />
 

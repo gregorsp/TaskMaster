@@ -160,6 +160,35 @@ describe("GET /api/planning", () => {
     const monday = days.find((d: { weekday: string }) => d.weekday === "mon");
     if (monday) expect(monday.capacity).toBe(5);
   });
+
+  it("returns tasks with categories and assignees", async () => {
+    const catRes = await app.inject({
+      method: "POST", url: "/api/categories", headers: headers(), payload: { name: "Planning Cat" },
+    });
+    const catId = catRes.json().id;
+
+    const task = await createTask({ title: "Related Task", categoryIds: [catId] });
+
+    const today = new Date();
+    const from = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+    const to = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 6).toISOString();
+
+    const res = await app.inject({
+      method: "GET", url: `/api/planning?from=${from}&to=${to}`,
+      headers: headers(),
+    });
+    expect(res.statusCode).toBe(200);
+
+    const body = res.json();
+    const t = body.tasks.find((x: { id: string }) => x.id === task.id);
+    expect(t).toBeTruthy();
+    expect(Array.isArray(t.assignees)).toBe(true);
+    expect(t.assignees.some((a: { id: string }) => a.id === userId)).toBe(true);
+    expect(t.categories.map((c: { id: string }) => c.id)).toContain(catId);
+
+    await deleteTask(task.id);
+    await app.inject({ method: "DELETE", url: `/api/categories/${catId}`, headers: headers() });
+  });
 });
 
 describe("Planning draft", () => {

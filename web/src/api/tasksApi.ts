@@ -67,6 +67,7 @@ export interface TaskFilters {
   urgent?: boolean;
   isHabit?: boolean;
   search?: string;
+  hidePlanned?: boolean;
   sort?: "createdAt" | "dueAt" | "title";
   order?: "asc" | "desc";
   page?: number;
@@ -143,6 +144,7 @@ export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResp
   if (filters.urgent !== undefined) params.set("urgent", String(filters.urgent));
   if (filters.isHabit !== undefined) params.set("isHabit", String(filters.isHabit));
   if (filters.search) params.set("search", filters.search);
+  if (filters.hidePlanned) params.set("hidePlanned", "true");
   if (filters.sort) params.set("sort", filters.sort);
   if (filters.order) params.set("order", filters.order);
   if (filters.page) params.set("page", String(filters.page));
