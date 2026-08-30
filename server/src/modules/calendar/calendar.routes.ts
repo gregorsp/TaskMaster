@@ -10,7 +10,7 @@ interface CalendarItem {
   taskId: string;
   title: string;
   date: string;
-  color: string | null;
+  colorHue: number | null;
   isCompleted: boolean;
   isOverdue: boolean;
   plannedDate: string | null;
@@ -75,7 +75,7 @@ export async function calendarRoutes(app: FastifyInstance) {
       taskId: t.id,
       title: t.title,
       date: date.toISOString(),
-      color: null,
+      colorHue: t.colorHue,
       isCompleted: t.isCompleted,
       isOverdue: isTaskOverdue(t),
       plannedDate: t.plannedDate?.toISOString() ?? null,

@@ -5,6 +5,7 @@ import {
   Chip,
 } from "@mui/material";
 import { ChevronLeft, ChevronRight, CheckCircle as CheckCircleIcon } from "@mui/icons-material";
+import { useTheme } from "@mui/material/styles";
 import { fetchPlanning, saveDraft, discardDraft, confirmPlanning, type LoadDay, type PlanningDraft, type PlanningData } from "../api/planningApi";
 import type { Task } from "../api/tasksApi";
 import { createTaskOccurrence, deleteTaskOccurrence } from "../api/tasksApi";
@@ -18,6 +19,7 @@ import { TaskFilterBar, createDefaultTaskFilterState, type TaskFilterState } fro
 import { useModalStack } from "../components/tasks/ModalStackProvider";
 import { useNotify } from "../context/NotifyContext";
 import { useAuth } from "../context/AuthContext";
+import { colorFrom, withAlpha } from "../lib/taskColor";
 
 const WEEKDAYS_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 const WEEKDAYS_LONG = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
@@ -62,6 +64,8 @@ export function PlanningPage() {
   const notify = useNotify();
   const { push } = useModalStack();
   const isAdmin = user?.isAdmin ?? false;
+  const theme = useTheme();
+  const mode = theme.palette.mode;
 
   const [currentMonday, setCurrentMonday] = useState(() => mondayOfWeek(new Date()));
   const [data, setData] = useState<PlanningData | null>(null);
@@ -329,7 +333,7 @@ export function PlanningPage() {
     const isPlanned = type === "planned";
     const isOverdue = task.isOverdue;
     const isCompleted = task.isCompleted;
-    const categoryColor = (task as any).categories?.[0]?.color;
+    const accent = colorFrom(task, mode);
     const childEntries = getChildEntries(task.id, dayDate);
 
     return (
@@ -347,11 +351,11 @@ export function PlanningPage() {
             p: 0.75, cursor: "pointer", fontSize: 12,
             ml: level > 0 ? `${level * 14}px` : 0,
             textDecoration: isCompleted ? "line-through" : undefined,
-            border: isPlanned ? `1.5px dashed ${categoryColor || "divider"}` : undefined,
+            border: isPlanned ? `1.5px dashed ${accent}` : undefined,
             bgcolor: isCompleted ? "action.disabledBackground"
               : isOverdue ? "error.light"
               : isPlanned ? "transparent"
-              : categoryColor ? categoryColor + "30" : "action.hover",
+              : withAlpha(accent, 0.12),
             borderColor: isOverdue && !isPlanned ? "error.main" : undefined,
             borderWidth: isOverdue && !isPlanned ? 1.5 : undefined,
             "&:hover": { filter: "brightness(0.95)" },

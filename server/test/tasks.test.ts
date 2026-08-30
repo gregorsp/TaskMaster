@@ -851,3 +851,59 @@ describe("Due date constraints (parent/subtask)", () => {
     await del(pid);
   });
 });
+
+describe("Task colors", () => {
+  const cat = async (name: string, color: string) => {
+    const res = await app.inject({
+      method: "POST", url: "/api/categories", headers: headers(adminToken), payload: { name, color },
+    });
+    expect(res.statusCode).toBe(201);
+    return res.json().id as string;
+  };
+
+  const create = async (payload: Record<string, unknown>) => {
+    const res = await app.inject({ method: "POST", url: "/api/tasks", headers: headers(adminToken), payload });
+    expect(res.statusCode).toBe(201);
+    return res.json();
+  };
+
+  const del = async (id: string) => {
+    await app.inject({ method: "DELETE", url: `/api/tasks/${id}`, headers: headers(adminToken) });
+  };
+
+  it("assigns a random hue in [0, 360) when no category is selected", async () => {
+    const t = await create({ title: "NoCat Color" });
+    expect(t.colorHue).toBeTypeOf("number");
+    expect(t.colorHue).toBeGreaterThanOrEqual(0);
+    expect(t.colorHue).toBeLessThan(360);
+    await del(t.id);
+  });
+
+  it("assigns a green tone for a green category", async () => {
+    const greenCat = await cat("Green Color", "#2d8c4a");
+    const t = await create({ title: "Green Task", categoryIds: [greenCat] });
+    expect(t.colorHue).toBeGreaterThanOrEqual(90);
+    expect(t.colorHue).toBeLessThanOrEqual(180);
+    await del(t.id);
+    await app.inject({ method: "DELETE", url: `/api/categories/${greenCat}`, headers: headers(adminToken) });
+  });
+
+  it("recomputes the hue when categories change", async () => {
+    const greenCat = await cat("Green Recolor", "#2d8c4a");
+    const redCat = await cat("Red Recolor", "#c43e2c");
+    const t = await create({ title: "Recolor Task", categoryIds: [greenCat] });
+    expect(t.colorHue).toBeGreaterThanOrEqual(90);
+    expect(t.colorHue).toBeLessThanOrEqual(180);
+
+    const updated = await app.inject({
+      method: "PUT", url: `/api/tasks/${t.id}`, headers: headers(adminToken), payload: { categoryIds: [redCat] },
+    });
+    expect(updated.statusCode).toBe(200);
+    const hue = updated.json().colorHue;
+    expect(hue >= 342 || hue <= 32).toBe(true);
+
+    await del(t.id);
+    await app.inject({ method: "DELETE", url: `/api/categories/${greenCat}`, headers: headers(adminToken) });
+    await app.inject({ method: "DELETE", url: `/api/categories/${redCat}`, headers: headers(adminToken) });
+  });
+});

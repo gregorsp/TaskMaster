@@ -6,6 +6,7 @@ import { visibilityFilter } from "../../middleware/visibility.js";
 import { parsePageQuery, paginate } from "../../lib/paging.js";
 import { getEffectiveDueAt, isTaskOverdue, computeIsUrgent, getOccurrences } from "../calendar/recurrence.service.js";
 import { getProfilePictureUrl } from "../auth/profile.service.js";
+import { hueForHexes } from "../../lib/color.js";
 import type { CreateTaskInput, UpdateTaskInput } from "./tasks.schema.js";
 
 export function enrichTask(task: typeof tasks.$inferSelect) {
@@ -340,6 +341,11 @@ export function createTask(input: CreateTaskInput, createdById: string): (typeof
     }
   }
 
+  const catHexes = input.categoryIds && input.categoryIds.length > 0
+    ? db.select({ color: categories.color }).from(categories).where(inArray(categories.id, input.categoryIds)).all().map((r) => r.color)
+    : [];
+  const colorHue = hueForHexes(catHexes);
+
   const task = {
     id: uuid(),
     title: input.title,
@@ -361,6 +367,7 @@ export function createTask(input: CreateTaskInput, createdById: string): (typeof
     recurrenceRule: isHabit ? null : (input.recurrenceRule || null),
     parentId: isHabit ? null : (input.parentId || null),
     plannedDate: isHabit ? null : (input.plannedDate ? new Date(input.plannedDate) : null),
+    colorHue,
     createdById,
     createdAt: new Date(),
   };
@@ -464,6 +471,13 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
         }
       }
     }
+  }
+
+  if (input.categoryIds !== undefined) {
+    const catHexes = input.categoryIds.length > 0
+      ? db.select({ color: categories.color }).from(categories).where(inArray(categories.id, input.categoryIds)).all().map((r) => r.color)
+      : [];
+    updates.colorHue = hueForHexes(catHexes);
   }
 
   if (Object.keys(updates).length > 0) {

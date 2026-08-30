@@ -13,6 +13,7 @@ import { listCategories, type Category } from "../api/categoriesApi";
 import { useModalStack } from "../components/tasks/ModalStackProvider";
 import { useNotify } from "../context/NotifyContext";
 import { useAuth } from "../context/AuthContext";
+import { colorFrom } from "../lib/taskColor";
 
 function startOfToday(): Date {
   const now = new Date();
@@ -33,6 +34,7 @@ const weekdayLabel = (d: Date) =>
 export function DailyPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const mode = theme.palette.mode;
   const notify = useNotify();
   const { push, setOnRootUpdated } = useModalStack();
   const { user } = useAuth();
@@ -146,7 +148,7 @@ export function DailyPage() {
   const renderTask = (entry: DailyTask) => {
     const { task } = entry;
     const overdue = task.isOverdue && !task.isCompleted;
-    const categoryColor = entry.categories[0]?.color;
+    const accent = colorFrom(task, mode);
     return (
       <Paper
         key={`${task.id}-${entry.occurrenceId ?? "base"}`}
@@ -156,7 +158,7 @@ export function DailyPage() {
           p: 1.5,
           cursor: "pointer",
           opacity: task.isCompleted ? 0.55 : 1,
-          borderLeft: categoryColor ? `4px solid ${categoryColor}` : undefined,
+          borderLeft: `4px solid ${accent}`,
           "&:hover": { bgcolor: "action.hover" },
         }}
       >
@@ -262,7 +264,7 @@ export function DailyPage() {
                     alignItems: "center",
                     gap: 1,
                     opacity: habit.completedOnDate ? 0.55 : 1,
-                    borderLeft: habit.categories[0]?.color ? `4px solid ${habit.categories[0].color}` : undefined,
+                    borderLeft: `4px solid ${colorFrom(habit, mode)}`,
                   }}
                 >
                   <Checkbox
