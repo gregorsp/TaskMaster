@@ -88,7 +88,11 @@ export function AppShell() {
         {filteredNav.map((item) => (
           <ListItemButton
             key={item.path}
-            selected={location.pathname === item.path}
+            selected={
+              item.path === "/"
+                ? location.pathname === "/" || location.pathname.startsWith("/t/")
+                : location.pathname === item.path
+            }
             onClick={() => {
               navigate(item.path);
               if (isMobile) setDrawerOpen(false);

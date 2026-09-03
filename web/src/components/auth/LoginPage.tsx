@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { Box, Card, TextField, Button, Typography, Alert } from "@mui/material";
 import { useAuth } from "../../context/AuthContext";
 import { login } from "../../api/authApi";
@@ -11,6 +11,7 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const { login: setUser } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,7 +20,8 @@ export function LoginPage() {
     try {
       const data = await login(email, password);
       setUser(data.user);
-      navigate("/");
+      const from = (location.state as { from?: string } | null)?.from ?? "/";
+      navigate(from, { replace: true });
     } catch {
       setError("Ungültige E-Mail oder Passwort.");
     } finally {

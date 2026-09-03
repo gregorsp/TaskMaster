@@ -7,9 +7,9 @@ import {
 import {
   Close as CloseIcon, Add as AddIcon, Today as TodayIcon,
   Lock as LockIcon, LockOpen as LockOpenIcon, Edit as EditIcon,
-  Send as SendIcon, Warning as WarningIcon,
+  Link as LinkIcon, Send as SendIcon, Warning as WarningIcon,
 } from "@mui/icons-material";
-import { getTask, completeTask, reopenTask, updateTask, deleteTask, getSubtasks, getTaskOccurrences, type TaskWithRelations, type Task } from "../../api/tasksApi";
+import { getTask, completeTask, reopenTask, updateTask, deleteTask, getSubtasks, getTaskOccurrences, ensureTaskShareLink, type TaskWithRelations, type Task } from "../../api/tasksApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { TaskForm } from "./TaskForm";
@@ -38,6 +38,31 @@ interface TaskEvent { id: string; taskId: string; userId: string; type: string; 
 function safeCall(fn: () => Promise<unknown>) {
   fn().catch(e => console.error("TaskCard async error:", e));
 }
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to legacy fallback
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 
 export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStacked, stackDepth = 0, isActive = true }: Props) {
   const [task, setTask] = useState<TaskWithRelations | null>(null);
@@ -265,6 +290,22 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
       notify("Fehler beim Einplanen", "error");
     }
   };
+  const handleCopyLink = async () => {
+    try {
+      const resolvedSlug = task?.slug ?? (await ensureTaskShareLink(taskId)).slug;
+      const url = `${window.location.origin}/t/${encodeURIComponent(resolvedSlug)}`;
+      const copied = await copyText(url);
+      if (copied) {
+        notify("Link kopiert");
+      } else {
+        notify("Konnte Link nicht kopieren", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      notify("Konnte Link nicht kopieren", "error");
+    }
+  };
+
 
   const fd = (d: string | null) => d ? new Date(d).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
   const toInputDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -328,6 +369,9 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                     {task.isPrivate ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" color="disabled" />}
                   </IconButton>
                 )}
+                <Tooltip title="Link kopieren">
+                  <IconButton size="small" onClick={handleCopyLink}><LinkIcon fontSize="small" /></IconButton>
+                </Tooltip>
               </Stack>
               <IconButton onClick={handleClose}><CloseIcon /></IconButton>
             </Stack>

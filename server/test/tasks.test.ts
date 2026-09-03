@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { buildApp } from "../src/app.js";
-import { initDb, closeDb, getDb } from "../src/db/client.js";
+import { initDb, closeDb, getDb, getRawDb } from "../src/db/client.js";
 import { migrate } from "drizzle-orm/sql-js/migrator";
 import { v7 as uuid } from "uuid";
 import { scrypt, randomBytes } from "node:crypto";
@@ -849,5 +849,103 @@ describe("Due date constraints (parent/subtask)", () => {
 
     await del(resolved.json().id);
     await del(pid);
+  });
+});
+
+describe("Task share links", () => {
+  let taskId: string;
+  let slug: string;
+
+  const createVia = async (token: string, payload: Record<string, unknown>) => {
+    const res = await app.inject({ method: "POST", url: "/api/tasks", headers: headers(token), payload });
+    expect(res.statusCode).toBe(201);
+    return res.json() as { id: string; slug: string | null };
+  };
+
+  it("creates tasks with a unique non-empty slug", async () => {
+    const a = await createVia(adminToken, { title: "Link A" });
+    const b = await createVia(adminToken, { title: "Link B" });
+    expect(a.slug).toBeTruthy();
+    expect(b.slug).toBeTruthy();
+    expect(a.slug).not.toBe(b.slug);
+    taskId = a.id;
+    slug = a.slug!;
+  });
+
+  it("includes the slug in the task detail and keeps it stable across updates", async () => {
+    const getRes = await app.inject({ method: "GET", url: `/api/tasks/${taskId}`, headers: headers(adminToken) });
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes.json().slug).toBe(slug);
+
+    const upd = await app.inject({
+      method: "PUT", url: `/api/tasks/${taskId}`,
+      headers: headers(adminToken),
+      payload: { title: "Renamed for link test" },
+    });
+    expect(upd.statusCode).toBe(200);
+    expect(upd.json().slug).toBe(slug);
+  });
+
+  it("resolves a task by slug", async () => {
+    const res = await app.inject({ method: "GET", url: `/api/tasks/by-slug/${slug}`, headers: headers(adminToken) });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.id).toBe(taskId);
+    expect(body.slug).toBe(slug);
+  });
+
+  it("returns 404 for an unknown slug", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/tasks/by-slug/doesnotexist12345", headers: headers(adminToken) });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("NOT_FOUND");
+  });
+
+  it("share-link endpoint is idempotent", async () => {
+    const r1 = await app.inject({ method: "POST", url: `/api/tasks/${taskId}/share-link`, headers: headers(adminToken) });
+    expect(r1.statusCode).toBe(200);
+    expect(r1.json().slug).toBe(slug);
+
+    const r2 = await app.inject({ method: "POST", url: `/api/tasks/${taskId}/share-link`, headers: headers(adminToken) });
+    expect(r2.statusCode).toBe(200);
+    expect(r2.json().slug).toBe(slug);
+  });
+
+  it("share-link creates a slug for legacy rows without one", async () => {
+    const created = await createVia(adminToken, { title: "Legacy slug row" });
+    getRawDb().run("UPDATE tasks SET slug = NULL WHERE id = ?", [created.id]);
+
+    const r1 = await app.inject({ method: "POST", url: `/api/tasks/${created.id}/share-link`, headers: headers(adminToken) });
+    expect(r1.statusCode).toBe(200);
+    expect(r1.json().slug).toBeTruthy();
+
+    const r2 = await app.inject({ method: "POST", url: `/api/tasks/${created.id}/share-link`, headers: headers(adminToken) });
+    expect(r2.json().slug).toBe(r1.json().slug);
+
+    const bySlug = await app.inject({ method: "GET", url: `/api/tasks/by-slug/${r1.json().slug}`, headers: headers(adminToken) });
+    expect(bySlug.statusCode).toBe(200);
+    expect(bySlug.json().id).toBe(created.id);
+  });
+
+  it("private tasks are not accessible via slug for other users", async () => {
+    const priv = await createVia(adminToken, { title: "Private Link", isPrivate: true });
+
+    const forbidden = await app.inject({ method: "GET", url: `/api/tasks/by-slug/${priv.slug}`, headers: headers(userToken) });
+    expect(forbidden.statusCode).toBe(404);
+
+    const forbiddenLink = await app.inject({ method: "POST", url: `/api/tasks/${priv.id}/share-link`, headers: headers(userToken) });
+    expect(forbiddenLink.statusCode).toBe(404);
+
+    const creator = await app.inject({ method: "GET", url: `/api/tasks/by-slug/${priv.slug}`, headers: headers(adminToken) });
+    expect(creator.statusCode).toBe(200);
+
+    await app.inject({ method: "DELETE", url: `/api/tasks/${priv.id}`, headers: headers(adminToken) });
+  });
+
+  it("public tasks can be opened via slug by any user", async () => {
+    const pub = await createVia(adminToken, { title: "Public Link" });
+    const res = await app.inject({ method: "GET", url: `/api/tasks/by-slug/${pub.slug}`, headers: headers(userToken) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().id).toBe(pub.id);
+    await app.inject({ method: "DELETE", url: `/api/tasks/${pub.id}`, headers: headers(adminToken) });
   });
 });

@@ -500,7 +500,7 @@ export function PlanningPage() {
             })}
           </Box>
 
-          <Box sx={{ width: 380, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+          <Box sx={{ width: 380, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <TaskTree
               tasks={filteredSidebarTasks}
               draggable

@@ -112,6 +112,7 @@ export function TaskTree({
         border: 1, borderColor: "divider",
         borderRadius: 2, bgcolor: "background.paper",
         overflow: "hidden",
+        display: "flex", flexDirection: "column", height: "100%",
       }}
     >
       {title && (
@@ -137,7 +138,7 @@ export function TaskTree({
         <Box sx={{ px: 2, pt: 1.5 }}>{filterBar}</Box>
       )}
 
-      <Box sx={{ p: 1, maxHeight: "calc(100vh - 280px)", overflowY: "auto" }}>
+      <Box sx={{ p: 1, flex: 1, minHeight: 0, overflowY: "auto" }}>
         {tree.map((node, i, arr) => (
           <TaskTreeNode
             key={node.id}

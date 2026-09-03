@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import { AppShell } from "./components/layout/AppShell";
 import { LoginPage } from "./components/auth/LoginPage";
 import { RegisterPage } from "./components/auth/RegisterPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { TaskLinkPage } from "./pages/TaskLinkPage";
 import { CalendarPage } from "./pages/CalendarPage";
 import { PlanningPage } from "./pages/PlanningPage";
 import { DailyPage } from "./pages/DailyPage";
@@ -15,9 +16,11 @@ import { ProfilePage } from "./pages/ProfilePage";
 import { MigrationPage } from "./pages/MigrationPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
   const { isAuthenticated, isLoading } = useAuth();
   if (isLoading) return null;
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isAuthenticated)
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   return <>{children}</>;
 }
 
@@ -60,6 +63,7 @@ export default function App() {
           }
         >
           <Route index element={<DashboardPage />} />
+          <Route path="t/:slug" element={<TaskLinkPage />} />
           <Route path="daily" element={<DailyPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="plan" element={<PlanningPage />} />

@@ -9,6 +9,7 @@ export interface TaskAssignee {
 
 export interface Task {
   id: string;
+  slug: string | null;
   title: string;
   description: string | null;
   dueAt: string | null;
@@ -160,6 +161,18 @@ export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResp
 
 export async function getTask(id: string): Promise<TaskWithRelations> {
   const { data } = await client.get<TaskWithRelations>(`/tasks/${id}`);
+  return data;
+}
+
+/** Löst einen öffentlichen Aufgaben-Link (Slug) in die Task auf – respektiert die Sichtbarkeitsregeln. */
+export async function getTaskBySlug(slug: string): Promise<TaskWithRelations> {
+  const { data } = await client.get<TaskWithRelations>(`/tasks/by-slug/${encodeURIComponent(slug)}`);
+  return data;
+}
+
+/** Liefert den Share-Link-Slug einer Task (erzeugt ihn bei Bedarf). */
+export async function ensureTaskShareLink(id: string): Promise<{ slug: string }> {
+  const { data } = await client.post<{ slug: string }>(`/tasks/${id}/share-link`);
   return data;
 }
 

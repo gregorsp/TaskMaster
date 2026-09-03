@@ -1,5 +1,6 @@
 import { eq, and, like, or, inArray, ne, SQL, sql as drizzleSql, isNotNull, isNull } from "drizzle-orm";
 import { v7 as uuid } from "uuid";
+import { randomBytes } from "node:crypto";
 import { getDb } from "../../db/client.js";
 import { tasks, taskAssignees, taskCategories, taskEvents, taskLinks, taskOccurrences, users, categories } from "../../db/schema.js";
 import { visibilityFilter } from "../../middleware/visibility.js";
@@ -15,6 +16,40 @@ export function enrichTask(task: typeof tasks.$inferSelect) {
     effectiveDueAt: getEffectiveDueAt(task)?.toISOString() || null,
     isOverdue: isTaskOverdue(task),
   };
+}
+
+/** 9 Zufallsbytes → 12 URL-sichere base64url-Zeichen (~72 Bit Entropie). */
+export function generateTaskSlug(): string {
+  return randomBytes(9).toString("base64url");
+}
+
+/** Eindeutigen Slug erzeugen (Kollisionsschleife gegen den Unique-Index). */
+export function generateUniqueTaskSlug(): string {
+  const db = getDb();
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const slug = generateTaskSlug();
+    const taken = db.select({ id: tasks.id }).from(tasks).where(eq(tasks.slug, slug)).get();
+    if (!taken) return slug;
+  }
+  throw new Error("could not generate a unique task slug");
+}
+
+/** Task-ID über den öffentlichen Slug auflösen (ohne Sichtbarkeitsprüfung). */
+export function findTaskIdBySlug(slug: string): string | null {
+  const db = getDb();
+  const row = db.select({ id: tasks.id }).from(tasks).where(eq(tasks.slug, slug)).get();
+  return row?.id ?? null;
+}
+
+/** Liefert den bestehenden Slug oder erzeugt einen, falls noch keiner existiert. */
+export function ensureTaskSlug(id: string): { slug: string } | null {
+  const db = getDb();
+  const existing = db.select({ id: tasks.id, slug: tasks.slug }).from(tasks).where(eq(tasks.id, id)).get();
+  if (!existing) return null;
+  if (existing.slug) return { slug: existing.slug };
+  const slug = generateUniqueTaskSlug();
+  db.update(tasks).set({ slug }).where(eq(tasks.id, id)).run();
+  return { slug };
 }
 
 interface TaskAssignee {
@@ -342,6 +377,7 @@ export function createTask(input: CreateTaskInput, createdById: string): (typeof
 
   const task = {
     id: uuid(),
+    slug: generateUniqueTaskSlug(),
     title: input.title,
     description: input.description || null,
     dueAt: dueAtVal,

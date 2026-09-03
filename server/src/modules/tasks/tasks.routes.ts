@@ -5,6 +5,7 @@ import {
   listTasks, getTask, createTask, updateTask, deleteTask,
   getSubtasks, getSiblings, getTaskLinks, addTaskLink, removeTaskLink,
   getTaskOccurrences, createTaskOccurrence, deleteTaskOccurrence, getUpcomingOccurrences,
+  findTaskIdBySlug, ensureTaskSlug,
 } from "./tasks.service.js";
 import { completeTask, reopenTask, getTaskEvents, addTaskComment } from "./completion.service.js";
 import { createTaskSchema, updateTaskSchema, completeTaskSchema, addLinkSchema, commentSchema, reopenTaskSchema } from "./tasks.schema.js";
@@ -27,6 +28,18 @@ export async function tasksRoutes(app: FastifyInstance) {
   app.get("/", async (request) => {
     const p = request.user as { id: string; isAdmin: boolean };
     return listTasks(p.id, p.isAdmin, request.query as Record<string, unknown>);
+  });
+
+  app.get("/by-slug/:slug", async (request, reply) => {
+    const p = request.user as { id: string; isAdmin: boolean };
+    const { slug } = request.params as { slug: string };
+    const id = findTaskIdBySlug(slug);
+    if (!id) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    const task = await getTask(id, p.id, p.isAdmin);
+    if (!task) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    return task;
   });
 
   app.get("/:id", async (request, reply) => {
@@ -110,6 +123,16 @@ export async function tasksRoutes(app: FastifyInstance) {
       const e = err as { statusCode?: number; code?: string; message?: string; openCount?: number };
       return reply.status(e.statusCode || 500).send({ error: { code: e.code || "INTERNAL_ERROR", message: e.message, openCount: e.openCount } });
     }
+  });
+
+  app.post("/:id/share-link", async (request, reply) => {
+    const p = request.user as { id: string; isAdmin: boolean };
+    const { id } = request.params as { id: string };
+    if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    const result = ensureTaskSlug(id);
+    if (!result) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
+    return result;
   });
 
   app.post("/:id/reopen", async (request, reply) => {

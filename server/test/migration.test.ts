@@ -38,6 +38,17 @@ describe("Migration – Version State Machine", () => {
     expect(userCols).toContain("confirm_habit_completion");
     closeDb();
   });
+  it("0013: slug column and unique index exist after migration", async () => {
+    await initDb();
+    migrate(getDb(), { migrationsFolder: "./src/db/migrations" });
+    ensureSchemaVersion();
+    const taskCols = getRawDb().exec("PRAGMA table_info(tasks)")[0].values.map((c) => c[1]);
+    expect(taskCols).toContain("slug");
+    const indexes = getRawDb().exec("PRAGMA index_list(tasks)")[0].values.map((row) => row[1] as string);
+    expect(indexes).toContain("idx_tasks_slug_unique");
+    closeDb();
+  });
+
   it("UP_TO_DATE: after applying all migrations", async () => {
     await initDb();
     migrate(getDb(), { migrationsFolder: "./src/db/migrations" });
@@ -127,12 +138,19 @@ describe("Migration – runMigration", () => {
     const corrupted = getRawDb().exec("SELECT COUNT(*) FROM tasks WHERE planned_date = 'planned_date'")[0].values[0][0] as number;
     expect(corrupted).toBe(1);
 
-    // Bump the version back and remove the 0012 journal record so the repair
-    // migration is considered pending again (simulating the pre-update prod DB)
+    // Simulate a pre-0013 install: remove the slug column and its unique index
+    getRawDb().run("DROP INDEX IF EXISTS idx_tasks_slug_unique");
+    getRawDb().run("ALTER TABLE tasks DROP COLUMN slug");
+
+    // Bump the version back and remove the 0012 + 0013 journal records so both
+    // migrations are considered pending again (simulating the pre-update prod DB)
     getRawDb().run("UPDATE app_meta SET value = '9' WHERE key = 'schema_version'");
     const j = JSON.parse(readFileSync("./src/db/migrations/meta/_journal.json", "utf8"));
-    const last = j.entries[j.entries.length - 1];
-    getRawDb().run("DELETE FROM __drizzle_migrations WHERE created_at = ?", [last.when]);
+    for (const entry of j.entries) {
+      if (entry.tag === "0012_repair_planned_date" || entry.tag === "0013_futuristic_mauler") {
+        getRawDb().run("DELETE FROM __drizzle_migrations WHERE created_at = ?", [entry.when]);
+      }
+    }
     let state = getDbState(db, getRawDb());
     expect(state.state).toBe("MIGRATION_NEEDED");
 
@@ -146,6 +164,17 @@ describe("Migration – runMigration", () => {
     expect(remaining).toBe(0);
     const isNull = getRawDb().exec("SELECT planned_date FROM tasks WHERE id = 't1'")[0].values[0][0];
     expect(isNull).toBeNull();
+
+    // 0013 re-applied: slug column with unique index and backfilled legacy rows
+    const slugCols = getRawDb().exec("PRAGMA table_info(tasks)")[0].values.map((c) => c[1] as string);
+    expect(slugCols).toContain("slug");
+    const nullSlugs = getRawDb().exec("SELECT COUNT(*) FROM tasks WHERE slug IS NULL")[0].values[0][0] as number;
+    expect(nullSlugs).toBe(0);
+    const t1Slug = getRawDb().exec("SELECT slug FROM tasks WHERE id = 't1'")[0].values[0][0];
+    expect(typeof t1Slug).toBe("string");
+    expect(String(t1Slug).length).toBeGreaterThan(5);
+    const indexes = getRawDb().exec("PRAGMA index_list(tasks)")[0].values.map((row) => row[1] as string);
+    expect(indexes).toContain("idx_tasks_slug_unique");
     closeDb();
   });
 });

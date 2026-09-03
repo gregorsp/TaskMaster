@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -48,7 +48,8 @@ export const tasks = sqliteTable("tasks", {
     .notNull()
     .references(() => users.id),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+  slug: text("slug"),
+}, (table) => [uniqueIndex("idx_tasks_slug_unique").on(table.slug)]);
 
 export const taskAssignees = sqliteTable(
   "task_assignees",
