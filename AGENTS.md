@@ -5,7 +5,7 @@
 - **Monorepo** with two packages: `server/` (Fastify + TypeScript) and `web/` (React + Vite). No npm workspaces — each package has its own `package.json` and `node_modules`.
 - The Fastify server doubles as the SPA host in production: it serves the built React app from `server/public/` (copied from `web/dist/` during Docker build) and falls back to `index.html` for client-side routing.
 - DB is SQLite via `sql.js` (WASM, no native modules). Drizzle ORM for schema + queries. Migrations are in `server/src/db/migrations/`.
-- Current schema version: `SCHEMA_VERSION = 9` (defined in `server/src/db/version.ts`). There are 12 migration files (`0000` through `0011`).
+- Current schema version: `SCHEMA_VERSION = 14` (defined in `server/src/db/version.ts`). There are 17 migration files (`0000` through `0016`).
 
 ### Server startup flow
 
@@ -77,6 +77,11 @@ All business logic lives under `server/src/modules/`, organized by domain:
 | Calendar | `modules/calendar/` | `/api/calendar` | `calendar.routes.ts`, `recurrence.service.ts` |
 | Planning | `modules/planning/` | `/api/planning` | `planning.routes.ts`, `planning.service.ts` |
 | Daily | `modules/daily/` | `/api/daily` | `daily.routes.ts`, `daily.service.ts` |
+| Notes | `modules/notes/` | `/api/notes` | `notes.routes.ts`, `notes.service.ts`, `notes.schema.ts` |
+| Recordings | `modules/recordings/` | `/api/recordings` | `recordings.routes.ts`, `recordings.service.ts`, `recordings.audio.routes.ts`, `audio.storage.ts`, `playback.token.ts` |
+| Transcription | `modules/transcription/` | `/api/transcription` | `transcription.routes.ts` |
+| Journal | `modules/journal/` | `/api/journal` | `journal.routes.ts`, `journal.service.ts` |
+| Meditation | `modules/meditation/` | `/api/meditation` | `meditation.routes.ts`, `meditation.service.ts` |
 | Migration | `modules/migration/` | `/api/migration` | `migration.routes.ts` |
 
 Each module follows a consistent pattern:
@@ -104,7 +109,7 @@ Each module follows a consistent pattern:
 
 ### Schema overview (`server/src/db/schema.ts`)
 
-9 Drizzle tables:
+18 Drizzle tables:
 
 | Table | Purpose |
 |---|---|
@@ -116,6 +121,15 @@ Each module follows a consistent pattern:
 | `task_links` | Bidirectional task relationships: taskIdA ↔ taskIdB (composite PK) |
 | `task_occurrences` | Individual recurrence instances: id, taskId, occurrenceDate, plannedDate, isCompleted, completedAt, completedById, note, createdAt |
 | `categories` | Task categories: id, name, color, createdById, createdAt |
+| `notes` | Private notes: id, userId, kind (`text`/`audio`), title, body, createdAt, updatedAt |
+| `recordings` | Audio of any owner: ownerType (`note`/`journal_entry`/`journal_answer`/`meditation_session`), ownerId, ordinal, filename, mimeType, byteSize, chunkCount, durationMs, language, status |
+| `transcription_jobs` | One job per recording: status, progressMs, claimedBy, leaseUntil, attempts, error |
+| `transcript_segments` | Sentence segments: recordingId, idx, startMs, endMs, text (editable, timestamps stay) |
+| `journal_questions` | User-defined questions: text, position, archivedAt |
+| `journal_entries` | Free-text entry per day: entryDate (`YYYY-MM-DD`), text |
+| `journal_answers` | Exactly one answer per question and day: questionId, answerDate, text |
+| `meditation_sessions` | Sessions: startedAt, endedAt, plannedDurationSec, actualDurationSec, note, concentration (1–5) |
+| `meditation_comments` | Comments on a session: sessionId, userId, text, createdAt |
 | `app_meta` | Key-value store for app metadata (currently only `schema_version`) |
 
 ### Migration workflow
@@ -289,7 +303,8 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 - **Framework**: Vitest (`server/package.json` → `"test": "vitest run"`, `"test:watch": "vitest"`).
 - **Database**: In-memory SQLite (`DB_PATH` is `:memory:` when `NODE_ENV=test`).
 - **HTTP**: Tests use Fastify's `inject()` method to call routes without a running server. Each test file builds a fresh app instance via `buildApp()` and seeds the necessary data.
-- **Current coverage**: 102 tests across 9 test files.
+- **Current coverage**: 149 tests across 13 test files.
+- New modules have their own files: `notes.test.ts` (10), `journal.test.ts` (5), `meditation.test.ts` (3).
 
 ### Test files
 

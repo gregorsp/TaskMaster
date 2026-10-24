@@ -1,5 +1,6 @@
 import { z } from "zod";
 import path from "node:path";
+import os from "node:os";
 
 /**
  * TaskMaster – Server-Konfiguration.
@@ -76,6 +77,11 @@ const envSchema = z.object({
    * Maximale Anzahl aufzubewahrender Backups (älteste werden gelöscht).
    */
   BACKUP_KEEP: z.coerce.number().int().min(1).default(5),
+
+  /**
+   * Verzeichnis für Audioaufnahmen. Default: <DB_PATH-Verzeichnis>/audio
+   */
+  AUDIO_DIR: z.string().optional(),
 });
 
 const parsed = envSchema.parse(process.env);
@@ -107,4 +113,10 @@ export const config = {
   backupKeep: parsed.BACKUP_KEEP,
   /** Verzeichnis für Profilbilder */
   avatarsDir: parsed.NODE_ENV === "test" ? "" : path.join(path.dirname(dbPath), "avatars"),
+  /** Verzeichnis für Audioaufnahmen (im Test ein temp-Verzeichnis pro Prozess) */
+  audioDir:
+    parsed.AUDIO_DIR ||
+    (parsed.NODE_ENV === "test"
+      ? path.join(os.tmpdir(), `taskmaster-audio-${process.pid}`)
+      : path.join(path.dirname(dbPath), "audio")),
 };

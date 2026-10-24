@@ -13,6 +13,12 @@ import { usersRoutes } from "./modules/users/users.routes.js";
 import { calendarRoutes } from "./modules/calendar/calendar.routes.js";
 import { planningRoutes } from "./modules/planning/planning.routes.js";
 import { dailyRoutes } from "./modules/daily/daily.routes.js";
+import { notesRoutes } from "./modules/notes/notes.routes.js";
+import { journalRoutes } from "./modules/journal/journal.routes.js";
+import { meditationRoutes } from "./modules/meditation/meditation.routes.js";
+import { recordingsRoutes } from "./modules/recordings/recordings.routes.js";
+import { recordingAudioRoutes } from "./modules/recordings/recordings.audio.routes.js";
+import { transcriptionRoutes } from "./modules/transcription/transcription.routes.js";
 import { migrationRoutes } from "./modules/migration/migration.routes.js";
 import { SCHEMA_VERSION } from "./db/version.js";
 import path from "node:path";
@@ -33,6 +39,16 @@ export async function buildApp(opts?: { migrationMode?: boolean }) {
     }
   });
 
+  // Audio-Chunks kommen als rohe Bytes (kein Multipart) und bleiben klein:
+  // ein 10-s-Chunk bei 128 kbit/s liegt bei ~160 kB.
+  app.addContentTypeParser(
+    "application/octet-stream",
+    { parseAs: "buffer", bodyLimit: 2 * 1024 * 1024 },
+    (_request, body, done) => {
+      done(null, body);
+    }
+  );
+
   await app.register(fastifyCookie);
 
   await app.register(fastifyCors, {
@@ -45,6 +61,15 @@ export async function buildApp(opts?: { migrationMode?: boolean }) {
   await app.register(fastifyMultipart, { limits: { fileSize: 20 * 1024 * 1024 } });
 
   app.setErrorHandler(errorHandler);
+
+  // Cross-Origin-Isolation: Voraussetzung für SharedArrayBuffer und damit für
+  // WASM-Threads in der Transkription. Alle Ressourcen der App sind same-origin;
+  // das Modell kommt per CORS-Fetch von Hugging Face (dort erlaubt).
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("Cross-Origin-Opener-Policy", "same-origin");
+    reply.header("Cross-Origin-Embedder-Policy", "require-corp");
+    return payload;
+  });
 
   app.get("/api/health", async () => ({
     status: "ok",
@@ -86,6 +111,12 @@ export async function buildApp(opts?: { migrationMode?: boolean }) {
     await app.register(calendarRoutes, { prefix: "/api/calendar" });
     await app.register(planningRoutes, { prefix: "/api/planning" });
     await app.register(dailyRoutes, { prefix: "/api/daily" });
+    await app.register(notesRoutes, { prefix: "/api/notes" });
+    await app.register(journalRoutes, { prefix: "/api/journal" });
+    await app.register(meditationRoutes, { prefix: "/api/meditation" });
+    await app.register(recordingsRoutes, { prefix: "/api/recordings" });
+    await app.register(recordingAudioRoutes, { prefix: "/api/recordings" });
+    await app.register(transcriptionRoutes, { prefix: "/api/transcription" });
   }
 
   const publicDir = path.join(process.cwd(), "public");

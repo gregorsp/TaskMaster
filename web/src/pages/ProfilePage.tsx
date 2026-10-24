@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from "react";
 import {
   Box, Typography, TextField, Button, Stack, Avatar, Paper, Divider, Slider,
-  FormControlLabel, Switch,
+  FormControlLabel, Switch, FormControl, InputLabel, Select, MenuItem,
 } from "@mui/material";
 import { PhotoCamera as PhotoCameraIcon, Delete as DeleteIcon, Edit as EditIcon } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
 import { useNotify } from "../context/NotifyContext";
-import { updateProfile, changePassword, uploadProfilePicture, deleteProfilePicture, updateCapacity, updateHabitConfirm } from "../api/authApi";
+import { updateProfile, changePassword, uploadProfilePicture, deleteProfilePicture, updateCapacity, updateHabitConfirm, updateTranscriptionLanguage } from "../api/authApi";
+import { TranscribeControl } from "../components/notes/TranscribeControl";
+import { getRunnerState, setAutoTranscribe } from "../asr/runner";
 
 const WEEKDAYS = [
   { key: "mon", label: "Mo" },
@@ -55,6 +57,25 @@ export function ProfilePage() {
   const [capacity, setCapacity] = useState<Record<string, number>>(DEFAULT_CAPACITY);
   const [savingCapacity, setSavingCapacity] = useState(false);
   const [confirmHabitCompletion, setConfirmHabitCompletion] = useState(user?.confirmHabitCompletion ?? true);
+  const [transcriptionLanguage, setTranscriptionLanguage] = useState<"de" | "en" | "auto">(
+    (user?.transcriptionLanguage as "de" | "en" | "auto") ?? "de"
+  );
+  const [autoTranscribe, setAutoTranscribeState] = useState(getRunnerState().enabled);
+
+  const handleAutoTranscribeChange = (value: boolean) => {
+    setAutoTranscribeState(value);
+    setAutoTranscribe(value);
+  };
+
+  const handleLanguageChange = async (value: "de" | "en" | "auto") => {
+    setTranscriptionLanguage(value);
+    try {
+      await updateTranscriptionLanguage(value);
+      notify("Sprache gespeichert");
+    } catch {
+      notify("Sprache konnte nicht gespeichert werden", "error");
+    }
+  };
 
   const handleHabitConfirmChange = async (value: boolean) => {
     setConfirmHabitCompletion(value);
@@ -350,6 +371,53 @@ export function ProfilePage() {
             label=""
           />
         </Stack>
+
+        <Divider sx={{ my: 2 }} />
+
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+          <Box>
+            <Typography variant="body1">Sprache der Transkription</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Standard für neue Aufnahmen; einzelne Aufnahmen behalten ihre gespeicherte Sprache.
+            </Typography>
+          </Box>
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <InputLabel>Sprache</InputLabel>
+            <Select
+              label="Sprache"
+              value={transcriptionLanguage}
+              onChange={(event) => void handleLanguageChange(event.target.value as "de" | "en" | "auto")}
+            >
+              <MenuItem value="de">Deutsch</MenuItem>
+              <MenuItem value="en">Englisch</MenuItem>
+              <MenuItem value="auto">Automatisch</MenuItem>
+            </Select>
+          </FormControl>
+        </Stack>
+
+        <Divider sx={{ my: 2 }} />
+
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+          <Box>
+            <Typography variant="body1">Automatisch transkribieren</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Offene Aufnahmen werden im Hintergrund verarbeitet, solange die App offen ist. Pausiert bei laufender
+              Aufnahme und wenn der Tab unsichtbar ist.
+            </Typography>
+          </Box>
+          <Switch checked={autoTranscribe} onChange={(event) => handleAutoTranscribeChange(event.target.checked)} />
+        </Stack>
+
+        <Divider sx={{ my: 2 }} />
+
+        <Typography variant="body1" sx={{ mb: 0.5 }}>
+          Transkription auf diesem Gerät
+        </Typography>
+        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+          Das Sprachmodell (Parakeet, ca. 670 MB) wird einmalig geladen und läuft danach vollständig lokal.
+          Aufnahmen und Transkripte liegen auf dem Server, das Modell nie.
+        </Typography>
+        <TranscribeControl onDone={() => {}} />
       </Paper>
 
       <Paper sx={{ p: 3 }}>

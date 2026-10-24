@@ -9,6 +9,7 @@ import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { useNotify } from "../../context/NotifyContext";
 import { useAuth } from "../../context/AuthContext";
+import { DictateButton } from "../audio/DictateButton";
 
 interface Props {
   open: boolean;
@@ -310,7 +311,19 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
       <DialogContent>
         <Stack spacing={2} mt={1}>
           <TextField label="Titel" value={title} onChange={(e) => setTitle(e.target.value)} required fullWidth autoFocus />
-          <TextField label="Beschreibung" value={description} onChange={(e) => setDescription(e.target.value)} multiline rows={3} fullWidth />
+          <Stack direction="row" spacing={1} alignItems="flex-start">
+            <TextField
+              label="Beschreibung"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              multiline
+              rows={3}
+              fullWidth
+            />
+            <DictateButton
+              onText={(text) => setDescription((current) => (current ? `${current} ${text}` : text))}
+            />
+          </Stack>
           {recurrenceType !== "habit" && (
             <>
               <TextField label={recurrenceType === "rrule" ? "Startdatum (erste Fälligkeit) *" : "Fälligkeit"} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth required={recurrenceType === "rrule"} error={recurrenceType === "rrule" && !dueDate} helperText={recurrenceType === "rrule" && !dueDate ? "Pflichtfeld für wiederkehrende Aufgaben" : undefined} />

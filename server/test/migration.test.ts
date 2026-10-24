@@ -49,6 +49,23 @@ describe("Migration – Version State Machine", () => {
     closeDb();
   });
 
+  it("0014: notes, recordings, jobs and segments exist after migration", async () => {
+    await initDb();
+    migrate(getDb(), { migrationsFolder: "./src/db/migrations" });
+    ensureSchemaVersion();
+    const tables = getRawDb()
+      .exec("SELECT name FROM sqlite_master WHERE type = 'table'")[0]
+      .values.map((row) => row[0] as string);
+    expect(tables).toEqual(
+      expect.arrayContaining(["notes", "recordings", "transcription_jobs", "transcript_segments"])
+    );
+    const userCols = getRawDb().exec("PRAGMA table_info(users)")[0].values;
+    const language = userCols.find((col) => col[1] === "transcription_language");
+    expect(language).toBeDefined();
+    expect(language?.[4]).toBe("'de'");
+    closeDb();
+  });
+
   it("UP_TO_DATE: after applying all migrations", async () => {
     await initDb();
     migrate(getDb(), { migrationsFolder: "./src/db/migrations" });
@@ -142,15 +159,34 @@ describe("Migration – runMigration", () => {
     getRawDb().run("DROP INDEX IF EXISTS idx_tasks_slug_unique");
     getRawDb().run("ALTER TABLE tasks DROP COLUMN slug");
 
-    // Bump the version back and remove the 0012 + 0013 journal records so both
-    // migrations are considered pending again (simulating the pre-update prod DB)
+    // Bump the version back and remove the 0012+ journal records so all
+    // migrations from 0012 on are considered pending again (simulating the
+    // pre-update prod DB). All later migrations are dropped too, otherwise the
+    // simulated DB would be in an impossible state (0014 applied without 0013).
     getRawDb().run("UPDATE app_meta SET value = '9' WHERE key = 'schema_version'");
     const j = JSON.parse(readFileSync("./src/db/migrations/meta/_journal.json", "utf8"));
-    for (const entry of j.entries) {
-      if (entry.tag === "0012_repair_planned_date" || entry.tag === "0013_futuristic_mauler") {
-        getRawDb().run("DELETE FROM __drizzle_migrations WHERE created_at = ?", [entry.when]);
-      }
+    const dropFrom = j.entries.findIndex((entry: { tag: string }) => entry.tag === "0012_repair_planned_date");
+    expect(dropFrom).toBeGreaterThan(0);
+    for (const entry of j.entries.slice(dropFrom)) {
+      getRawDb().run("DELETE FROM __drizzle_migrations WHERE created_at = ?", [entry.when]);
     }
+
+    // Undo what those migrations built, so re-applying them is a real upgrade
+    // rather than a duplicate CREATE. (0013's slug column is dropped above.)
+    for (const table of [
+      "transcript_segments",
+      "transcription_jobs",
+      "recordings",
+      "notes",
+      "journal_answers",
+      "journal_entries",
+      "journal_questions",
+      "meditation_comments",
+      "meditation_sessions",
+    ]) {
+      getRawDb().run(`DROP TABLE IF EXISTS ${table}`);
+    }
+    getRawDb().run("ALTER TABLE users DROP COLUMN transcription_language");
     let state = getDbState(db, getRawDb());
     expect(state.state).toBe("MIGRATION_NEEDED");
 

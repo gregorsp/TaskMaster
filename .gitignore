@@ -11,3 +11,4 @@ server/data/
 .DS_Store
 Thumbs.db
 prodbackup/
+web/public/ort/

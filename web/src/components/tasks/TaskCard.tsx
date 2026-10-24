@@ -21,6 +21,7 @@ import { hashColor } from "./AssigneeAvatars";
 import { useNotify } from "../../context/NotifyContext";
 import { useModalStack } from "./ModalStackProvider";
 import client from "../../api/client";
+import { DictateButton } from "../audio/DictateButton";
 
 interface Props {
   taskId: string;
@@ -558,6 +559,9 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
               <TextField size="small" placeholder="Kommentar..." value={commentText} onChange={e => setCommentText(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendComment(); } }}
                 fullWidth multiline maxRows={3} />
+              <DictateButton
+                onText={(text) => setCommentText((current) => (current ? `${current} ${text}` : text))}
+              />
               <IconButton size="small" onClick={handleSendComment} disabled={!commentText.trim()}><SendIcon fontSize="small" /></IconButton>
             </Stack>
           </Box>

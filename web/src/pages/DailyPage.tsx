@@ -13,6 +13,7 @@ import { listCategories, type Category } from "../api/categoriesApi";
 import { useModalStack } from "../components/tasks/ModalStackProvider";
 import { useNotify } from "../context/NotifyContext";
 import { useAuth } from "../context/AuthContext";
+import { JournalSection } from "../components/journal/JournalSection";
 
 function startOfToday(): Date {
   const now = new Date();
@@ -388,6 +389,8 @@ export function DailyPage() {
           </Box>
         </Stack>
       )}
+
+      {!loading && <JournalSection date={toInputDate(selectedDate)} />}
 
       <Dialog open={!!pendingHabit} onClose={() => setPendingHabit(null)} maxWidth="xs" fullWidth>
         <DialogTitle>Habit erledigen?</DialogTitle>

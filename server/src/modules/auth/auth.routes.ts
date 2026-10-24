@@ -3,6 +3,7 @@ import { registerSchema, loginSchema } from "./auth.schema.js";
 import {
   registerUser, authenticateUser, getUserById, updateCurrentUser, changePassword,
   getCurrentUserCapacity, updateCurrentUserCapacity, updateCurrentUserHabitConfirm,
+  updateCurrentUserTranscriptionLanguage,
 } from "./auth.service.js";
 import { authGuard } from "../../middleware/auth.hooks.js";
 import { config } from "../../config.js";
@@ -29,6 +30,10 @@ const updateCapacitySchema = z.object({
 
 const updateHabitConfirmSchema = z.object({
   confirmHabitCompletion: z.boolean(),
+});
+
+const updateTranscriptionLanguageSchema = z.object({
+  transcriptionLanguage: z.enum(["de", "en", "auto"]),
 });
 
 export async function authRoutes(app: FastifyInstance) {
@@ -149,6 +154,20 @@ export async function authRoutes(app: FastifyInstance) {
 
     try {
       return reply.send({ user: await updateCurrentUserHabitConfirm(authUser.id, input.confirmHabitCompletion) });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string };
+      return reply.status(e.statusCode || 500).send({ error: { code: e.code || "UPDATE_FAILED", message: e.message } });
+    }
+  });
+
+  app.put("/me/transcription-language", { preHandler: authGuard }, async (request, reply) => {
+    const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
+    const input = updateTranscriptionLanguageSchema.parse(request.body);
+
+    try {
+      return reply.send({
+        user: updateCurrentUserTranscriptionLanguage(authUser.id, input.transcriptionLanguage),
+      });
     } catch (err) {
       const e = err as { statusCode?: number; code?: string; message?: string };
       return reply.status(e.statusCode || 500).send({ error: { code: e.code || "UPDATE_FAILED", message: e.message } });

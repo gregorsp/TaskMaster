@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   AppBar,
@@ -29,11 +29,15 @@ import {
   Label as LabelIcon,
   AdminPanelSettings as AdminIcon,
   Person as PersonIcon,
+  GraphicEq as NotesIcon,
+  SelfImprovement as MeditationIcon,
   DarkMode as DarkModeIcon,
   LightMode as LightModeIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../../context/AuthContext";
 import { useThemeMode } from "../../context/ThemeContext";
+import { TranscriptionIndicator } from "../transcription/TranscriptionIndicator";
+import { startTranscriptionRunner, stopTranscriptionRunner } from "../../asr/runner";
 
 const DRAWER_WIDTH = 240;
 
@@ -64,9 +68,16 @@ export function AppShell() {
   const location = useLocation();
   const { mode, toggle: toggleTheme } = useThemeMode();
 
+  useEffect(() => {
+    startTranscriptionRunner();
+    return () => stopTranscriptionRunner();
+  }, []);
+
   const navItems: NavItem[] = [
     { path: "/", label: "Aufgaben", icon: <DashboardIcon /> },
     { path: "/daily", label: "Tagesansicht", icon: <TodayIcon /> },
+    { path: "/notes", label: "Notizen", icon: <NotesIcon /> },
+    { path: "/meditation", label: "Meditation", icon: <MeditationIcon /> },
     { path: "/calendar", label: "Kalender", icon: <CalendarIcon /> },
     { path: "/plan", label: "Planung", icon: <PlanIcon /> },
     { path: "/matrix", label: "Matrix", icon: <MatrixIcon /> },
@@ -122,6 +133,7 @@ export function AppShell() {
             TaskMaster
           </Typography>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <TranscriptionIndicator />
             <IconButton color="inherit" onClick={toggleTheme} title={mode === "dark" ? "Helles Design" : "Dunkles Design"}>
               {mode === "dark" ? <LightModeIcon /> : <DarkModeIcon />}
             </IconButton>

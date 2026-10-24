@@ -9,6 +9,7 @@ export interface User {
   profilePicture: string | null;
   capacity: Record<string, number> | null;
   confirmHabitCompletion: boolean;
+  transcriptionLanguage: string;
 }
 
 export interface AuthResponse {
@@ -85,5 +86,14 @@ export async function updateCapacity(capacity: Record<string, number> | null): P
 
 export async function updateHabitConfirm(confirmHabitCompletion: boolean): Promise<User> {
   const { data } = await client.put<{ user: User }>("/auth/me/habit-confirm", { confirmHabitCompletion });
+  return data.user;
+}
+
+export async function updateTranscriptionLanguage(
+  transcriptionLanguage: "de" | "en" | "auto"
+): Promise<User> {
+  const { data } = await client.put<{ user: User }>("/auth/me/transcription-language", {
+    transcriptionLanguage,
+  });
   return data.user;
 }
