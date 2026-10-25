@@ -165,6 +165,10 @@ export async function updateJob(
   await client.patch(`/transcription/jobs/${jobId}`, patch, { skipLoadingIndicator: true });
 }
 
+export async function retryJob(jobId: string): Promise<void> {
+  await client.post(`/transcription/jobs/${jobId}/retry`);
+}
+
 export async function listJobs(): Promise<{
   jobs: Array<{ id: string; recordingId: string; status: string; progressMs: number; error: string | null }>;
   open: number;

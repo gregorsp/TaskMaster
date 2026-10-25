@@ -303,8 +303,8 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 - **Framework**: Vitest (`server/package.json` → `"test": "vitest run"`, `"test:watch": "vitest"`).
 - **Database**: In-memory SQLite (`DB_PATH` is `:memory:` when `NODE_ENV=test`).
 - **HTTP**: Tests use Fastify's `inject()` method to call routes without a running server. Each test file builds a fresh app instance via `buildApp()` and seeds the necessary data.
-- **Current coverage**: 149 tests across 13 test files.
-- New modules have their own files: `notes.test.ts` (10), `journal.test.ts` (5), `meditation.test.ts` (3).
+- **Current coverage**: 150 tests across 13 test files.
+- New modules have their own files: `notes.test.ts` (11), `journal.test.ts` (5), `meditation.test.ts` (3).
 
 ### Test files
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { buildApp } from "../src/app.js";
-import { initDb, getDb } from "../src/db/client.js";
+import { initDb, getDb, getRawDb } from "../src/db/client.js";
 import { migrate } from "drizzle-orm/sql-js/migrator";
 import { users } from "../src/db/schema.js";
 import { v7 as uuid } from "uuid";
@@ -360,6 +360,90 @@ describe("Aufnahme – Chunks, Range, Segmente", () => {
       payload: { deviceId: "test-device" },
     });
     expect(noMore.statusCode).toBe(204);
+  });
+
+  it("macht abgestürzte und fehlgeschlagene Jobs wieder claimbar", async () => {
+    const noteId = await createAudioNote();
+    const recording = (
+      await app.inject({
+        method: "POST",
+        url: `/api/notes/${noteId}/recordings`,
+        headers: headers(ownerToken),
+        payload: { mimeType: "audio/ogg;codecs=opus" },
+      })
+    ).json();
+    await putChunk(recording.id, 0, Buffer.from("abc"));
+    await app.inject({
+      method: "POST",
+      url: `/api/recordings/${recording.id}/complete`,
+      headers: headers(ownerToken),
+      payload: { durationMs: 1000, byteSize: 3 },
+    });
+
+    const jobId = getRawDb()
+      .exec(`SELECT id FROM transcription_jobs WHERE recording_id = '${recording.id}'`)[0]
+      .values[0][0] as string;
+    expect(jobId).not.toBe("");
+
+    // Es können Jobs aus früheren Tests offen sein — weiterclaimen, bis unserer dran ist.
+    const claimOurs = async (): Promise<string | null> => {
+      for (let attempt = 0; attempt < 25; attempt++) {
+        const res = await app.inject({
+          method: "POST",
+          url: "/api/transcription/jobs/claim",
+          headers: headers(ownerToken),
+          payload: { deviceId: "test-device" },
+        });
+        if (res.statusCode === 204) return null;
+        if ((res.json().job.id as string) === jobId) return jobId;
+      }
+      return null;
+    };
+
+    expect(await claimOurs()).toBe(jobId);
+
+    // Abgestürzter Tab: Status "running" mit abgelaufener Lease.
+    await app.inject({
+      method: "PATCH",
+      url: `/api/transcription/jobs/${jobId}`,
+      headers: headers(ownerToken),
+      payload: { status: "running", progressMs: 100 },
+    });
+    getRawDb().run("UPDATE transcription_jobs SET lease_until = ? WHERE id = ?", [Date.now() - 60_000, jobId]);
+
+    const reclaimed = await claimOurs();
+    expect(reclaimed).toBe(jobId);
+
+    // Fehlgeschlagen mit attempts < 3: wird automatisch erneut versucht.
+    await app.inject({
+      method: "PATCH",
+      url: `/api/transcription/jobs/${jobId}`,
+      headers: headers(ownerToken),
+      payload: { status: "failed", error: "kaputt" },
+    });
+    expect(await claimOurs()).toBe(jobId);
+
+    // Nach drei Versuchen bleibt der Job liegen, bis man ihn manuell wiederholt.
+    getRawDb().run("UPDATE transcription_jobs SET status = 'failed', attempts = 3, error = 'kaputt' WHERE id = ?", [
+      jobId,
+    ]);
+    const afterThree = await app.inject({
+      method: "POST",
+      url: "/api/transcription/jobs/claim",
+      headers: headers(ownerToken),
+      payload: { deviceId: "test-device" },
+    });
+    if (afterThree.statusCode === 201) {
+      expect(afterThree.json().job.id).not.toBe(jobId);
+    }
+
+    const retried = await app.inject({
+      method: "POST",
+      url: `/api/transcription/jobs/${jobId}/retry`,
+      headers: headers(ownerToken),
+    });
+    expect(retried.statusCode).toBe(200);
+    expect(retried.json().status).toBe("pending");
   });
 
   it("löscht Notiz, Aufnahme, Segmente und Job", async () => {

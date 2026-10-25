@@ -15,7 +15,7 @@ import { MAX_AUDIO_BYTES, appendAudioChunk, audioFileSize, createAudioFile, dele
 
 export type RecordingOwnerType = "note" | "journal_entry" | "journal_answer" | "meditation_session";
 
-const LEASE_MS = 60_000;
+const LEASE_MS = 120_000;
 
 const MIME_EXT: Array<[RegExp, string]> = [
   [/ogg/i, "ogg"],
@@ -353,19 +353,43 @@ export function claimJob(userId: string, deviceId: string) {
   const db = getDb();
   const now = new Date();
 
+  // Ein abgestürzter Tab hinterlässt Jobs auf "claimed" *oder* "running" —
+  // der Worker setzt den Status sofort auf "running". Beide müssen nach
+  // Ablauf der Lease wieder claimbar werden.
   const expired = db
     .select({ id: transcriptionJobs.id })
     .from(transcriptionJobs)
     .where(
       and(
         eq(transcriptionJobs.userId, userId),
-        eq(transcriptionJobs.status, "claimed"),
+        inArray(transcriptionJobs.status, ["claimed", "running"]),
         lt(transcriptionJobs.leaseUntil, now)
       )
     )
     .all();
 
   for (const job of expired) {
+    db.update(transcriptionJobs)
+      .set({ status: "pending", claimedBy: null, leaseUntil: null, updatedAt: now })
+      .where(eq(transcriptionJobs.id, job.id))
+      .run();
+  }
+
+  // Fehlgeschlagene Jobs werden bis zu dreimal erneut versucht; danach bleiben
+  // sie sichtbar fehlgeschlagen und können manuell wiederholt werden.
+  const retryable = db
+    .select({ id: transcriptionJobs.id })
+    .from(transcriptionJobs)
+    .where(
+      and(
+        eq(transcriptionJobs.userId, userId),
+        eq(transcriptionJobs.status, "failed"),
+        lt(transcriptionJobs.attempts, 3)
+      )
+    )
+    .all();
+
+  for (const job of retryable) {
     db.update(transcriptionJobs)
       .set({ status: "pending", claimedBy: null, leaseUntil: null, updatedAt: now })
       .where(eq(transcriptionJobs.id, job.id))
@@ -441,6 +465,32 @@ export function updateJob(
       .where(eq(transcriptionJobs.id, jobId))
       .run();
   }
+
+  return db.select().from(transcriptionJobs).where(eq(transcriptionJobs.id, jobId)).get();
+}
+
+export function resetJob(userId: string, jobId: string) {
+  const db = getDb();
+  const job = db
+    .select()
+    .from(transcriptionJobs)
+    .where(and(eq(transcriptionJobs.id, jobId), eq(transcriptionJobs.userId, userId)))
+    .get();
+  if (!job) return null;
+
+  const now = new Date();
+  db.update(transcriptionJobs)
+    .set({
+      status: "pending",
+      attempts: 0,
+      error: null,
+      claimedBy: null,
+      leaseUntil: null,
+      progressMs: 0,
+      updatedAt: now,
+    })
+    .where(eq(transcriptionJobs.id, jobId))
+    .run();
 
   return db.select().from(transcriptionJobs).where(eq(transcriptionJobs.id, jobId)).get();
 }

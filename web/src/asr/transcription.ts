@@ -168,9 +168,20 @@ export async function transcribeBlob(blob: Blob): Promise<TranscriptionResult> {
 
 export async function runTranscriptionJob(): Promise<boolean> {
   await loadModelInWorker();
-  const claimed = await claimJob(getDeviceId());  if (!claimed) return false;
+  const claimed = await claimJob(getDeviceId());
+  if (!claimed) return false;
 
   const { job, recording } = claimed;
+
+  // Lange Aufnahmen brauchen Minuten; ohne Heartbeat läuft die Lease ab und ein
+  // anderer Tab könnte den Job übernehmen.
+  const heartbeat = window.setInterval(() => {
+    void updateJob(job.id, {
+      status: "running",
+      progressMs: Math.round(recording.durationMs * 0.2),
+    }).catch(() => {});
+  }, 30_000);
+
   try {
     await updateJob(job.id, { status: "running", progressMs: 0 });
     const blob = await fetchRecordingBlob(recording.id);
@@ -183,6 +194,8 @@ export async function runTranscriptionJob(): Promise<boolean> {
   } catch (error) {
     await updateJob(job.id, { status: "failed", error: String(error) }).catch(() => {});
     throw error;
+  } finally {
+    window.clearInterval(heartbeat);
   }
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -13,7 +14,7 @@ import {
   Typography,
 } from "@mui/material";
 import { Check, Close, ContentCopy, Edit as EditIcon, Pause, PlayArrow } from "@mui/icons-material";
-import { getPlaybackUrl, putSegments, type NoteRecording } from "../../api/notesApi";
+import { getPlaybackUrl, putSegments, retryJob, type NoteRecording } from "../../api/notesApi";
 import { useNotify } from "../../context/NotifyContext";
 
 function formatMs(ms: number): string {
@@ -174,6 +175,29 @@ export function RecordingView({ recording, onSaved }: Props) {
           {formatMs(currentMs)} / {formatMs(totalMs)}
         </Typography>
       </Stack>
+
+      {recording.job?.status === "failed" && (
+        <Alert
+          severity="error"
+          sx={{ mt: 1 }}
+          action={
+            <Button
+              size="small"
+              color="inherit"
+              onClick={async () => {
+                if (!recording.job) return;
+                await retryJob(recording.job.id);
+                notify("Transkription erneut eingeplant");
+                onSaved?.();
+              }}
+            >
+              Erneut versuchen
+            </Button>
+          }
+        >
+          Transkription fehlgeschlagen{recording.job.error ? `: ${recording.job.error}` : ""}
+        </Alert>
+      )}
 
       <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ mt: 1 }}>
         <ToggleButtonGroup
