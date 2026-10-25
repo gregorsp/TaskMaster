@@ -24,6 +24,33 @@ function formatMs(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+/**
+ * Fließtext statt einer Zeile pro Segment: Segmente werden zu Absätzen
+ * zusammengezogen. Auch alte Aufnahmen mit wortweisen Segmenten lesen sich
+ * dadurch wie Text.
+ */
+function toParagraphs(segments: Array<{ text: string }>): string[] {
+  const paragraphs: string[] = [];
+  let current = "";
+  let sentences = 0;
+
+  for (const segment of segments) {
+    const text = segment.text.trim();
+    if (!text) continue;
+    current = current ? `${current} ${text}` : text;
+    if (/[.!?…]$/.test(text)) sentences += 1;
+
+    if (current.length >= 420 || sentences >= 4) {
+      paragraphs.push(current);
+      current = "";
+      sentences = 0;
+    }
+  }
+
+  if (current) paragraphs.push(current);
+  return paragraphs;
+}
+
 interface Props {
   recording: NoteRecording;
   onSaved?: () => void;
@@ -225,13 +252,13 @@ export function RecordingView({ recording, onSaved }: Props) {
       )}
 
       {mode === "text" && segments.length > 0 && (
-        <Stack spacing={1} sx={{ mt: 1 }}>
-          {segments.map((segment) => (
-            <Typography key={segment.id} variant="body1" sx={{ lineHeight: 1.6 }}>
-              {segment.text}
+        <Box sx={{ mt: 1 }}>
+          {toParagraphs(segments).map((paragraph, index) => (
+            <Typography key={index} variant="body1" sx={{ lineHeight: 1.7, mb: 1.5 }}>
+              {paragraph}
             </Typography>
           ))}
-        </Stack>
+        </Box>
       )}
 
       {mode === "transcript" && segments.length > 0 && (

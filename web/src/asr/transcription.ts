@@ -136,14 +136,22 @@ function splitSentences(words: TranscriptWord[]): TranscriptChunk[] {
 
   for (const word of words) {
     current.push(word);
-    if (/[.!?]$/.test(word.text) || current.length >= 18) flush();
+    if (/[.!?…]$/.test(word.text) || current.length >= 24) flush();
   }
   flush();
   return chunks;
 }
 
+/**
+ * Die Engine liefert ihre `chunks` wortweise (verifiziert an echten Daten:
+ * "eins,", "zwei," …). Für Sync und Lesbarkeit gruppieren wir deshalb die
+ * Wort-Zeitstempel zu Sätzen; `chunks` ist nur der Notnagel, wenn keine Wörter
+ * mitkommen.
+ */
 export function buildSegments(result: TranscriptionResult, durationMs: number) {
-  const chunks = result.chunks.length > 0 ? result.chunks : splitSentences(result.words);
+  const sentences = splitSentences(result.words);
+  const chunks = sentences.length > 0 ? sentences : result.chunks;
+
   if (chunks.length > 0) {
     return chunks
       .map((chunk) => ({
