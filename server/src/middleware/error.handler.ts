@@ -18,8 +18,12 @@ export function errorHandler(error: unknown, request: FastifyRequest, reply: Fas
     return reply.status(429).send({ error: { code: "RATE_LIMITED", message: "Too many requests" } });
   }
 
-  console.error("Unhandled error:", error);
-  return reply.status(err.statusCode || 500).send({
+  const statusCode = err.statusCode || 500;
+  // Erwartete Client-Fehler (404, 409 …) sind keine "unhandled errors" und
+  // würden sonst bei jedem abgelehnten Schreibversuch das Log fluten.
+  if (statusCode >= 500) console.error("Unhandled error:", error);
+
+  return reply.status(statusCode).send({
     error: {
       code: err.code || "INTERNAL_ERROR",
       message: err.message || "Internal server error",

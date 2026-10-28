@@ -36,6 +36,8 @@ const segmentsSchema = z.object({
         })
     )
     .max(5000),
+  /** Revision aus dem Claim. Fehlt sie, wird nicht geprüft (Altclients). */
+  epoch: z.number().int().min(0).optional(),
 });
 
 export async function recordingsRoutes(app: FastifyInstance) {
@@ -98,7 +100,7 @@ export async function recordingsRoutes(app: FastifyInstance) {
     const user = request.user as { id: string };
     const { id } = request.params as { id: string };
     const input = segmentsSchema.parse(request.body ?? {});
-    const segments = replaceSegments(user.id, id, input.segments);
+    const segments = replaceSegments(user.id, id, input.segments, input.epoch);
     return { segments };
   });
 

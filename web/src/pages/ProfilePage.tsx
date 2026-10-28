@@ -8,6 +8,7 @@ import { useAuth } from "../context/AuthContext";
 import { useNotify } from "../context/NotifyContext";
 import { updateProfile, changePassword, uploadProfilePicture, deleteProfilePicture, updateCapacity, updateHabitConfirm, updateTranscriptionLanguage } from "../api/authApi";
 import { TranscribeControl } from "../components/notes/TranscribeControl";
+import { ServerTranscriptionPanel } from "../components/transcription/ServerTranscriptionPanel";
 import { getRunnerState, setAutoTranscribe } from "../asr/runner";
 
 const WEEKDAYS = [
@@ -419,6 +420,8 @@ export function ProfilePage() {
         </Typography>
         <TranscribeControl onDone={() => {}} />
       </Paper>
+
+      {user?.isAdmin && <ServerTranscriptionPanel />}
 
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" mb={2}>Passwort ändern</Typography>

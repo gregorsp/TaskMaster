@@ -239,6 +239,13 @@ Unter CasaOS setzt du dieselben Variablen in den App-Einstellungen des Container
 | `AUTO_MIGRATE` | `true` (dev) / `false` (prod) | Automatische DB-Migration beim Start. `false` → Admin muss Migration über Bootstrap-UI auslösen |
 | `BACKUP_DIR` | `<DB_PATH>/backups` | Verzeichnis für automatische Backups vor Migrationen |
 | `BACKUP_KEEP` | `5` | Maximale Anzahl aufzubewahrender Backups |
+| `AUDIO_DIR` | `<DB_PATH>/audio` | Ablage der Audioaufnahmen |
+| `TRANSCRIBE_SERVER` | `false` | Nächtliche Transkription auf dem Server ein/aus |
+| `TRANSCRIBE_AT` | `03:00` | Uhrzeit des Laufs (`HH:MM` in `TRANSCRIPTION_TZ`) |
+| `TRANSCRIPTION_TZ` | `Europe/Berlin` | Zeitzone für `TRANSCRIBE_AT` (Docker läuft sonst in UTC) |
+| `TRANSCRIBE_BUDGET_MINUTES` | `240` | Zeitbudget eines Laufs |
+| `TRANSCRIBE_JOB_MINUTES` | `120` | Rechenzeit-Obergrenze pro Aufnahme |
+| `MODEL_DIR` | `<DB_PATH>/models` | Ablage des Sprachmodells (nur bei Server-Transkription) |
 
 Erläuterungen:
 
@@ -248,6 +255,29 @@ Erläuterungen:
   Neustart-Verhalten) und unterstützt beide Betriebsarten: Image-Pull und lokalen Build.
 - **`server/src/config.ts`** validiert die Variablen beim Start (zod): ungültige Werte
   beenden den Prozess mit einer klaren Meldung statt mit obskuren Fehlern zur Laufzeit.
+
+### Nächtliche Transkription auf dem Server
+
+Standardmäßig **aus** – `TRANSCRIBE_SERVER=true` schaltet sie ein. Ist sie an, transkribiert der
+Server selbst, jeden Tag um `TRANSCRIBE_AT` (in `Europe/Berlin`):
+
+- alles, was noch offen ist,
+- alles, was seit zehn Minuten keinen Fortschritt mehr meldet (ein abgestürzter Tab),
+- und alles, was fehlgeschlagen ist.
+
+Dafür lädt er beim ersten Lauf einmalig das Parakeet-Modell (ca. 670 MB, dieselben Dateien wie der
+Browser) nach `MODEL_DIR` und hält es nur während des Laufs im Speicher (1,5–2 GB). Ein Lauf endet
+nach `TRANSCRIBE_BUDGET_MINUTES` oder spätestens um 08:00; eine einzelne Aufnahme darf
+`TRANSCRIBE_JOB_MINUTES` Rechenzeit kosten. War der Container um 3 Uhr aus, wird der Lauf beim
+nächsten Start zwischen 3:00 und 6:00 nachgeholt.
+
+Übernimmt der Server einen Job, den ein Gerät gerade rechnet, bekommt das Gerät beim nächsten
+Schreibversuch `409 JOB_REVOKED` und verwirft sein Ergebnis – geschrieben wird nie doppelt.
+
+Im Admin-Bereich der Einstellungen stehen Status, Warteschlange, Modellgröße, die letzten Läufe und
+die fehlgeschlagenen Aufträge; von dort lässt sich ein Lauf auch sofort starten.
+
+Grenzen: nur Opus (WebM/Ogg) – Safari-Aufnahmen (AAC/M4A) bleiben bei der Transkription im Browser.
 
 ## API-Übersicht
 

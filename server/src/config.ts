@@ -82,6 +82,43 @@ const envSchema = z.object({
    * Verzeichnis für Audioaufnahmen. Default: <DB_PATH-Verzeichnis>/audio
    */
   AUDIO_DIR: z.string().optional(),
+
+  /**
+   * Nächtliche Server-Transkription einschalten ("true"/"false").
+   * Default: false – das Image lädt sonst bei jedem Neuinstallierten ungefragt
+   * ~670 MB Modell und legt sich nachts auf die CPU.
+   */
+  TRANSCRIBE_SERVER: z.enum(["true", "false"]).optional(),
+
+  /**
+   * Uhrzeit des nächtlichen Laufs im Format "HH:MM" (Ortszeit der Zeitzone unten).
+   */
+  TRANSCRIBE_AT: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "TRANSCRIBE_AT muss HH:MM sein")
+    .default("03:00"),
+
+  /**
+   * Zeitzone für TRANSCRIBE_AT. Fest statt Container-Zeitzone, weil Docker
+   * standardmäßig UTC läuft und "nachts um 3" dann 3 Uhr UTC wäre.
+   */
+  TRANSCRIPTION_TZ: z.string().default("Europe/Berlin"),
+
+  /**
+   * Harte Obergrenze eines Laufs in Minuten, unabhängig von der Warteschlange.
+   */
+  TRANSCRIBE_BUDGET_MINUTES: z.coerce.number().int().min(1).max(24 * 60).default(240),
+
+  /**
+   * Obergrenze pro Aufnahme in Minuten. Wird sie überschritten, gilt der Job als
+   * fehlgeschlagen und der Worker wird abgebrochen.
+   */
+  TRANSCRIBE_JOB_MINUTES: z.coerce.number().int().min(1).max(24 * 60).default(120),
+
+  /**
+   * Verzeichnis für heruntergeladene Modelle. Default: <DB_PATH-Verzeichnis>/models
+   */
+  MODEL_DIR: z.string().optional(),
 });
 
 const parsed = envSchema.parse(process.env);
@@ -119,4 +156,20 @@ export const config = {
     (parsed.NODE_ENV === "test"
       ? path.join(os.tmpdir(), `taskmaster-audio-${process.pid}`)
       : path.join(path.dirname(dbPath), "audio")),
+  /** Nächtliche Server-Transkription aktiv? Default aus, siehe .env.example */
+  transcribeServer: parsed.TRANSCRIBE_SERVER === "true",
+  /** Uhrzeit des nächtlichen Laufs, "HH:MM" in `transcriptionTz` */
+  transcribeAt: parsed.TRANSCRIBE_AT,
+  /** Zeitzone, in der `transcribeAt` gilt */
+  transcriptionTz: parsed.TRANSCRIPTION_TZ,
+  /** Budget eines Laufs in ms */
+  transcribeBudgetMs: parsed.TRANSCRIBE_BUDGET_MINUTES * 60_000,
+  /** Obergrenze pro Job in ms */
+  transcribeJobLimitMs: parsed.TRANSCRIBE_JOB_MINUTES * 60_000,
+  /** Verzeichnis für Modelldateien (im Test ein temp-Verzeichnis pro Prozess) */
+  modelsDir:
+    parsed.MODEL_DIR ||
+    (parsed.NODE_ENV === "test"
+      ? path.join(os.tmpdir(), `taskmaster-models-${process.pid}`)
+      : path.join(path.dirname(dbPath), "models")),
 };

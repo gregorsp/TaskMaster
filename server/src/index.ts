@@ -6,6 +6,7 @@ import { scrypt, randomBytes } from "node:crypto";
 import { v7 as uuid } from "uuid";
 import { getDbState, SCHEMA_VERSION } from "./db/version.js";
 import { runMigration } from "./db/migrations.js";
+import { startTranscriptionScheduler, stopTranscriptionScheduler } from "./modules/transcription/server/scheduler.js";
 
 const KEYLEN = 64;
 
@@ -75,6 +76,7 @@ async function main() {
 
   const gracefulShutdown = async () => {
     app.log.info("Shutting down...");
+    stopTranscriptionScheduler();
     await app.close();
     stopAutoSave();
     saveDb();
@@ -89,6 +91,9 @@ async function main() {
     await app.listen({ port: config.port, host: config.host });
     const mode = migrationMode ? "maintenance (migration required)" : "normal";
     console.log(`Server running on http://0.0.0.0:${config.port} (${mode})`);
+    if (!migrationMode) {
+      startTranscriptionScheduler((message) => console.log(`[transcription] ${message}`));
+    }
   } catch (err) {
     app.log.error(err);
     process.exit(1);

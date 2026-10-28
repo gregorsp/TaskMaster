@@ -1,4 +1,4 @@
-import { claimJob, fetchRecordingBlob, putSegments, updateJob } from "../api/notesApi";
+import { claimJob, fetchRecordingBlob, isJobRevoked, putSegments, updateJob } from "../api/notesApi";
 import { blobToMono16k } from "../audio/pcm";
 import { getModelUrls, getModelStatus } from "./modelStore";
 
@@ -180,27 +180,36 @@ export async function runTranscriptionJob(): Promise<boolean> {
   if (!claimed) return false;
 
   const { job, recording } = claimed;
+  // Revision aus dem Claim: schreibt der Server den Job zwischenzeitlich um
+  // (nächtlicher Lauf), werden unsere Schreibversuche mit 409 abgewiesen.
+  const epoch = job.epoch;
 
   // Lange Aufnahmen brauchen Minuten; ohne Heartbeat läuft die Lease ab und ein
   // anderer Tab könnte den Job übernehmen.
   const heartbeat = window.setInterval(() => {
-    void updateJob(job.id, {
-      status: "running",
-      progressMs: Math.round(recording.durationMs * 0.2),
-    }).catch(() => {});
+    void updateJob(
+      job.id,
+      { status: "running", progressMs: Math.round(recording.durationMs * 0.2) },
+      epoch
+    ).catch(() => {});
   }, 30_000);
 
   try {
-    await updateJob(job.id, { status: "running", progressMs: 0 });
+    await updateJob(job.id, { status: "running", progressMs: 0 }, epoch);
     const blob = await fetchRecordingBlob(recording.id);
-    await updateJob(job.id, { status: "running", progressMs: Math.round(recording.durationMs * 0.2) });
+    await updateJob(job.id, { status: "running", progressMs: Math.round(recording.durationMs * 0.2) }, epoch);
     const pcm = await blobToMono16k(blob);
     const result = await transcribePcm(pcm);
     const segments = buildSegments(result, recording.durationMs);
-    await putSegments(recording.id, segments);
+    await putSegments(recording.id, segments, epoch);
     return true;
   } catch (error) {
-    await updateJob(job.id, { status: "failed", error: String(error) }).catch(() => {});
+    if (isJobRevoked(error)) {
+      // Der Server hat übernommen: Ergebnis verwerfen, den Job nicht als
+      // fehlgeschlagen markieren und ohne Fehlermeldung weitermachen.
+      return true;
+    }
+    await updateJob(job.id, { status: "failed", error: String(error) }, epoch).catch(() => {});
     throw error;
   } finally {
     window.clearInterval(heartbeat);

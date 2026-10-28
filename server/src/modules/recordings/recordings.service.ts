@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { v7 as uuid } from "uuid";
 import { getDb } from "../../db/client.js";
 import {
@@ -15,7 +15,33 @@ import { MAX_AUDIO_BYTES, appendAudioChunk, audioFileSize, createAudioFile, dele
 
 export type RecordingOwnerType = "note" | "journal_entry" | "journal_answer" | "meditation_session";
 
-const LEASE_MS = 120_000;
+export const LEASE_MS = 120_000;
+
+/**
+ * Ab wann ein Job als „scheinbar noch in Arbeit" gilt und vom nächtlichen
+ * Server-Lauf übernommen werden darf. Der Client verlängert seine Lease alle
+ * 30 s; zehn Minuten ohne Verlängerung heißt: der Tab lebt nicht mehr.
+ */
+export const STALE_AFTER_MS = 10 * 60_000;
+
+/** Aufnahmen, deren Upload nie abgeschlossen wurde, kippen nach dieser Zeit auf "failed". */
+export const ABANDONED_UPLOAD_MS = 14 * 24 * 60 * 60_000;
+
+/**
+ * Der Job gehört inzwischen jemand anderem (z. B. dem nächtlichen Server-Lauf).
+ * Der Client darf sein Ergebnis verwerfen, aber nichts mehr schreiben.
+ */
+function revokedError() {
+  return Object.assign(new Error("Dieser Job wurde inzwischen anderweitig übernommen"), {
+    statusCode: 409,
+    code: "JOB_REVOKED",
+  });
+}
+
+function assertEpoch(job: { epoch: number } | undefined, expectedEpoch?: number): void {
+  if (expectedEpoch === undefined) return;
+  if (!job || job.epoch !== expectedEpoch) throw revokedError();
+}
 
 const MIME_EXT: Array<[RegExp, string]> = [
   [/ogg/i, "ogg"],
@@ -304,21 +330,53 @@ export interface SegmentInput {
   text: string;
 }
 
-export function replaceSegments(userId: string, recordingId: string, segments: SegmentInput[]) {
-  const db = getDb();
+export function replaceSegments(
+  userId: string,
+  recordingId: string,
+  segments: SegmentInput[],
+  expectedEpoch?: number
+) {
   const recording = getOwnedRecording(userId, recordingId);
   if (!recording) {
     throw Object.assign(new Error("Aufnahme nicht gefunden"), { statusCode: 404, code: "NOT_FOUND" });
   }
+  return writeSegments(recording, segments, expectedEpoch);
+}
 
-  db.delete(transcriptSegments).where(eq(transcriptSegments.recordingId, recordingId)).run();
+/**
+ * Wie `replaceSegments`, aber ohne Eigentümerprüfung – für den Server-Lauf, der
+ * die Jobs aller Nutzer abarbeitet. Die Revision schützt trotzdem davor, dass
+ * ein parallel laufender Tab das Ergebnis überschreibt.
+ */
+export function replaceSegmentsInternal(
+  recordingId: string,
+  segments: SegmentInput[],
+  expectedEpoch?: number
+) {
+  const recording = getDb().select().from(recordings).where(eq(recordings.id, recordingId)).get();
+  if (!recording) {
+    throw Object.assign(new Error("Aufnahme nicht gefunden"), { statusCode: 404, code: "NOT_FOUND" });
+  }
+  return writeSegments(recording, segments, expectedEpoch);
+}
+
+function writeSegments(
+  recording: typeof recordings.$inferSelect,
+  segments: SegmentInput[],
+  expectedEpoch?: number
+) {
+  const db = getDb();
+  const job = db.select().from(transcriptionJobs).where(eq(transcriptionJobs.recordingId, recording.id)).get();
+  assertEpoch(job, expectedEpoch);
+
+  db.delete(transcriptSegments).where(eq(transcriptSegments.recordingId, recording.id)).run();
 
   if (segments.length > 0) {
     db.insert(transcriptSegments)
       .values(
         segments.map((segment, index) => ({
           id: uuid(),
-          recordingId,
+          recordingId: recording.id,
           idx: index,
           startMs: segment.startMs,
           endMs: segment.endMs,
@@ -338,13 +396,13 @@ export function replaceSegments(userId: string, recordingId: string, segments: S
       error: null,
       updatedAt: now,
     })
-    .where(eq(transcriptionJobs.recordingId, recordingId))
+    .where(eq(transcriptionJobs.recordingId, recording.id))
     .run();
 
   return db
     .select()
     .from(transcriptSegments)
-    .where(eq(transcriptSegments.recordingId, recordingId))
+    .where(eq(transcriptSegments.recordingId, recording.id))
     .all()
     .sort((a, b) => a.idx - b.idx);
 }
@@ -433,7 +491,8 @@ export function claimJob(userId: string, deviceId: string) {
 export function updateJob(
   userId: string,
   jobId: string,
-  patch: { status: "running" | "failed"; progressMs?: number; error?: string }
+  patch: { status: "running" | "failed"; progressMs?: number; error?: string },
+  expectedEpoch?: number
 ) {
   const db = getDb();
   const job = db
@@ -442,6 +501,7 @@ export function updateJob(
     .where(and(eq(transcriptionJobs.id, jobId), eq(transcriptionJobs.userId, userId)))
     .get();
   if (!job) return null;
+  assertEpoch(job, expectedEpoch);
 
   const now = new Date();
   if (patch.status === "running") {
@@ -487,6 +547,9 @@ export function resetJob(userId: string, jobId: string) {
       claimedBy: null,
       leaseUntil: null,
       progressMs: 0,
+      // Revision hochzählen: ein noch laufender Tab verliert damit das
+      // Schreibrecht, statt das neue Ergebnis zu überschreiben.
+      epoch: job.epoch + 1,
       updatedAt: now,
     })
     .where(eq(transcriptionJobs.id, jobId))
@@ -532,4 +595,177 @@ export function countOpenJobs(userId: string) {
       )
     )
     .get()?.count ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// Serverseitige Transkription (nächtlicher Lauf)
+// ---------------------------------------------------------------------------
+
+export type JobRow = typeof transcriptionJobs.$inferSelect;
+export type RecordingRow = typeof recordings.$inferSelect;
+
+export interface QueueEntry {
+  job: JobRow;
+  recording: RecordingRow;
+}
+
+/**
+ * Übernimmt einen Job für den Server-Lauf: Revision hochzählen, Lease setzen,
+ * Fortschritt zurücksetzen. Ein Client, der noch an dem Job arbeitet, bekommt
+ * danach 409 JOB_REVOKED und verwirft sein Ergebnis.
+ */
+export function takeOverJob(jobId: string, claimedBy = "server"): QueueEntry | null {
+  const db = getDb();
+  const job = db.select().from(transcriptionJobs).where(eq(transcriptionJobs.id, jobId)).get();
+  if (!job) return null;
+
+  const now = new Date();
+  const epoch = job.epoch + 1;
+  const attempts = job.attempts + 1;
+  const leaseUntil = new Date(now.getTime() + LEASE_MS);
+
+  db.update(transcriptionJobs)
+    .set({
+      status: "claimed",
+      epoch,
+      claimedBy,
+      leaseUntil,
+      progressMs: 0,
+      error: null,
+      attempts,
+      updatedAt: now,
+    })
+    .where(eq(transcriptionJobs.id, jobId))
+    .run();
+
+  const recording = db.select().from(recordings).where(eq(recordings.id, job.recordingId)).get();
+  if (!recording) return null;
+
+  return {
+    job: { ...job, status: "claimed", epoch, claimedBy, leaseUntil, progressMs: 0, error: null, attempts },
+    recording,
+  };
+}
+
+export function touchJobProgress(jobId: string, progressMs: number, expectedEpoch?: number): void {
+  const db = getDb();
+  const job = db.select().from(transcriptionJobs).where(eq(transcriptionJobs.id, jobId)).get();
+  if (!job) return;
+  assertEpoch(job, expectedEpoch);
+
+  const now = new Date();
+  db.update(transcriptionJobs)
+    .set({
+      status: "running",
+      progressMs,
+      leaseUntil: new Date(now.getTime() + LEASE_MS),
+      updatedAt: now,
+    })
+    .where(eq(transcriptionJobs.id, jobId))
+    .run();
+}
+
+export function markJobFailed(jobId: string, error: string, expectedEpoch?: number): void {
+  const db = getDb();
+  const job = db.select().from(transcriptionJobs).where(eq(transcriptionJobs.id, jobId)).get();
+  if (!job) return;
+  assertEpoch(job, expectedEpoch);
+
+  const now = new Date();
+  db.update(transcriptionJobs)
+    .set({
+      status: "failed",
+      error: error.slice(0, 1000),
+      leaseUntil: null,
+      claimedBy: null,
+      updatedAt: now,
+    })
+    .where(eq(transcriptionJobs.id, jobId))
+    .run();
+}
+
+/** Gibt einen Job ohne Ergebnis zurück in die Warteschlange (z. B. bei SIGTERM). */
+export function releaseJob(jobId: string): void {
+  const now = new Date();
+  getDb()
+    .update(transcriptionJobs)
+    .set({ status: "pending", claimedBy: null, leaseUntil: null, progressMs: 0, updatedAt: now })
+    .where(eq(transcriptionJobs.id, jobId))
+    .run();
+}
+
+/**
+ * Räumt Jobs auf, deren Client abgestürzt ist, und markiert Aufnahmen, deren
+ * Upload nie abgeschlossen wurde. Ohne diesen Sweep zeigt die UI einen Job
+ * dauerhaft als "läuft", weil `claimJob` abgelaufene Leases nur beim nächsten
+ * Claim zurücksetzt.
+ */
+export function sweepStaleJobs(now = new Date()): { released: number; abandonedUploads: number } {
+  const db = getDb();
+
+  const stale = db
+    .select({ id: transcriptionJobs.id })
+    .from(transcriptionJobs)
+    .where(
+      and(inArray(transcriptionJobs.status, ["claimed", "running"]), lt(transcriptionJobs.leaseUntil, now))
+    )
+    .all();
+
+  for (const job of stale) {
+    db.update(transcriptionJobs)
+      .set({ status: "pending", claimedBy: null, leaseUntil: null, updatedAt: now })
+      .where(eq(transcriptionJobs.id, job.id))
+      .run();
+  }
+
+  const abandonedCutoff = new Date(now.getTime() - ABANDONED_UPLOAD_MS);
+  const abandoned = db
+    .select({ id: recordings.id })
+    .from(recordings)
+    .where(and(eq(recordings.status, "uploading"), lt(recordings.createdAt, abandonedCutoff)))
+    .all();
+
+  for (const recording of abandoned) {
+    db.update(recordings).set({ status: "failed" }).where(eq(recordings.id, recording.id)).run();
+  }
+
+  return { released: stale.length, abandonedUploads: abandoned.length };
+}
+
+/**
+ * Jobs, die der nächtliche Lauf abarbeiten darf: alles Offene, alles, was seit
+ * über zehn Minuten keinen Heartbeat mehr hatte, und alles Fehlgeschlagene.
+ * Nur Aufnahmen, deren Upload abgeschlossen ist – halbe Dateien kann der
+ * Decoder nicht sinnvoll lesen.
+ */
+export function listServerQueue(now = new Date()): QueueEntry[] {
+  const staleBefore = new Date(now.getTime() - STALE_AFTER_MS);
+
+  return getDb()
+    .select({ job: transcriptionJobs, recording: recordings })
+    .from(transcriptionJobs)
+    .innerJoin(recordings, eq(recordings.id, transcriptionJobs.recordingId))
+    .where(
+      and(
+        eq(recordings.status, "ready"),
+        or(
+          eq(transcriptionJobs.status, "pending"),
+          eq(transcriptionJobs.status, "failed"),
+          and(
+            inArray(transcriptionJobs.status, ["claimed", "running"]),
+            lt(transcriptionJobs.updatedAt, staleBefore)
+          )
+        )
+      )
+    )
+    .orderBy(transcriptionJobs.createdAt)
+    .all();
+}
+
+export function getJobById(jobId: string): JobRow | undefined {
+  return getDb().select().from(transcriptionJobs).where(eq(transcriptionJobs.id, jobId)).get();
+}
+
+export function getRecordingById(recordingId: string): RecordingRow | undefined {
+  return getDb().select().from(recordings).where(eq(recordings.id, recordingId)).get();
 }

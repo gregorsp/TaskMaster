@@ -3,7 +3,7 @@ import { Database as SqlJsRawDatabase } from "sql.js";
 import { appMeta } from "./schema.js";
 import { eq } from "drizzle-orm";
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 export type DbState = "FRESH" | "UP_TO_DATE" | "MIGRATION_NEEDED" | "AHEAD_OF_APP";
 

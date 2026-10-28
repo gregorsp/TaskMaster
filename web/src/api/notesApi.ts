@@ -32,6 +32,8 @@ export interface TranscriptionJob {
   progressMs: number;
   attempts: number;
   error: string | null;
+  /** Revision aus dem Claim – der Server entzieht alte Revisionen nachts. */
+  epoch: number;
 }
 
 export interface NoteRecording {
@@ -122,9 +124,10 @@ export async function completeRecording(
 
 export async function putSegments(
   recordingId: string,
-  segments: Array<{ startMs: number; endMs: number; text: string }>
+  segments: Array<{ startMs: number; endMs: number; text: string }>,
+  epoch?: number
 ): Promise<{ segments: TranscriptSegment[] }> {
-  const { data } = await client.put(`/recordings/${recordingId}/segments`, { segments });
+  const { data } = await client.put(`/recordings/${recordingId}/segments`, { segments, epoch });
   return data;
 }
 
@@ -160,9 +163,19 @@ export async function claimJob(deviceId: string): Promise<ClaimedJob | null> {
 
 export async function updateJob(
   jobId: string,
-  patch: { status: "running" | "failed"; progressMs?: number; error?: string }
+  patch: { status: "running" | "failed"; progressMs?: number; error?: string },
+  epoch?: number
 ): Promise<void> {
-  await client.patch(`/transcription/jobs/${jobId}`, patch, { skipLoadingIndicator: true });
+  await client.patch(`/transcription/jobs/${jobId}`, { ...patch, epoch }, { skipLoadingIndicator: true });
+}
+
+/**
+ * Der Server hat den Job übernommen (nächtlicher Lauf). Kein Fehler – der
+ * eigene Fortschritt ist nur wertlos und darf nicht mehr geschrieben werden.
+ */
+export function isJobRevoked(error: unknown): boolean {
+  const response = (error as { response?: { status?: number; data?: { error?: { code?: string } } } })?.response;
+  return response?.status === 409 && response.data?.error?.code === "JOB_REVOKED";
 }
 
 export async function retryJob(jobId: string): Promise<void> {

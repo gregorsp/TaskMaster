@@ -227,6 +227,13 @@ Under CasaOS, set the same variables in the container's app settings.
 | `HOST` | `0.0.0.0` | Bind address (container-internal) |
 | `DB_PATH` | `./data/taskmaster.db` | Path to the SQLite file; in the container: `/app/data/taskmaster.db` |
 | `NODE_ENV` | `development` | `development` / `production` / `test` – controls logging, CORS and cookie flags |
+| `AUDIO_DIR` | `<DB_PATH>/audio` | Where audio recordings are stored |
+| `TRANSCRIBE_SERVER` | `false` | Nightly server-side transcription on/off |
+| `TRANSCRIBE_AT` | `03:00` | Time of the run (`HH:MM` in `TRANSCRIPTION_TZ`) |
+| `TRANSCRIPTION_TZ` | `Europe/Berlin` | Time zone for `TRANSCRIBE_AT` (Docker defaults to UTC) |
+| `TRANSCRIBE_BUDGET_MINUTES` | `240` | Time budget of one run |
+| `TRANSCRIBE_JOB_MINUTES` | `120` | Compute limit per recording |
+| `MODEL_DIR` | `<DB_PATH>/models` | Speech model location (server-side transcription only) |
 
 Notes:
 
@@ -236,6 +243,29 @@ Notes:
   policy) and supports both modes: image pull and local build.
 - **`server/src/config.ts`** validates the variables on startup (zod): invalid values
   terminate the process with a clear message instead of obscure runtime errors.
+
+### Nightly transcription on the server
+
+**Off** by default – `TRANSCRIBE_SERVER=true` enables it. When enabled, the server transcribes on
+its own, every day at `TRANSCRIBE_AT` (in `Europe/Berlin`):
+
+- everything still pending,
+- everything that has reported no progress for ten minutes (a crashed tab),
+- and everything that failed.
+
+For that it downloads the Parakeet model once (about 670 MB, the same files the browser uses) into
+`MODEL_DIR` and keeps it in memory only while the run is active (1.5–2 GB). A run stops after
+`TRANSCRIBE_BUDGET_MINUTES` or at 08:00 at the latest; a single recording may consume
+`TRANSCRIBE_JOB_MINUTES` of compute. If the container was down at 3 a.m., the run is caught up on
+the next start between 3:00 and 6:00.
+
+If the server takes over a job a device is currently running, that device receives
+`409 JOB_REVOKED` on its next write and discards its result – results are never written twice.
+
+The admin section of the settings page shows status, queue, model size, recent runs and failed
+jobs, and can start a run immediately.
+
+Limits: Opus only (WebM/Ogg) – Safari recordings (AAC/M4A) stay with in-browser transcription.
 
 ## API overview
 

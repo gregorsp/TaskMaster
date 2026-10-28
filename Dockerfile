@@ -9,19 +9,26 @@ RUN npm run build
 # Stage 2: Server-Build (Fastify/TS)
 FROM node:24-bookworm-slim AS server-build
 WORKDIR /app
+# onnxruntime-node lädt auf linux/x64 standardmäßig die CUDA-EP-Bibliotheken
+# nach (mehrere hundert MB), die hier niemand braucht: die Transkription läuft
+# auf der CPU.
+ENV ONNXRUNTIME_NODE_INSTALL=skip
 COPY server/package.json server/package-lock.json ./
 RUN npm ci
 COPY server/ ./
 RUN npm run build
 
 # Stage 3: Runtime
-# sql.js is pure WASM — no native modules, works on any glibc/musl base image
+# sql.js is pure WASM — no native modules, works on any glibc/musl base image.
+# onnxruntime-node (nächtliche Transkription) bringt fertige arm64/amd64-Binaries
+# mit, braucht also ebenfalls keine Toolchain.
 FROM node:24-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
 ENV DB_PATH=/app/data/taskmaster.db
 ENV JWT_SECRET=changeme
+ENV ONNXRUNTIME_NODE_INSTALL=skip
 COPY server/package.json server/package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=server-build /app/dist ./dist

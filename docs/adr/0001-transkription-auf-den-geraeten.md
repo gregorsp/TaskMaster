@@ -10,3 +10,7 @@ beansprucht.
 Folge: Transkripte können warten, bis ein fähiges Gerät die App öffnet. Es gibt keinen Server-Fallback
 und keinen Cloud-Dienst — der Preis dafür ist, dass eine Aufnahme ohne fähiges Gerät untranskribiert
 bleibt.
+
+**Teilweise ersetzt durch [ADR 0003](0003-server-transkription-nachts.md):** Es gibt jetzt einen
+Server-Fallback für die Nacht (lokal, kein Cloud-Dienst). „Kein Cloud-Dienst" gilt weiter, das
+1-GB-Budget nicht mehr — während eines Laufs sind es 1,5–2 GB.

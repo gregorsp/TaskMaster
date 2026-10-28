@@ -171,6 +171,13 @@ export const transcriptionJobs = sqliteTable(
       .references(() => users.id),
     status: text("status").notNull().default("pending"),
     progressMs: integer("progress_ms").notNull().default(0),
+    /**
+     * Revision des Jobs. Wird bei jeder Übernahme erhöht; ein Client, der mit
+     * einer veralteten Revision schreibt, bekommt 409 JOB_REVOKED. Damit kann
+     * der nächtliche Server-Lauf einen Job übernehmen, ohne dass ein noch
+     * laufender Tab das Ergebnis später überschreibt.
+     */
+    epoch: integer("epoch").notNull().default(0),
     claimedBy: text("claimed_by"),
     leaseUntil: integer("lease_until", { mode: "timestamp_ms" }),
     attempts: integer("attempts").notNull().default(0),

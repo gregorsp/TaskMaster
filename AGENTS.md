@@ -5,7 +5,8 @@
 - **Monorepo** with two packages: `server/` (Fastify + TypeScript) and `web/` (React + Vite). No npm workspaces — each package has its own `package.json` and `node_modules`.
 - The Fastify server doubles as the SPA host in production: it serves the built React app from `server/public/` (copied from `web/dist/` during Docker build) and falls back to `index.html` for client-side routing.
 - DB is SQLite via `sql.js` (WASM, no native modules). Drizzle ORM for schema + queries. Migrations are in `server/src/db/migrations/`.
-- Current schema version: `SCHEMA_VERSION = 14` (defined in `server/src/db/version.ts`). There are 17 migration files (`0000` through `0016`).
+- Nightly server-side transcription (optional, `TRANSCRIBE_SERVER=true`) runs the same Parakeet model in a `worker_threads` worker via `onnxruntime-node`; the only native dependency. Everything else stays toolchain-free.
+- Current schema version: `SCHEMA_VERSION = 15` (defined in `server/src/db/version.ts`). There are 18 migration files (`0000` through `0017`).
 
 ### Server startup flow
 
@@ -79,7 +80,7 @@ All business logic lives under `server/src/modules/`, organized by domain:
 | Daily | `modules/daily/` | `/api/daily` | `daily.routes.ts`, `daily.service.ts` |
 | Notes | `modules/notes/` | `/api/notes` | `notes.routes.ts`, `notes.service.ts`, `notes.schema.ts` |
 | Recordings | `modules/recordings/` | `/api/recordings` | `recordings.routes.ts`, `recordings.service.ts`, `recordings.audio.routes.ts`, `audio.storage.ts`, `playback.token.ts` |
-| Transcription | `modules/transcription/` | `/api/transcription` | `transcription.routes.ts` |
+| Transcription | `modules/transcription/` | `/api/transcription` | `transcription.routes.ts`, `server/` (nightly run: `scheduler.ts`, `runner.ts`, `engine.ts`, `parakeet.ts`, `decode.ts`, `modelStore.ts`, `segments.ts`, `schedule.ts`, `runlog.ts`, `transcribe.worker.ts`) |
 | Journal | `modules/journal/` | `/api/journal` | `journal.routes.ts`, `journal.service.ts` |
 | Meditation | `modules/meditation/` | `/api/meditation` | `meditation.routes.ts`, `meditation.service.ts` |
 | Migration | `modules/migration/` | `/api/migration` | `migration.routes.ts` |
@@ -123,7 +124,7 @@ Each module follows a consistent pattern:
 | `categories` | Task categories: id, name, color, createdById, createdAt |
 | `notes` | Private notes: id, userId, kind (`text`/`audio`), title, body, createdAt, updatedAt |
 | `recordings` | Audio of any owner: ownerType (`note`/`journal_entry`/`journal_answer`/`meditation_session`), ownerId, ordinal, filename, mimeType, byteSize, chunkCount, durationMs, language, status |
-| `transcription_jobs` | One job per recording: status, progressMs, claimedBy, leaseUntil, attempts, error |
+| `transcription_jobs` | One job per recording: status, progressMs, epoch (revision, bumped on takeover → stale writers get 409), claimedBy, leaseUntil, attempts, error |
 | `transcript_segments` | Sentence segments: recordingId, idx, startMs, endMs, text (editable, timestamps stay) |
 | `journal_questions` | User-defined questions: text, position, archivedAt |
 | `journal_entries` | Free-text entry per day: entryDate (`YYYY-MM-DD`), text |
@@ -156,6 +157,17 @@ When changing `server/src/db/schema.ts`:
   - All DB operations are synchronous and fast (in-memory).
   - The `getDb()` function returns a shared singleton Drizzle DB instance. Never create a new DB connection; always use `getDb()`.
   - In tests, `DB_PATH` is overridden to `:memory:` to avoid file I/O.
+
+### Nightly server transcription (fallback)
+
+- Off by default (`TRANSCRIBE_SERVER=true`). `startTranscriptionScheduler()` is called from `index.ts` after `listen`, stopped on shutdown. It also sweeps stale jobs **hourly even when the feature is off** — that fixes the "job shows as running forever" state after a crashed tab.
+- Eligibility (`listServerQueue`): `pending`, `failed` (retried forever, by decision), and `claimed`/`running` whose `updatedAt` is older than 10 minutes. A job with a live heartbeat is never taken away from a device.
+- Takeover bumps `transcription_jobs.epoch`; every write path (`PATCH /jobs/:id`, `PUT /recordings/:id/segments`) rejects a stale epoch with `409 JOB_REVOKED`. The web client treats that as "result discarded", not as an error.
+- The inference runs in a `worker_threads` worker (`transcribe.worker.ts`) — it must never touch the DB; the main thread owns all writes. A per-job timeout calls `worker.terminate()`.
+- Budget: 4 h per run, hard stop at 08:00 local (`config.transcriptionTz`), 2 h per recording. Admin-triggered runs are exempt from the 08:00 deadline.
+- Model: downloaded at runtime into `MODEL_DIR` (sha256-verified manifest in `modelStore.ts`), loaded at the start of a run, freed after it.
+- Opus only (WebM/Ogg). AAC/M4A is deliberately unsupported.
+- Tests stub the engine (`RunOptions.engine`), so CI never downloads the 670 MB model.
 
 ### Private tasks visibility
 
@@ -286,6 +298,13 @@ All environment variables are live-validated by **zod** at import time. Invalid 
 | `AUTO_MIGRATE` | `true` (dev) / `false` (prod) | Auto-apply migrations on startup? `false` → maintenance mode |
 | `BACKUP_DIR` | `<DB_PATH>/backups` | Directory for pre-migration backups |
 | `BACKUP_KEEP` | `5` | Max number of backup files to retain |
+| `AUDIO_DIR` | `<DB_PATH>/audio` | Audio recording storage |
+| `TRANSCRIBE_SERVER` | `false` | Nightly server-side transcription on/off |
+| `TRANSCRIBE_AT` | `03:00` | Run time `HH:MM` in `TRANSCRIPTION_TZ` |
+| `TRANSCRIPTION_TZ` | `Europe/Berlin` | Time zone for `TRANSCRIBE_AT` (Docker runs in UTC by default) |
+| `TRANSCRIBE_BUDGET_MINUTES` | `240` | Budget per run |
+| `TRANSCRIBE_JOB_MINUTES` | `120` | Compute limit per recording |
+| `MODEL_DIR` | `<DB_PATH>/models` | Speech model location |
 | `ADMIN_EMAIL` | `admin@taskmaster.local` | Email for initial admin (read directly from `process.env` in `index.ts`, not via config) |
 | `ADMIN_PASSWORD` | `admin123` | Password for initial admin (read directly from `process.env`) |
 
@@ -303,8 +322,8 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 - **Framework**: Vitest (`server/package.json` → `"test": "vitest run"`, `"test:watch": "vitest"`).
 - **Database**: In-memory SQLite (`DB_PATH` is `:memory:` when `NODE_ENV=test`).
 - **HTTP**: Tests use Fastify's `inject()` method to call routes without a running server. Each test file builds a fresh app instance via `buildApp()` and seeds the necessary data.
-- **Current coverage**: 150 tests across 13 test files.
-- New modules have their own files: `notes.test.ts` (11), `journal.test.ts` (5), `meditation.test.ts` (3).
+- **Current coverage**: 170 tests across 14 test files.
+- New modules have their own files: `notes.test.ts` (11), `journal.test.ts` (5), `meditation.test.ts` (3), `transcription-server.test.ts` (20).
 
 ### Test files
 
@@ -319,6 +338,7 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 | `test/recurrence.test.ts` | 6 | RRULE expansion, completion recurrence calculation |
 | `test/auth.test.ts` | 4 | Registration, login, token refresh, logout |
 | `test/profile-update.test.ts` | 3 | Profile field updates, password changes |
+| `test/transcription-server.test.ts` | 20 | Job revision/revocation, nightly queue selection, stale sweep, run budgets, schedule/DST math, segmentation parity, admin status routes |
 
 ### Running tests
 
