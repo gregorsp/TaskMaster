@@ -8,12 +8,15 @@ import {
   countOpenJobs,
   listJobs,
   listServerQueue,
+  requeueFailedJobs,
   resetJob,
+  resetJobById,
   updateJob,
 } from "../recordings/recordings.service.js";
 import { MODEL_TOTAL_BYTES, modelStatus } from "./server/modelStore.js";
 import { readLastRun, readNextRun, readRunHistory } from "./server/runlog.js";
 import { isModelLoaded, isTranscriptionRunActive, runTranscriptionBatch } from "./server/runner.js";
+import { getOverview } from "./overview.service.js";
 
 const claimSchema = z.object({
   deviceId: z.string().trim().min(1).max(100),
@@ -25,6 +28,20 @@ const updateSchema = z.object({
   error: z.string().max(1000).optional(),
   /** Revision aus dem Claim. Fehlt sie, wird nicht geprüft (Altclients). */
   epoch: z.number().int().min(0).optional(),
+});
+
+const scopeSchema = z.enum(["mine", "all"]);
+
+const overviewQuerySchema = z.object({
+  scope: scopeSchema.default("mine"),
+  /** Zeitfenster für „zuletzt fertig". */
+  hours: z.coerce.number().int().min(1).max(24 * 90).default(24),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const requeueSchema = z.object({
+  scope: scopeSchema.default("mine"),
 });
 
 export async function transcriptionRoutes(app: FastifyInstance) {
@@ -44,9 +61,10 @@ export async function transcriptionRoutes(app: FastifyInstance) {
   });
 
   app.post("/jobs/:id/retry", async (request, reply) => {
-    const user = request.user as { id: string };
+    const user = request.user as { id: string; isAdmin: boolean };
     const { id } = request.params as { id: string };
-    const job = resetJob(user.id, id);
+    // In der Gesamtansicht darf ein Admin auch fremde Jobs wieder einreihen.
+    const job = user.isAdmin ? resetJobById(id) : resetJob(user.id, id);
     if (!job) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Job nicht gefunden" } });
     }
@@ -62,6 +80,41 @@ export async function transcriptionRoutes(app: FastifyInstance) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Job nicht gefunden" } });
     }
     return job;
+  });
+
+  // -------------------------------------------------------------------------
+  // Übersicht und Warteschlangen-Pflege
+  // -------------------------------------------------------------------------
+
+  app.get("/overview", async (request, reply) => {
+    const user = request.user as { id: string; isAdmin: boolean };
+    const input = overviewQuerySchema.parse(request.query ?? {});
+    if (input.scope === "all" && !user.isAdmin) {
+      return reply
+        .status(403)
+        .send({ error: { code: "FORBIDDEN", message: "Die Gesamtansicht ist Administratoren vorbehalten" } });
+    }
+
+    return getOverview({
+      scope: input.scope,
+      userId: user.id,
+      doneSince: new Date(Date.now() - input.hours * 3_600_000),
+      limit: input.limit,
+      offset: input.offset,
+    });
+  });
+
+  app.post("/requeue", async (request, reply) => {
+    const user = request.user as { id: string; isAdmin: boolean };
+    const input = requeueSchema.parse(request.body ?? {});
+    if (input.scope === "all" && !user.isAdmin) {
+      return reply
+        .status(403)
+        .send({ error: { code: "FORBIDDEN", message: "Die Gesamtansicht ist Administratoren vorbehalten" } });
+    }
+
+    const requeued = requeueFailedJobs(input.scope === "all" ? undefined : user.id);
+    return { requeued };
   });
 
   // -------------------------------------------------------------------------

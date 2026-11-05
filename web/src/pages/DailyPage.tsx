@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Box, Typography, Stack, Paper, IconButton, Button, Chip, Checkbox,
   TextField, Select, MenuItem, FormControl, InputLabel, CircularProgress,
@@ -38,7 +39,17 @@ export function DailyPage() {
   const { push, setOnRootUpdated } = useModalStack();
   const { user } = useAuth();
 
-  const [selectedDate, setSelectedDate] = useState<Date>(startOfToday);
+  // Deep-Link aus der Audio-Übersicht: /daily?date=YYYY-MM-DD springt auf den Tag.
+  const [searchParams] = useSearchParams();
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const param = searchParams.get("date");
+    if (param && /^\d{4}-\d{2}-\d{2}$/.test(param)) {
+      const [year, month, day] = param.split("-").map(Number);
+      const parsed = new Date(year, month - 1, day);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    return startOfToday();
+  });
   const [data, setData] = useState<DailyData | null>(null);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);

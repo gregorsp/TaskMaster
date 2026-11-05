@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
-  Box,
   Button,
   Chip,
   CircularProgress,
@@ -159,32 +158,9 @@ export function ServerTranscriptionPanel() {
             </Typography>
           )}
 
-          {status.jobs.length > 0 && (
-            <>
-              <Divider sx={{ my: 2 }} />
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Offene und fehlgeschlagene Aufträge
-              </Typography>
-              <Stack spacing={0.5}>
-                {status.jobs.slice(0, 10).map((job) => (
-                  <Box key={job.id} sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "baseline" }}>
-                    <Typography variant="caption" sx={{ fontFamily: "monospace" }}>
-                      {job.recordingId.slice(0, 8)}
-                    </Typography>
-                    <Chip size="small" label={job.status} variant="outlined" />
-                    <Typography variant="caption" color="text.secondary">
-                      {Math.round(job.durationMs / 1000)} s · {job.attempts} Versuche · zuletzt {formatDateTime(job.updatedAt)}
-                    </Typography>
-                    {job.error && (
-                      <Typography variant="caption" color="error.main">
-                        {job.error}
-                      </Typography>
-                    )}
-                  </Box>
-                ))}
-              </Stack>
-            </>
-          )}
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+            Aufträge, Fortschritt und Restzeit stehen in der Audio-Übersicht.
+          </Typography>
 
           {status.runs.length > 0 && (
             <>

@@ -6,7 +6,7 @@
 - The Fastify server doubles as the SPA host in production: it serves the built React app from `server/public/` (copied from `web/dist/` during Docker build) and falls back to `index.html` for client-side routing.
 - DB is SQLite via `sql.js` (WASM, no native modules). Drizzle ORM for schema + queries. Migrations are in `server/src/db/migrations/`.
 - Nightly server-side transcription (optional, `TRANSCRIBE_SERVER=true`) runs the same Parakeet model in a `worker_threads` worker via `onnxruntime-node`; the only native dependency. Everything else stays toolchain-free.
-- Current schema version: `SCHEMA_VERSION = 15` (defined in `server/src/db/version.ts`). There are 18 migration files (`0000` through `0017`).
+- Current schema version: `SCHEMA_VERSION = 16` (defined in `server/src/db/version.ts`). There are 19 migration files (`0000` through `0018`).
 
 ### Server startup flow
 
@@ -80,7 +80,8 @@ All business logic lives under `server/src/modules/`, organized by domain:
 | Daily | `modules/daily/` | `/api/daily` | `daily.routes.ts`, `daily.service.ts` |
 | Notes | `modules/notes/` | `/api/notes` | `notes.routes.ts`, `notes.service.ts`, `notes.schema.ts` |
 | Recordings | `modules/recordings/` | `/api/recordings` | `recordings.routes.ts`, `recordings.service.ts`, `recordings.audio.routes.ts`, `audio.storage.ts`, `playback.token.ts` |
-| Transcription | `modules/transcription/` | `/api/transcription` | `transcription.routes.ts`, `server/` (nightly run: `scheduler.ts`, `runner.ts`, `engine.ts`, `parakeet.ts`, `decode.ts`, `modelStore.ts`, `segments.ts`, `schedule.ts`, `runlog.ts`, `transcribe.worker.ts`) |
+| Transcription | `modules/transcription/` | `/api/transcription` | `transcription.routes.ts`, `overview.service.ts` (overview page: queue, live progress, ETA), `server/` (nightly run: `scheduler.ts`, `runner.ts`, `engine.ts`, `parakeet.ts`, `decode.ts`, `modelStore.ts`, `segments.ts`, `schedule.ts`, `runlog.ts`, `transcribe.worker.ts`) |
+| Stats | `modules/stats/` | `/api/stats` | `stats.routes.ts`, `audio.service.ts` (per-day aggregates + realtime factor; also backs the ETA fallback) |
 | Journal | `modules/journal/` | `/api/journal` | `journal.routes.ts`, `journal.service.ts` |
 | Meditation | `modules/meditation/` | `/api/meditation` | `meditation.routes.ts`, `meditation.service.ts` |
 | Migration | `modules/migration/` | `/api/migration` | `migration.routes.ts` |
@@ -124,7 +125,7 @@ Each module follows a consistent pattern:
 | `categories` | Task categories: id, name, color, createdById, createdAt |
 | `notes` | Private notes: id, userId, kind (`text`/`audio`), title, body, createdAt, updatedAt |
 | `recordings` | Audio of any owner: ownerType (`note`/`journal_entry`/`journal_answer`/`meditation_session`), ownerId, ordinal, filename, mimeType, byteSize, chunkCount, durationMs, language, status |
-| `transcription_jobs` | One job per recording: status, progressMs, epoch (revision, bumped on takeover → stale writers get 409), claimedBy, leaseUntil, attempts, error |
+| `transcription_jobs` | One job per recording: status, progressMs, epoch (revision, bumped on takeover → stale writers get 409), claimedBy, leaseUntil, attempts, error, startedAt/finishedAt (measured processing time, migration 0018), engine (`server`/`device`) |
 | `transcript_segments` | Sentence segments: recordingId, idx, startMs, endMs, text (editable, timestamps stay) |
 | `journal_questions` | User-defined questions: text, position, archivedAt |
 | `journal_entries` | Free-text entry per day: entryDate (`YYYY-MM-DD`), text |
@@ -249,7 +250,7 @@ When changing `server/src/db/schema.ts`:
 
 ### Frontend data fetching
 
-- Uses **@tanstack/react-query** for server state management (caching, refetching, optimistic updates).
+- `@tanstack/react-query` is installed and provided (`main.tsx`), but **not used**: there is no `useQuery` anywhere. Polling and caching are done with `window.setInterval` inside `useEffect` (see `ServerTranscriptionPanel.tsx` and `AudioPage.tsx`) — follow that pattern for new screens.
 - Axios clients in `web/src/api/` wrap each API endpoint. The base client in `client.ts` handles JWT attachment and 401 refresh logic.
 - `AuthContext` in `web/src/context/AuthContext.tsx` manages user session state and provides `login`, `register`, `logout`, `refreshUser` functions.
 - `ThemeContext` persists dark/light mode preference in `localStorage`.
@@ -278,7 +279,10 @@ When changing `server/src/db/schema.ts`:
   - `CategoriesPage` — category management.
   - `AdminPage` — user management (admin only).
   - `ProfilePage` — user's own profile settings.
+  - `AudioPage` — audio processing overview: queue, live progress + ETA, recent/failed jobs, retry, stats block.
+  - `StatsPage` — charts and KPIs for audio processing (reusable panel for future task stats).
   - `MigrationPage` — shown in maintenance mode.
+- Sidebar navigation has two tiers: the working pages (`AppShell.tsx` `navItems`) and a **"Verwaltung"** group inside the avatar menu (Profil, Audio, Statistik, Admin). Admin-only entries are filtered by `user?.isAdmin`.
 
 ## Environment and config
 
@@ -322,8 +326,8 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 - **Framework**: Vitest (`server/package.json` → `"test": "vitest run"`, `"test:watch": "vitest"`).
 - **Database**: In-memory SQLite (`DB_PATH` is `:memory:` when `NODE_ENV=test`).
 - **HTTP**: Tests use Fastify's `inject()` method to call routes without a running server. Each test file builds a fresh app instance via `buildApp()` and seeds the necessary data.
-- **Current coverage**: 170 tests across 14 test files.
-- New modules have their own files: `notes.test.ts` (11), `journal.test.ts` (5), `meditation.test.ts` (3), `transcription-server.test.ts` (20).
+- **Current coverage**: 191 tests across 15 test files.
+- New modules have their own files: `notes.test.ts` (11), `journal.test.ts` (5), `meditation.test.ts` (3), `transcription-server.test.ts` (20), `audio-overview.test.ts` (21).
 
 ### Test files
 
@@ -339,6 +343,7 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 | `test/auth.test.ts` | 4 | Registration, login, token refresh, logout |
 | `test/profile-update.test.ts` | 3 | Profile field updates, password changes |
 | `test/transcription-server.test.ts` | 20 | Job revision/revocation, nightly queue selection, stale sweep, run budgets, schedule/DST math, segmentation parity, admin status routes |
+| `test/audio-overview.test.ts` | 21 | Migration 0018 columns, job timings/engine, overview scoping + owner labels, bulk requeue, audio stats, restart-after-migration callback |
 
 ### Running tests
 
@@ -386,7 +391,7 @@ npm run test:watch   # watch mode, re-runs on file changes
 ### Deployment modes
 
 - **Normal mode**: All API routes registered, frontend served from `public/`.
-- **Maintenance mode**: Only `/api/migration` and `/api/auth` routes registered. Frontend shows `MigrationPage` to trigger migration. Switches to normal mode after successful migration (requires restart currently — the migration runs in-process, so the app must be restarted after migration to re-register all routes).
+- **Maintenance mode**: Only `/api/migration` and `/api/auth` routes registered. Frontend shows `MigrationPage` to trigger migration. The route table is fixed at boot, so after a successful migration the server **restarts itself**: the migration route fires `onMigrationDone` (wired in `index.ts` to `saveDb()` + `process.exit(0)`) after the response is flushed, and Docker's `restart: unless-stopped` brings it back with the full route set. `MigrationPage` polls `/api/health` and reloads automatically once `migrationRequired` is `false`. Without a restart policy the process stays down — the page says so after 90 s.
 
 ## Common pitfalls
 

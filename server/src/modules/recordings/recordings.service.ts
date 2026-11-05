@@ -394,6 +394,7 @@ function writeSegments(
       claimedBy: null,
       leaseUntil: null,
       error: null,
+      finishedAt: now,
       updatedAt: now,
     })
     .where(eq(transcriptionJobs.recordingId, recording.id))
@@ -428,7 +429,7 @@ export function claimJob(userId: string, deviceId: string) {
 
   for (const job of expired) {
     db.update(transcriptionJobs)
-      .set({ status: "pending", claimedBy: null, leaseUntil: null, updatedAt: now })
+      .set({ status: "pending", claimedBy: null, leaseUntil: null, startedAt: null, finishedAt: null, updatedAt: now })
       .where(eq(transcriptionJobs.id, job.id))
       .run();
   }
@@ -449,7 +450,7 @@ export function claimJob(userId: string, deviceId: string) {
 
   for (const job of retryable) {
     db.update(transcriptionJobs)
-      .set({ status: "pending", claimedBy: null, leaseUntil: null, updatedAt: now })
+      .set({ status: "pending", claimedBy: null, leaseUntil: null, startedAt: null, finishedAt: null, updatedAt: now })
       .where(eq(transcriptionJobs.id, job.id))
       .run();
   }
@@ -477,13 +478,25 @@ export function claimJob(userId: string, deviceId: string) {
       claimedBy: deviceId,
       leaseUntil,
       attempts: pending.attempts + 1,
+      startedAt: now,
+      finishedAt: null,
+      engine: "device",
       updatedAt: now,
     })
     .where(eq(transcriptionJobs.id, pending.id))
     .run();
 
   return {
-    job: { ...pending, status: "claimed", claimedBy: deviceId, leaseUntil, attempts: pending.attempts + 1 },
+    job: {
+      ...pending,
+      status: "claimed",
+      claimedBy: deviceId,
+      leaseUntil,
+      attempts: pending.attempts + 1,
+      startedAt: now,
+      finishedAt: null,
+      engine: "device",
+    },
     recording,
   };
 }
@@ -537,7 +550,19 @@ export function resetJob(userId: string, jobId: string) {
     .where(and(eq(transcriptionJobs.id, jobId), eq(transcriptionJobs.userId, userId)))
     .get();
   if (!job) return null;
+  return requeueJobRow(job);
+}
 
+/** Wie `resetJob`, aber ohne Eigentümerprüfung – für Admins in der Übersicht. */
+export function resetJobById(jobId: string) {
+  const db = getDb();
+  const job = db.select().from(transcriptionJobs).where(eq(transcriptionJobs.id, jobId)).get();
+  if (!job) return null;
+  return requeueJobRow(job);
+}
+
+function requeueJobRow(job: typeof transcriptionJobs.$inferSelect) {
+  const db = getDb();
   const now = new Date();
   db.update(transcriptionJobs)
     .set({
@@ -547,15 +572,63 @@ export function resetJob(userId: string, jobId: string) {
       claimedBy: null,
       leaseUntil: null,
       progressMs: 0,
+      startedAt: null,
+      finishedAt: null,
       // Revision hochzählen: ein noch laufender Tab verliert damit das
       // Schreibrecht, statt das neue Ergebnis zu überschreiben.
       epoch: job.epoch + 1,
       updatedAt: now,
     })
-    .where(eq(transcriptionJobs.id, jobId))
+    .where(eq(transcriptionJobs.id, job.id))
     .run();
 
-  return db.select().from(transcriptionJobs).where(eq(transcriptionJobs.id, jobId)).get();
+  return db.select().from(transcriptionJobs).where(eq(transcriptionJobs.id, job.id)).get();
+}
+
+/**
+ * Bulk-Variante von `resetJob`: setzt alle fehlgeschlagenen Jobs zurück in die
+ * Warteschlange. Der Browser-Läufer gibt nach drei Versuchen auf (`claimJob`),
+ * solche Aufnahmen bleiben sonst für immer liegen.
+ *
+ * Nur Aufnahmen mit abgeschlossenem Upload – an einer halben Datei hat der
+ * Decoder nichts zu tun. Ohne `userId` (Admin) gilt es für alle Nutzer.
+ */
+export function requeueFailedJobs(userId?: string): number {
+  const db = getDb();
+  const failed = db
+    .select({ id: transcriptionJobs.id, epoch: transcriptionJobs.epoch })
+    .from(transcriptionJobs)
+    .innerJoin(recordings, eq(recordings.id, transcriptionJobs.recordingId))
+    .where(
+      and(
+        eq(transcriptionJobs.status, "failed"),
+        eq(recordings.status, "ready"),
+        userId ? eq(transcriptionJobs.userId, userId) : undefined
+      )
+    )
+    .all();
+
+  const now = new Date();
+  for (const job of failed) {
+    db.update(transcriptionJobs)
+      .set({
+        status: "pending",
+        attempts: 0,
+        error: null,
+        claimedBy: null,
+        leaseUntil: null,
+        progressMs: 0,
+        startedAt: null,
+        finishedAt: null,
+        engine: null,
+        // Revision hochzählen: ein noch laufender Tab verliert das Schreibrecht.
+        epoch: job.epoch + 1,
+        updatedAt: now,
+      })
+      .where(eq(transcriptionJobs.id, job.id))
+      .run();
+  }
+  return failed.length;
 }
 
 export function listJobs(userId: string) {
@@ -633,6 +706,9 @@ export function takeOverJob(jobId: string, claimedBy = "server"): QueueEntry | n
       progressMs: 0,
       error: null,
       attempts,
+      startedAt: now,
+      finishedAt: null,
+      engine: "server",
       updatedAt: now,
     })
     .where(eq(transcriptionJobs.id, jobId))
@@ -642,7 +718,19 @@ export function takeOverJob(jobId: string, claimedBy = "server"): QueueEntry | n
   if (!recording) return null;
 
   return {
-    job: { ...job, status: "claimed", epoch, claimedBy, leaseUntil, progressMs: 0, error: null, attempts },
+    job: {
+      ...job,
+      status: "claimed",
+      epoch,
+      claimedBy,
+      leaseUntil,
+      progressMs: 0,
+      error: null,
+      attempts,
+      startedAt: now,
+      finishedAt: null,
+      engine: "server",
+    },
     recording,
   };
 }
@@ -678,6 +766,7 @@ export function markJobFailed(jobId: string, error: string, expectedEpoch?: numb
       error: error.slice(0, 1000),
       leaseUntil: null,
       claimedBy: null,
+      finishedAt: now,
       updatedAt: now,
     })
     .where(eq(transcriptionJobs.id, jobId))
@@ -689,7 +778,7 @@ export function releaseJob(jobId: string): void {
   const now = new Date();
   getDb()
     .update(transcriptionJobs)
-    .set({ status: "pending", claimedBy: null, leaseUntil: null, progressMs: 0, updatedAt: now })
+    .set({ status: "pending", claimedBy: null, leaseUntil: null, progressMs: 0, startedAt: null, finishedAt: null, updatedAt: now })
     .where(eq(transcriptionJobs.id, jobId))
     .run();
 }
@@ -713,7 +802,7 @@ export function sweepStaleJobs(now = new Date()): { released: number; abandonedU
 
   for (const job of stale) {
     db.update(transcriptionJobs)
-      .set({ status: "pending", claimedBy: null, leaseUntil: null, updatedAt: now })
+      .set({ status: "pending", claimedBy: null, leaseUntil: null, startedAt: null, finishedAt: null, updatedAt: now })
       .where(eq(transcriptionJobs.id, job.id))
       .run();
   }

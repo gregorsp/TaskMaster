@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Alert,
   Box,
@@ -49,6 +50,7 @@ function formatDuration(ms: number): string {
 
 export function NotesPage() {
   const notify = useNotify();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [notes, setNotes] = useState<NoteListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -86,6 +88,16 @@ export function NotesPage() {
     const interval = window.setInterval(() => setElapsed(Date.now() - recording.startedAt), 250);
     return () => window.clearInterval(interval);
   }, [recording]);
+
+  // Deep-Link aus der Audio-Übersicht: /notes?note=<id> öffnet die Notiz direkt.
+  useEffect(() => {
+    const noteId = searchParams.get("note");
+    if (!noteId) return;
+    setOpenNoteId(noteId);
+    const next = new URLSearchParams(searchParams);
+    next.delete("note");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const startRecording = async () => {
     setRecordError(null);

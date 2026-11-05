@@ -1,8 +1,11 @@
 import { useState, useEffect } from "react";
-import { Box, Card, TextField, Button, Typography, Alert, CircularProgress } from "@mui/material";
+import { Box, Card, Stack, TextField, Button, Typography, Alert, CircularProgress } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
 import { login as authLogin } from "../api/authApi";
 import { getMigrationStatus, runMigration } from "../api/migrationApi";
+
+const RESTART_POLL_MS = 1_500;
+const RESTART_TIMEOUT_MS = 90_000;
 
 export function MigrationPage() {
   const { user, isLoading, login: setUser, logout } = useAuth();
@@ -14,10 +17,12 @@ export function MigrationPage() {
 
   const [status, setStatus] = useState<{ currentVersion: number; targetVersion: number } | null>(null);
   const [statusError, setStatusError] = useState("");
+  const [alreadyDone, setAlreadyDone] = useState(false);
 
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
+  const [restartTimedOut, setRestartTimedOut] = useState(false);
 
   useEffect(() => {
     if (!user?.isAdmin) return;
@@ -25,10 +30,51 @@ export function MigrationPage() {
       .then((res) => {
         if (res.migrationRequired) {
           setStatus({ currentVersion: res.currentVersion, targetVersion: res.targetVersion });
+        } else {
+          setAlreadyDone(true);
         }
       })
       .catch(() => setStatusError("Migrationsstatus konnte nicht geladen werden."));
   }, [user]);
+
+  /**
+   * Nach der Migration beendet sich der Server selbst und Docker startet ihn mit
+   * vollem Routensatz neu. Wir warten, bis er wieder antwortet und ohne
+   * Migrationsbedarf meldet – erst dann lohnt ein Reload, sonst landet die Seite
+   * im leeren Fenster zwischen Beenden und Neustart.
+   */
+  useEffect(() => {
+    if (!result) return;
+    let stopped = false;
+    const startedAt = Date.now();
+    const timer = window.setInterval(async () => {
+      if (stopped) return;
+      try {
+        const response = await fetch("/api/health", { cache: "no-store" });
+        if (response.ok) {
+          const health = (await response.json()) as { migrationRequired?: boolean };
+          if (health.migrationRequired === false) {
+            stopped = true;
+            window.clearInterval(timer);
+            window.location.reload();
+            return;
+          }
+        }
+      } catch {
+        // Server ist noch weg – weiter warten.
+      }
+      if (Date.now() - startedAt > RESTART_TIMEOUT_MS) {
+        stopped = true;
+        window.clearInterval(timer);
+        setRestartTimedOut(true);
+      }
+    }, RESTART_POLL_MS);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [result]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -147,6 +193,13 @@ export function MigrationPage() {
           Datenbank-Migration
         </Typography>
 
+        {alreadyDone && !status && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Die Datenbank ist bereits aktuell. Der Server startet nach einer Migration selbst neu – falls die
+            Anwendung leer bleibt, den Container einmal neu starten.
+          </Alert>
+        )}
+
         {status && (
           <>
             <Alert severity="info" sx={{ mb: 2 }}>
@@ -161,12 +214,21 @@ export function MigrationPage() {
                 <Alert severity="success" sx={{ mb: 2 }}>
                   {result}
                 </Alert>
-                <Button
-                  variant="contained"
-                  fullWidth
-                  onClick={() => window.location.reload()}
-                >
-                  Anwendung neu laden
+                {restartTimedOut ? (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    Der Server meldet sich nicht zurück. Bitte den Container neu starten
+                    (<code>docker compose restart taskmaster</code>) und diese Seite dann neu laden.
+                  </Alert>
+                ) : (
+                  <Stack direction="row" spacing={1.5} alignItems="center" mb={2}>
+                    <CircularProgress size={18} />
+                    <Typography variant="body2">
+                      Server startet neu – die Anwendung lädt automatisch, sobald er wieder da ist.
+                    </Typography>
+                  </Stack>
+                )}
+                <Button variant="outlined" fullWidth onClick={() => window.location.reload()}>
+                  Jetzt neu laden
                 </Button>
               </>
             ) : (

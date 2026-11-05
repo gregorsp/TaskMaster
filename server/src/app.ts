@@ -19,6 +19,7 @@ import { meditationRoutes } from "./modules/meditation/meditation.routes.js";
 import { recordingsRoutes } from "./modules/recordings/recordings.routes.js";
 import { recordingAudioRoutes } from "./modules/recordings/recordings.audio.routes.js";
 import { transcriptionRoutes } from "./modules/transcription/transcription.routes.js";
+import { statsRoutes } from "./modules/stats/stats.routes.js";
 import { migrationRoutes } from "./modules/migration/migration.routes.js";
 import { SCHEMA_VERSION } from "./db/version.js";
 import path from "node:path";
@@ -26,7 +27,7 @@ import { existsSync, createReadStream } from "node:fs";
 
 const pkg = { version: "1.0.0" };
 
-export async function buildApp(opts?: { migrationMode?: boolean }) {
+export async function buildApp(opts?: { migrationMode?: boolean; onMigrationDone?: () => void }) {
   const migrationMode = opts?.migrationMode ?? false;
   const app = Fastify({ logger: config.isDev });
 
@@ -103,7 +104,7 @@ export async function buildApp(opts?: { migrationMode?: boolean }) {
   await app.register(authRoutes, { prefix: "/api/auth" });
 
   if (migrationMode) {
-    await app.register(migrationRoutes, { prefix: "/api/migration" });
+    await app.register(migrationRoutes, { prefix: "/api/migration", onMigrationDone: opts?.onMigrationDone });
   } else {
     await app.register(tasksRoutes, { prefix: "/api/tasks" });
     await app.register(categoriesRoutes, { prefix: "/api/categories" });
@@ -117,6 +118,7 @@ export async function buildApp(opts?: { migrationMode?: boolean }) {
     await app.register(recordingsRoutes, { prefix: "/api/recordings" });
     await app.register(recordingAudioRoutes, { prefix: "/api/recordings" });
     await app.register(transcriptionRoutes, { prefix: "/api/transcription" });
+    await app.register(statsRoutes, { prefix: "/api/stats" });
   }
 
   const publicDir = path.join(process.cwd(), "public");

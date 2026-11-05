@@ -9,6 +9,7 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  ListSubheader,
   Toolbar,
   Typography,
   useMediaQuery,
@@ -29,6 +30,8 @@ import {
   Label as LabelIcon,
   AdminPanelSettings as AdminIcon,
   Person as PersonIcon,
+  Audiotrack as AudioIcon,
+  Insights as StatsIcon,
   GraphicEq as NotesIcon,
   SelfImprovement as MeditationIcon,
   DarkMode as DarkModeIcon,
@@ -82,7 +85,6 @@ export function AppShell() {
     { path: "/plan", label: "Planung", icon: <PlanIcon /> },
     { path: "/matrix", label: "Matrix", icon: <MatrixIcon /> },
     { path: "/categories", label: "Kategorien", icon: <LabelIcon /> },
-    { path: "/admin", label: "Admin", icon: <AdminIcon />, adminOnly: true },
   ];
 
   const filteredNav = navItems.filter((item) => !item.adminOnly || user?.isAdmin);
@@ -156,6 +158,7 @@ export function AppShell() {
               {user?.email}
             </MenuItem>
             <Divider />
+            <ListSubheader sx={{ lineHeight: "28px", bgcolor: "transparent" }}>Verwaltung</ListSubheader>
             <MenuItem
               onClick={() => {
                 setUserMenuAnchor(null);
@@ -165,6 +168,35 @@ export function AppShell() {
               <PersonIcon sx={{ mr: 1, fontSize: 20 }} />
               Profil
             </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setUserMenuAnchor(null);
+                navigate("/audio");
+              }}
+            >
+              <AudioIcon sx={{ mr: 1, fontSize: 20 }} />
+              Audio
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setUserMenuAnchor(null);
+                navigate("/stats");
+              }}
+            >
+              <StatsIcon sx={{ mr: 1, fontSize: 20 }} />
+              Statistik
+            </MenuItem>
+            {user?.isAdmin && (
+              <MenuItem
+                onClick={() => {
+                  setUserMenuAnchor(null);
+                  navigate("/admin");
+                }}
+              >
+                <AdminIcon sx={{ mr: 1, fontSize: 20 }} />
+                Admin
+              </MenuItem>
+            )}
             <Divider />
             <MenuItem
               onClick={async () => {

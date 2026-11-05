@@ -182,6 +182,22 @@ export const transcriptionJobs = sqliteTable(
     leaseUntil: integer("lease_until", { mode: "timestamp_ms" }),
     attempts: integer("attempts").notNull().default(0),
     error: text("error"),
+    /**
+     * Wann die Verarbeitung tatsächlich begann bzw. endete. Nur so lässt sich
+     * die Bearbeitungsdauer (und damit der Echtzeitfaktor) je Aufnahme messen –
+     * `updated_at` wird bei jedem Heartbeat überschrieben, `created_at` ist der
+     * Upload. Beide Felder sind nullbar: Zeilen von vor Migration 0018 und Jobs,
+     * die noch nie gelaufen sind, haben keine Zeiten.
+     */
+    startedAt: integer("started_at", { mode: "timestamp_ms" }),
+    finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+    /**
+     * Wer den Job abgearbeitet hat: `"server"` (Nachtlauf) oder `"device"`
+     * (Browser-Tab). Browser und Server rechnen dramatisch unterschiedlich
+     * schnell – ohne dieses Feld würde ein Median über beide den ETA-Fallback
+     * verfälschen.
+     */
+    engine: text("engine"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },

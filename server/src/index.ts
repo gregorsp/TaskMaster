@@ -72,7 +72,24 @@ async function main() {
   startAutoSave();
 
   const migrationMode = state.state === "MIGRATION_NEEDED" && !config.autoMigrate;
-  const app = await buildApp({ migrationMode });
+
+  /**
+   * Nach einer erfolgreichen Migration steht die Routentabelle des laufenden
+   * Prozesses fest (nur `/api/auth` und `/api/migration`) – der Wartungsmodus
+   * lässt sich nicht zur Laufzeit verlassen. Statt den Nutzer auf einen
+   * manuellen Container-Neustart zu verweisen, beenden wir uns selbst; Docker
+   * (`restart: unless-stopped`) startet uns mit vollem Routensatz neu.
+   */
+  const restartAfterMigration = () => {
+    console.log("Migration abgeschlossen – Neustart für den Normalbetrieb.");
+    stopTranscriptionScheduler();
+    stopAutoSave();
+    saveDb();
+    closeDb();
+    process.exit(0);
+  };
+
+  const app = await buildApp({ migrationMode, onMigrationDone: restartAfterMigration });
 
   const gracefulShutdown = async () => {
     app.log.info("Shutting down...");
