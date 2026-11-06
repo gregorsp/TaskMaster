@@ -16,6 +16,7 @@ import {
   replaceSegmentsInternal,
   takeOverJob,
   touchJobProgress,
+  updateJob,
 } from "../src/modules/recordings/recordings.service.js";
 
 const KEYLEN = 64;
@@ -376,7 +377,7 @@ describe("Statistik", () => {
   it("liefert einen leeren, aber vollständigen Tagesraster", async () => {
     const res = await app.inject({
       method: "GET",
-      url: "/api/stats/audio?scope=mine&range=7",
+      url: "/api/stats/audio?scope=mine&range=7d",
       headers: headers(ownerToken),
     });
     expect(res.statusCode).toBe(200);
@@ -400,7 +401,7 @@ describe("Statistik", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: "/api/stats/audio?scope=mine&range=7",
+      url: "/api/stats/audio?scope=mine&range=7d",
       headers: headers(ownerToken),
     });
     const body = res.json();
@@ -413,7 +414,7 @@ describe("Statistik", () => {
   it("verweigert die Gesamtstatistik ohne Adminrechte", async () => {
     const res = await app.inject({
       method: "GET",
-      url: "/api/stats/audio?scope=all&range=30",
+      url: "/api/stats/audio?scope=all&range=30d",
       headers: headers(ownerToken),
     });
     expect(res.statusCode).toBe(403);
@@ -425,7 +426,7 @@ describe("Statistik", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: "/api/stats/audio?scope=all&range=7",
+      url: "/api/stats/audio?scope=all&range=7d",
       headers: headers(adminToken),
     });
     const body = res.json();
@@ -441,5 +442,57 @@ describe("Statistik", () => {
       headers: headers(ownerToken),
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("meldet den Zeitraum deckungsgleich mit dem Tagesraster", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/stats/audio?scope=mine&range=7d&tz=Europe/Berlin",
+      headers: headers(ownerToken),
+    });
+    const body = res.json();
+    expect(body.range.preset).toBe("7d");
+    expect(body.range.from).toBe(body.days[0].date);
+    expect(body.range.to).toBe(body.days[body.days.length - 1].date);
+    expect(body.range.days).toBe(7);
+  });
+
+  it("zählt Device-Fehlschläge, sobald finished_at gesetzt ist", async () => {
+    seedAudioJob(ownerId, "Kaputt", 12_000);
+    const claimed = claimJob(ownerId, "tab-1");
+    expect(claimed).not.toBeNull();
+    updateJob(ownerId, claimed!.job.id, { status: "failed", error: "decode" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/stats/audio?scope=mine&range=7d",
+      headers: headers(ownerToken),
+    });
+    const body = res.json();
+    expect(body.totals.failed).toBe(1);
+    expect(body.totals.done).toBe(0);
+    expect(body.totals.failureRate).toBe(1);
+  });
+
+  it("trennt Server- und Geräte-Jobs", async () => {
+    const deviceRecording = seedAudioJob(ownerId, "Gerät", 10_000);
+    const claimed = claimJob(ownerId, "tab-1");
+    expect(claimed?.job.recordingId).toBe(deviceRecording);
+    finishJob(deviceRecording);
+
+    const serverRecording = seedAudioJob(ownerId, "Server", 20_000);
+    takeOverJob(jobIdFor(serverRecording));
+    finishJob(serverRecording);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/stats/audio?scope=mine&range=7d",
+      headers: headers(ownerToken),
+    });
+    const body = res.json();
+    expect(body.totals.done).toBe(2);
+    const byEngine = new Map(body.byEngine.map((entry: { engine: string }) => [entry.engine, entry]));
+    expect(byEngine.get("device")?.done).toBe(1);
+    expect(byEngine.get("server")?.done).toBe(1);
   });
 });

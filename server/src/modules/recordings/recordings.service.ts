@@ -533,6 +533,9 @@ export function updateJob(
         status: "failed",
         error: patch.error ?? "Unbekannter Fehler",
         leaseUntil: null,
+        claimedBy: null,
+        // Ohne finished_at taucht ein Device-Fehlschlag in keiner Statistik auf.
+        finishedAt: now,
         updatedAt: now,
       })
       .where(eq(transcriptionJobs.id, jobId))

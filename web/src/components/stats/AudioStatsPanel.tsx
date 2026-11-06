@@ -16,32 +16,32 @@ import {
 } from "@mui/material";
 import { BarChart } from "@mui/x-charts/BarChart";
 import { LineChart } from "@mui/x-charts/LineChart";
-import { getAudioStats, type AudioStats } from "../../api/statsApi";
-import type { AudioScope } from "../../api/audioApi";
+import {
+  getAudioStats,
+  type AudioStats,
+  type StatsRangeSelection,
+  type StatsScope,
+} from "../../api/statsApi";
 import { formatDuration, formatPercent, formatShortDay, formatSpeedup } from "../../utils/format";
+import { KpiTile } from "./KpiTile";
+import { countDelta, invertDelta, rateDelta } from "./delta";
 
-const RANGES = [7, 30, 90];
+const SHORT_RANGES: { value: StatsRangeSelection["preset"]; label: string }[] = [
+  { value: "7d", label: "7 Tage" },
+  { value: "30d", label: "30 Tage" },
+  { value: "90d", label: "90 Tage" },
+];
 
-function KpiTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <Paper variant="outlined" sx={{ p: 1.5, flex: "1 1 150px", minWidth: 140 }}>
-      <Typography variant="caption" color="text.secondary" display="block">
-        {label}
-      </Typography>
-      <Typography variant="h6" fontWeight={600}>
-        {value}
-      </Typography>
-      {hint && (
-        <Typography variant="caption" color="text.secondary">
-          {hint}
-        </Typography>
-      )}
-    </Paper>
-  );
-}
+const ENGINE_LABELS: Record<string, string> = {
+  server: "Server",
+  device: "Gerät",
+  unknown: "Unbekannt",
+};
 
 interface Props {
-  scope: AudioScope;
+  scope: StatsScope;
+  /** Wenn gesetzt, gilt der Zeitraum der Seite und die interne Auswahl entfällt. */
+  range?: StatsRangeSelection;
   /** Titelzeile ausblenden, wenn die Seite schon eine hat. */
   dense?: boolean;
 }
@@ -50,22 +50,25 @@ interface Props {
  * Kennzahlen zur Verarbeitung. Steht identisch auf der Audio-Übersicht und auf
  * der Statistik-Seite – eine Komponente, ein Endpoint.
  */
-export function AudioStatsPanel({ scope, dense = false }: Props) {
-  const [range, setRange] = useState(30);
+export function AudioStatsPanel({ scope, range, dense = false }: Props) {
+  const [internalRange, setInternalRange] = useState<StatsRangeSelection>({ preset: "30d" });
   const [stats, setStats] = useState<AudioStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const activeRange = range ?? internalRange;
+  const { preset, from, to } = activeRange;
+
   const load = useCallback(async () => {
     try {
-      setStats(await getAudioStats(scope, range));
+      setStats(await getAudioStats(scope, { preset, from, to }));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Statistik konnte nicht geladen werden");
     } finally {
       setLoading(false);
     }
-  }, [scope, range]);
+  }, [scope, preset, from, to]);
 
   useEffect(() => {
     setLoading(true);
@@ -73,34 +76,44 @@ export function AudioStatsPanel({ scope, dense = false }: Props) {
   }, [load]);
 
   const totals = stats?.totals;
+  const previous = stats?.previous;
   const days = stats?.days ?? [];
   const hasData = (totals?.done ?? 0) + (totals?.failed ?? 0) > 0;
   const minutesPerDay = days.map((day) => Math.round(day.mediaMs / 60_000));
+  const mediaMinutes = totals ? Math.round(totals.mediaMs / 60_000) : 0;
+  const previousMinutes = previous ? Math.round(previous.mediaMs / 60_000) : 0;
 
   return (
     <Paper sx={{ p: 2 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1} mb={2}>
         {!dense && (
           <Typography variant="h6">
-            Verarbeitung
-            {scope === "all" ? " (alle Nutzer)" : ""}
+            Audio{scope === "all" ? " (alle Nutzer)" : ""}
           </Typography>
         )}
-        <ToggleButtonGroup
-          size="small"
-          exclusive
-          value={range}
-          onChange={(_event, value) => value !== null && setRange(value)}
-        >
-          {RANGES.map((value) => (
-            <ToggleButton key={value} value={value}>
-              {value} Tage
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
+        {!range && (
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={activeRange.preset}
+            onChange={(_event, value: StatsRangeSelection["preset"] | null) =>
+              value && setInternalRange({ preset: value })
+            }
+          >
+            {SHORT_RANGES.map((entry) => (
+              <ToggleButton key={entry.value} value={entry.value}>
+                {entry.label}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+        )}
       </Stack>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       {loading && !stats && (
         <Stack alignItems="center" py={3}>
@@ -110,23 +123,36 @@ export function AudioStatsPanel({ scope, dense = false }: Props) {
 
       {totals && !hasData && (
         <Alert severity="info">
-          Noch keine abgeschlossenen Aufnahmen in diesem Zeitraum. Bearbeitungszeiten und Echtzeitfaktor
-          werden erst ab dem ersten Lauf mit der neuen Datenbank-Version gemessen.
+          Noch keine abgeschlossenen Aufnahmen in diesem Zeitraum. Bearbeitungszeiten und Echtzeitfaktor werden
+          erst ab dem ersten Lauf mit der neuen Datenbank-Version gemessen.
         </Alert>
       )}
 
       {totals && hasData && (
         <>
           <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap mb={2}>
-            <KpiTile label="Fertige Aufnahmen" value={String(totals.done)} hint={`${totals.failed} fehlgeschlagen`} />
-            <KpiTile label="Audiominuten" value={String(Math.round(totals.mediaMs / 60_000))} />
+            <KpiTile
+              label="Fertige Aufnahmen"
+              value={String(totals.done)}
+              hint={`${totals.failed} fehlgeschlagen`}
+              delta={countDelta(totals.done, previous?.done)}
+            />
+            <KpiTile
+              label="Audiominuten"
+              value={String(mediaMinutes)}
+              delta={countDelta(mediaMinutes, previousMinutes)}
+            />
             <KpiTile
               label="Mediane Bearbeitungszeit"
               value={formatDuration(totals.medianProcMs)}
               hint="pro Aufnahme"
             />
             <KpiTile label="Echtzeitfaktor" value={formatSpeedup(totals.speedup)} hint="höher ist besser" />
-            <KpiTile label="Fehlerquote" value={formatPercent(totals.failureRate, 0)} />
+            <KpiTile
+              label="Fehlerquote"
+              value={formatPercent(totals.failureRate, 0)}
+              delta={invertDelta(rateDelta(totals.failureRate, previous?.failureRate))}
+            />
           </Stack>
 
           <Typography variant="subtitle2" gutterBottom>
@@ -172,6 +198,36 @@ export function AudioStatsPanel({ scope, dense = false }: Props) {
             ]}
           />
 
+          {stats?.byEngine && stats.byEngine.length > 0 && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Server und Gerät
+              </Typography>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Quelle</TableCell>
+                    <TableCell align="right">Fertig</TableCell>
+                    <TableCell align="right">Fehlgeschlagen</TableCell>
+                    <TableCell align="right">Audiominuten</TableCell>
+                    <TableCell align="right">Echtzeitfaktor</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {stats.byEngine.map((row) => (
+                    <TableRow key={row.engine}>
+                      <TableCell>{ENGINE_LABELS[row.engine] ?? row.engine}</TableCell>
+                      <TableCell align="right">{row.done}</TableCell>
+                      <TableCell align="right">{row.failed}</TableCell>
+                      <TableCell align="right">{Math.round(row.mediaMs / 60_000)}</TableCell>
+                      <TableCell align="right">{formatSpeedup(row.speedup)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+          )}
+
           {stats?.perUser && stats.perUser.length > 0 && (
             <Box sx={{ mt: 2 }}>
               <Typography variant="subtitle2" gutterBottom>
@@ -201,6 +257,10 @@ export function AudioStatsPanel({ scope, dense = false }: Props) {
               </Table>
             </Box>
           )}
+
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 2 }}>
+            Bearbeitungszeiten und Echtzeitfaktor werden erst ab Datenbank-Version 0018 gemessen.
+          </Typography>
         </>
       )}
     </Paper>

@@ -81,7 +81,7 @@ All business logic lives under `server/src/modules/`, organized by domain:
 | Notes | `modules/notes/` | `/api/notes` | `notes.routes.ts`, `notes.service.ts`, `notes.schema.ts` |
 | Recordings | `modules/recordings/` | `/api/recordings` | `recordings.routes.ts`, `recordings.service.ts`, `recordings.audio.routes.ts`, `audio.storage.ts`, `playback.token.ts` |
 | Transcription | `modules/transcription/` | `/api/transcription` | `transcription.routes.ts`, `overview.service.ts` (overview page: queue, live progress, ETA), `server/` (nightly run: `scheduler.ts`, `runner.ts`, `engine.ts`, `parakeet.ts`, `decode.ts`, `modelStore.ts`, `segments.ts`, `schedule.ts`, `runlog.ts`, `transcribe.worker.ts`) |
-| Stats | `modules/stats/` | `/api/stats` | `stats.routes.ts`, `audio.service.ts` (per-day aggregates + realtime factor; also backs the ETA fallback) |
+| Stats | `modules/stats/` | `/api/stats` | `stats.routes.ts`, `range.ts` (shared range/timezone/day-grid + comparison period), `tasks.service.ts`, `meditation.service.ts`, `audio.service.ts` (per-day aggregates + realtime factor; also backs the ETA fallback) |
 | Journal | `modules/journal/` | `/api/journal` | `journal.routes.ts`, `journal.service.ts` |
 | Meditation | `modules/meditation/` | `/api/meditation` | `meditation.routes.ts`, `meditation.service.ts` |
 | Migration | `modules/migration/` | `/api/migration` | `migration.routes.ts` |
@@ -280,7 +280,7 @@ When changing `server/src/db/schema.ts`:
   - `AdminPage` — user management (admin only).
   - `ProfilePage` — user's own profile settings.
   - `AudioPage` — audio processing overview: queue, live progress + ETA, recent/failed jobs, retry, stats block.
-  - `StatsPage` — charts and KPIs for audio processing (reusable panel for future task stats).
+  - `StatsPage` — three sections (tasks, meditation, audio) with a shared range selector, per-section comparisons and admin per-user tables.
   - `MigrationPage` — shown in maintenance mode.
 - Sidebar navigation has two tiers: the working pages (`AppShell.tsx` `navItems`) and a **"Verwaltung"** group inside the avatar menu (Profil, Audio, Statistik, Admin). Admin-only entries are filtered by `user?.isAdmin`.
 
@@ -326,24 +326,26 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 - **Framework**: Vitest (`server/package.json` → `"test": "vitest run"`, `"test:watch": "vitest"`).
 - **Database**: In-memory SQLite (`DB_PATH` is `:memory:` when `NODE_ENV=test`).
 - **HTTP**: Tests use Fastify's `inject()` method to call routes without a running server. Each test file builds a fresh app instance via `buildApp()` and seeds the necessary data.
-- **Current coverage**: 191 tests across 15 test files.
-- New modules have their own files: `notes.test.ts` (11), `journal.test.ts` (5), `meditation.test.ts` (3), `transcription-server.test.ts` (20), `audio-overview.test.ts` (21).
+- **Current coverage**: 207 tests across 16 test files.
+- New modules have their own files: `notes.test.ts` (11), `journal.test.ts` (5), `meditation.test.ts` (3), `stats.test.ts` (13), `transcription-server.test.ts` (20), `audio-overview.test.ts` (24).
 
 ### Test files
 
 | File | Test count | What's covered |
 |---|---|---|
-| `test/tasks.test.ts` | 33 | Task CRUD, filtering, pagination, visibility, subtasks, links, occurrences, urgency |
-| `test/migration.test.ts` | 16 | Migration from old schema versions, backup/restore |
-| `test/habits.test.ts` | 14 | Habit creation, completion, occurrence tracking, streaks |
-| `test/planning.test.ts` | 11 | Planning grid, draft/confirm, capacity |
+| `test/tasks.test.ts` | 53 | Task CRUD, filtering, pagination, visibility, subtasks, links, occurrences, urgency |
+| `test/migration.test.ts` | 19 | Migration from old schema versions, backup/restore |
+| `test/habits.test.ts` | 15 | Habit creation, completion, occurrence tracking, streaks |
+| `test/planning.test.ts` | 12 | Planning grid, draft/confirm, capacity |
 | `test/capacity.test.ts` | 9 | User capacity CRUD, validation |
 | `test/http-flow.test.ts` | 6 | HTTP status codes, error shapes, auth flow |
 | `test/recurrence.test.ts` | 6 | RRULE expansion, completion recurrence calculation |
 | `test/auth.test.ts` | 4 | Registration, login, token refresh, logout |
 | `test/profile-update.test.ts` | 3 | Profile field updates, password changes |
+| `test/daily.test.ts` | 4 | Daily view: habits, due tasks, overdue |
+| `test/stats.test.ts` | 13 | Range presets/custom validation/timezone/DST, task lenses, punctuality, habits, meditation, admin scoping |
 | `test/transcription-server.test.ts` | 20 | Job revision/revocation, nightly queue selection, stale sweep, run budgets, schedule/DST math, segmentation parity, admin status routes |
-| `test/audio-overview.test.ts` | 21 | Migration 0018 columns, job timings/engine, overview scoping + owner labels, bulk requeue, audio stats, restart-after-migration callback |
+| `test/audio-overview.test.ts` | 24 | Migration 0018 columns, job timings/engine, overview scoping + owner labels, bulk requeue, audio stats, engine split, device failures, restart-after-migration callback |
 
 ### Running tests
 

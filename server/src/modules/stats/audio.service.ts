@@ -1,8 +1,9 @@
 import { and, desc, eq, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import { getDb } from "../../db/client.js";
 import { recordings, transcriptionJobs, users } from "../../db/schema.js";
-import { config } from "../../config.js";
-import { zonedParts } from "../transcription/server/schedule.js";
+import { zonedDateKey } from "../transcription/server/schedule.js";
+import { rangeInfo, type ResolvedRange, type StatsRangeInfo } from "./range.js";
+import type { StatsScope } from "./types.js";
 
 /**
  * Kennzahlen zur Audio-Verarbeitung. Grundlage sind ausschließlich Jobs mit
@@ -11,10 +12,8 @@ import { zonedParts } from "../transcription/server/schedule.js";
  * geschätzt (dann lieber leer als erfunden).
  */
 
-export type StatsScope = "mine" | "all";
-
 export interface AudioDayPoint {
-  /** Kalendertag in der Zeitzone der Transkription (`YYYY-MM-DD`). */
+  /** Kalendertag in der angefragten Zeitzone (`YYYY-MM-DD`). */
   date: string;
   done: number;
   failed: number;
@@ -41,10 +40,16 @@ export interface AudioStatsPerUser extends AudioStatsTotals {
   displayName: string;
 }
 
+export interface AudioEngineStats extends AudioStatsTotals {
+  engine: string;
+}
+
 export interface AudioStats {
   scope: StatsScope;
-  range: { from: string; to: string; days: number };
+  range: StatsRangeInfo;
   totals: AudioStatsTotals;
+  previous: AudioStatsTotals;
+  byEngine: AudioEngineStats[];
   days: AudioDayPoint[];
   /** Nur bei `scope === "all"` gefüllt. */
   perUser: AudioStatsPerUser[] | null;
@@ -54,14 +59,14 @@ interface FinishedRow {
   status: string;
   userId: string;
   displayName: string;
+  engine: string | null;
   mediaMs: number;
   procMs: number | null;
   finishedAt: Date;
 }
 
-function dateKey(date: Date): string {
-  const parts = zonedParts(date, config.transcriptionTz);
-  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+function dateKey(date: Date, tz: string): string {
+  return zonedDateKey(date, tz);
 }
 
 function median(values: number[]): number | null {
@@ -84,6 +89,7 @@ function loadRows(from: Date, to: Date, userId?: string): FinishedRow[] {
       status: transcriptionJobs.status,
       userId: transcriptionJobs.userId,
       displayName: users.displayName,
+      engine: transcriptionJobs.engine,
       startedAt: transcriptionJobs.startedAt,
       finishedAt: transcriptionJobs.finishedAt,
       mediaMs: recordings.durationMs,
@@ -106,6 +112,7 @@ function loadRows(from: Date, to: Date, userId?: string): FinishedRow[] {
     status: row.status,
     userId: row.userId,
     displayName: row.displayName,
+    engine: row.engine,
     mediaMs: row.mediaMs,
     procMs: processingMs(row.startedAt, row.finishedAt),
     finishedAt: row.finishedAt as Date,
@@ -136,23 +143,8 @@ function aggregate(rows: FinishedRow[]): AudioStatsTotals {
   };
 }
 
-function pad(value: number): string {
-  return String(value).padStart(2, "0");
-}
-
-/**
- * Kalendertag `offsetDays` Tage vor dem übergebenen Tag – gerechnet im
- * UTC-Namensraum, weil dort keine Sommerzeit existiert und ein Tag garantiert
- * 24 h hat. Der Tag selbst ist der Kalendertag der App-Zeitzone.
- */
-function shiftDay(parts: { year: number; month: number; day: number }, offsetDays: number): string {
-  const base = Date.UTC(parts.year, parts.month - 1, parts.day);
-  const shifted = new Date(base - offsetDays * 24 * 60 * 60_000);
-  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
-}
-
 /** Kontinuierliche Tagesreihe – auch Tage ohne Aufnahme, sonst lügt die X-Achse. */
-function buildDays(rows: FinishedRow[], dayKeys: string[]): AudioDayPoint[] {
+function buildDays(rows: FinishedRow[], dayKeys: string[], tz: string): AudioDayPoint[] {
   const buckets = new Map<string, AudioDayPoint>();
   const points: AudioDayPoint[] = [];
 
@@ -163,7 +155,7 @@ function buildDays(rows: FinishedRow[], dayKeys: string[]): AudioDayPoint[] {
   }
 
   for (const row of rows) {
-    const point = buckets.get(dateKey(row.finishedAt));
+    const point = buckets.get(dateKey(row.finishedAt, tz));
     if (!point) continue; // außerhalb des Rasters (Zeitzonen-Rand)
     if (row.status === "done") {
       point.done += 1;
@@ -177,29 +169,43 @@ function buildDays(rows: FinishedRow[], dayKeys: string[]): AudioDayPoint[] {
   return points;
 }
 
+function groupByEngine(rows: FinishedRow[]): AudioEngineStats[] {
+  const groups = new Map<string, FinishedRow[]>();
+  for (const row of rows) {
+    const key = row.engine ?? "unknown";
+    const list = groups.get(key) ?? [];
+    list.push(row);
+    groups.set(key, list);
+  }
+  const order = ["server", "device", "unknown"];
+  return [...groups.entries()]
+    .sort((a, b) => {
+      const aIndex = order.indexOf(a[0]);
+      const bIndex = order.indexOf(b[0]);
+      return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex);
+    })
+    .map(([engine, list]) => ({ engine, ...aggregate(list) }));
+}
+
 export function getAudioStats(options: {
   scope: StatsScope;
   userId: string;
-  days: number;
-  now?: Date;
+  range: ResolvedRange;
 }): AudioStats {
-  const now = options.now ?? new Date();
-  const parts = zonedParts(now, config.transcriptionTz);
-  const dayKeys: string[] = [];
-  for (let i = options.days - 1; i >= 0; i -= 1) dayKeys.push(shiftDay(parts, i));
-
-  // Einen Tag früher laden und anschließend über die Tagesschlüssel filtern:
-  // die UTC-Grenzen passen nicht exakt auf die Zeitzone, das Raster schon.
-  const start = new Date(Date.parse(`${dayKeys[0]}T00:00:00Z`) - 24 * 60 * 60_000);
+  const { range } = options;
   const userId = options.scope === "all" ? undefined : options.userId;
 
-  const rows = loadRows(start, now, userId).filter((row) => dayKeys.includes(dateKey(row.finishedAt)));
-  const days = buildDays(rows, dayKeys);
+  const currentRows = loadRows(range.start, range.end, userId).filter((row) =>
+    range.dayKeys.includes(dateKey(row.finishedAt, range.tz))
+  );
+  const previousRows = loadRows(range.compareStart, range.compareEnd, userId).filter((row) =>
+    range.compareDayKeys.includes(dateKey(row.finishedAt, range.tz))
+  );
 
   let perUser: AudioStatsPerUser[] | null = null;
   if (options.scope === "all") {
     const byUser = new Map<string, FinishedRow[]>();
-    for (const row of rows) {
+    for (const row of currentRows) {
       const list = byUser.get(row.userId) ?? [];
       list.push(row);
       byUser.set(row.userId, list);
@@ -215,9 +221,11 @@ export function getAudioStats(options: {
 
   return {
     scope: options.scope,
-    range: { from: start.toISOString(), to: now.toISOString(), days: options.days },
-    totals: aggregate(rows),
-    days,
+    range: rangeInfo(range),
+    totals: aggregate(currentRows),
+    previous: aggregate(previousRows),
+    byEngine: groupByEngine(currentRows),
+    days: buildDays(currentRows, range.dayKeys, range.tz),
     perUser,
   };
 }
