@@ -1,3 +1,4 @@
+import client from "../api/client";
 import { useState, useEffect, useRef } from "react";
 import {
   Box, Typography, Stack, TextField, Button, Paper, IconButton, Tooltip, Chip,
@@ -10,7 +11,7 @@ import {
   Lightbulb as LightbulbIcon,
   CenterFocusStrong as CenterIcon,
 } from "@mui/icons-material";
-import { createTask } from "../api/tasksApi";
+import { createTask, listTasks, deleteTask, updateTask } from "../api/tasksApi";
 import { listCategories, type Category } from "../api/categoriesApi";
 import { useNotify } from "../context/NotifyContext";
 
@@ -97,6 +98,7 @@ export function BrainstormingPage() {
       extraEdges: [],
     };
     setBoards((prev) => [...prev, newBoard]);
+    if (newBoard?.nodes?.[0]) void handleSendToGtd(newBoard.nodes[0], true);
     setActiveBoardId(id);
     setNewBoardTitle("");
   };
@@ -117,7 +119,37 @@ export function BrainstormingPage() {
     setEditText(newNode.text);
   };
 
+  const deleteBoardTasksFromGtd = async (boardToDelete: MindMapBoard) => {
+    try {
+      const rootNode = boardToDelete.nodes.find((n) => !n.parentId);
+      const titlesToDelete = new Set(
+        [boardToDelete.title, rootNode?.text, ...boardToDelete.nodes.map((n) => n.text)]
+          .filter((t): t is string => Boolean(t && t.trim()))
+          .map((t) => t.trim().toLowerCase())
+      );
+      const openTasks = await listTasks({ isCompleted: false });
+      for (const task of openTasks.items) {
+        if (titlesToDelete.has(task.title.trim().toLowerCase())) {
+          await deleteTask(task.id);
+        }
+      }
+    } catch {}
+  };
+  const removeTaskByTitle = async (taskTitle: string) => {
+    try {
+      const clean = taskTitle.trim().toLowerCase();
+      if (!clean || clean === "neue idee" || clean === "meine erste gtd-mindmap") return;
+      const openTasks = await listTasks({ isCompleted: false, search: taskTitle.trim() });
+      for (const t of openTasks.items) {
+        if (t.title.trim().toLowerCase() === clean) {
+          await deleteTask(t.id);
+        }
+      }
+    } catch {}
+  };
   const handleDeleteNode = (nodeId: string) => {
+    const nodeToRemove = activeBoard?.nodes.find((n) => n.id === nodeId);
+    if (nodeToRemove) void removeTaskByTitle(nodeToRemove.text);
     const toDelete = new Set<string>([nodeId]);
     let added = true;
     while (added) {
@@ -204,14 +236,109 @@ export function BrainstormingPage() {
     setDraggingId(null);
   };
 
-  const handleSendToGtd = async (node: MindNode) => {
-    const nextCat = categories.find((c) => c.name.toLowerCase().includes("nächste"));
-    await createTask({
-      title: node.text,
-      description: `Aus Brainstorming-Mindmap "${activeBoard.title}" übernommen.`, 
-      categoryIds: nextCat ? [nextCat.id] : [],
-    });
-    notify(`"${node.text}" als Nächster Schritt in TaskMaster angelegt!`);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const res = await listTasks({ isCompleted: false });
+        if (!active) return;
+        const openTitles = new Set(res.items.map((t) => t.title.trim().toLowerCase()));
+        setBoards((prev) =>
+          prev.map((board) => {
+            const rootNode = board.nodes.find((n) => !n.parentId);
+            const rootTitle = (rootNode?.text || board.title).trim().toLowerCase();
+            if (rootTitle === "meine erste gtd-mindmap") return board;
+            return {
+              ...board,
+              nodes: board.nodes.filter((n) => {
+                if (!n.parentId) return true;
+                const t = n.text.trim().toLowerCase();
+                if (t === "neue idee") return true;
+                return openTitles.has(t);
+              }),
+            };
+          })
+        );
+      } catch {}
+    })();
+    return () => { active = false; };
+  }, []);
+
+  const handleSendToGtd = async (node: MindNode, silent = false) => {
+    try {
+      const isMainNode = !node.parentId;
+      const catsRaw: any = await listCategories();
+      const catsList: Array<{ id: string; name: string }> = Array.isArray(catsRaw) ? catsRaw : (catsRaw?.items || []);
+      const projCat = catsList.find((cat) => cat.name.toLowerCase().includes("projekt"));
+      const nextCat = catsList.find((cat) => cat.name.toLowerCase().includes("nächste"));
+
+      const findOpenTaskByTitle = async (taskTitle: string) => {
+        const res = await listTasks({ isCompleted: false, search: taskTitle.trim() });
+        return res.items.find((t) => t.title.trim().toLowerCase() === taskTitle.trim().toLowerCase());
+      };
+
+      if (isMainNode && activeBoard) {
+        let projectTask = await findOpenTaskByTitle(node.text);
+        let projectCreated = false;
+        if (!projectTask) {
+          projectTask = await createTask({
+            title: node.text,
+            description: `Projekt aus Mindmap „${activeBoard.title}“ übernommen.`,
+            categoryIds: projCat ? [projCat.id] : [],
+          });
+          projectCreated = true;
+        }
+
+        const children = activeBoard.nodes.filter((n) => n.parentId === node.id);
+        let addedChildren = 0;
+        for (const child of children) {
+          const existingChild = await findOpenTaskByTitle(child.text);
+          if (!existingChild) {
+            const createdChild = await createTask({
+              title: child.text,
+              description: `Nächster Schritt zum Projekt „${node.text}“.`,
+              parentId: projectTask.id,
+              categoryIds: nextCat ? [nextCat.id] : [],
+            });
+            
+            addedChildren++;
+          }
+        }
+
+        if (!projectCreated && addedChildren === 0) {
+          if (!silent) notify(`Projekt „${node.text}“ und alle Unteraufgaben existieren bereits!`, "info");
+        } else {
+          notify(`Projekt „${node.text}“ aktualisiert (+${addedChildren} neue Unteraufgabe(n))!`);
+        }
+      } else {
+        const existingTask = await findOpenTaskByTitle(node.text);
+        if (existingTask) {
+          if (!silent) notify(`„${node.text}“ existiert bereits in deinen offenen Aufgaben!`, "info");
+          return;
+        }
+
+        const parentNode = activeBoard?.nodes.find((n) => n.id === node.parentId);
+        const existingParent = parentNode ? await findOpenTaskByTitle(parentNode.text) : undefined;
+
+        const createdChild = await createTask({
+          title: node.text,
+          description: parentNode
+            ? `Nächster Schritt zum Projekt „${parentNode.text}“.`
+            : `Aus Mindmap „${activeBoard?.title || "Brainstorming"}“ übernommen.`,
+          parentId: existingParent?.id,
+          categoryIds: nextCat ? [nextCat.id] : [],
+        });
+
+        if (existingParent) {
+          
+          notify(`„${node.text}“ als Nächster Schritt an Projekt „${parentNode?.text}“ angehängt!`);
+        } else {
+          notify(`„${node.text}“ als Nächster Schritt an GTD gesendet!`);
+        }
+      }
+    } catch {
+      notify("Fehler beim Übertragen an GTD (läuft der Server auf Port 8080?)", "error");
+    }
   };
 
   const nodeMap = new Map(activeBoard.nodes.map((n) => [n.id, n]));
@@ -250,7 +377,7 @@ export function BrainstormingPage() {
             color={b.id === activeBoard.id ? "primary" : "default"}
             variant={b.id === activeBoard.id ? "filled" : "outlined"}
             onClick={() => { setActiveBoardId(b.id); setLinkingFromId(null); }}
-            onDelete={boards.length > 1 ? () => {
+            onDelete={boards.length > 1 ? () => { void deleteBoardTasksFromGtd(b);
               const rest = boards.filter((x) => x.id !== b.id);
               setBoards(rest);
               if (activeBoardId === b.id && rest[0]) setActiveBoardId(rest[0].id);
@@ -267,7 +394,7 @@ export function BrainstormingPage() {
       </Stack>
 
       <Typography variant="caption" color="text.secondary" display="block" mb={1}>
-        Bedienung: Knoten per Drag & Drop verschieben • Doppelklick zum Umbenennen • (+) für Unter-Ast • (Link) für Querverbindung • (→) in „Nächste Schritte“ übernehmen
+        Bedienung: Knoten per Drag & Drop verschieben • Doppelklick zum Umbenennen • (+) für Unter-Ast • (Link) für Querverbindung • Text bestätigen (Enter) übernimmt automatisch in GTD
       </Typography>
 
       <Paper
@@ -379,18 +506,14 @@ export function BrainstormingPage() {
                     <LinkIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                {!isRoot && (
+                {true && (
                   <>
                     <Tooltip title="Als Nächster Schritt in TaskMaster übernehmen">
-                      <IconButton size="small" sx={{ color: "success.main", p: 0.3 }} onClick={(e) => { e.stopPropagation(); void handleSendToGtd(node); }}>
+                      <IconButton size="small" sx={{ color: isRoot ? "#fff" : "success.main", p: 0.3 }} onClick={(e) => { e.stopPropagation(); void handleSendToGtd(node); }}>
                         <ArrowForwardIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="Knoten & Unter-Äste löschen">
-                      <IconButton size="small" sx={{ color: "error.main", p: 0.3 }} onClick={(e) => { e.stopPropagation(); handleDeleteNode(node.id); }}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                    {!isRoot && (<Tooltip title="Knoten & Unter-Äste löschen"><IconButton size="small" sx={{ color: "error.main", p: 0.3 }} onClick={() => handleDeleteNode(node.id)}><DeleteIcon fontSize="inherit" /></IconButton></Tooltip>)}
                   </>
                 )}
               </Stack>
