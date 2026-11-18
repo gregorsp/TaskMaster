@@ -50,6 +50,8 @@ interface TaskFilterBarProps {
   overdueCount?: number;
 }
 
+const ENERGY_FILTERS = [{ label: "⚡ < 2 Min", query: "2 min" }, { label: "⏱️ 15 Min", query: "15 min" }, { label: "🔋 Hohe Energie", query: "energie:hoch" }, { label: "🪫 Niedrige Energie", query: "energie:niedrig" }];
+
 export function TaskFilterBar({
   value, onChange, categories, users,
   showSort = true, showStatus = true, showHabits = true, showPlanned = true,
@@ -247,6 +249,27 @@ export function TaskFilterBar({
           })}
         </Stack>
       )}
-    </Box>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap mt={1}>
+        {ENERGY_FILTERS.map((ef) => {
+          const active = (value.search || "").toLowerCase().includes(ef.query);
+          return (
+            <Chip
+              key={ef.query}
+              label={ef.label}
+              size="small"
+              color={active ? "secondary" : "default"}
+              variant={active ? "filled" : "outlined"}
+              onClick={() => {
+                const current = (value.search || "").trim();
+                const nextSearch = active
+                  ? current.replace(new RegExp(ef.query, "i"), "").trim()
+                  : (current + " " + ef.query).trim();
+                onChange({ ...value, search: nextSearch });
+              }}
+            />
+          );
+        })}
+      </Stack>
+</Box>
   );
 }

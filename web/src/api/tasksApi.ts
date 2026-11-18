@@ -251,3 +251,7 @@ export async function generateTaskDescriptionAi(title: string, description?: str
   const res = await client.post<{ description: string }>("/tasks/ai-describe", { title, description, apiKey });
   return res.data.description;
 }
+export async function generateMindmapIdeasAi(topic: string, apiKey?: string): Promise<string[]> {
+  const res = await client.post<{ ideas: string[] }>("/tasks/ai-mindmap", { topic, apiKey });
+  return res.data.ideas || [];
+}

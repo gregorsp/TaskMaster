@@ -1,3 +1,4 @@
+import { AutoAwesome as AiIcon } from "@mui/icons-material";
 import client from "../api/client";
 import { useState, useEffect, useRef } from "react";
 import {
@@ -11,7 +12,7 @@ import {
   Lightbulb as LightbulbIcon,
   CenterFocusStrong as CenterIcon,
 } from "@mui/icons-material";
-import { createTask, listTasks, deleteTask, updateTask } from "../api/tasksApi";
+import { createTask, listTasks, deleteTask, updateTask, generateMindmapIdeasAi } from "../api/tasksApi";
 import { listCategories, type Category } from "../api/categoriesApi";
 import { useNotify } from "../context/NotifyContext";
 
@@ -264,6 +265,50 @@ export function BrainstormingPage() {
     return () => { active = false; };
   }, []);
 
+  const [aiGenerating, setAiGenerating] = useState(false);
+
+  const handleAiGenerateIdeas = async () => {
+    if (!activeBoard) return;
+    const rootNode = activeBoard.nodes.find((n) => !n.parentId);
+    const topic = (rootNode?.text || activeBoard.title).trim();
+    const provider = localStorage.getItem("taskmaster_ai_provider") || "gemini";
+    const apiKey = provider === "gemini"
+      ? (localStorage.getItem("taskmaster_gemini_key") || localStorage.getItem("taskmaster_ai_api_key") || "")
+      : (localStorage.getItem("taskmaster_deepseek_key") || localStorage.getItem("taskmaster_ai_api_key") || "");
+    if (!apiKey) {
+      notify("Bitte zuerst links unter GTD → KI-Einstellungen einen API-Key hinterlegen", "warning");
+      return;
+    }
+    setAiGenerating(true);
+    try {
+      const ideas = await generateMindmapIdeasAi(topic, apiKey);
+      if (ideas.length === 0) {
+        notify("Keine Ideen zurückerhalten", "warning");
+        return;
+      }
+      const parentId = rootNode?.id || activeBoard.nodes[0].id;
+      const baseX = (rootNode?.x ?? 180) + 320;
+      const baseY = Math.max(60, (rootNode?.y ?? 200) - ((ideas.length - 1) * 55));
+      const colors = ["#1976d2", "#2e7d32", "#ed6c02", "#9c27b0", "#0288d1", "#d32f2f"];
+      const newNodes = ideas.map((idea, idx) => ({
+        id: "node-" + Date.now() + "-" + idx,
+        text: idea,
+        x: baseX,
+        y: baseY + idx * 105,
+        parentId, color: colors[idx % colors.length],
+      }));
+      updateActiveBoard((b) => ({ ...b, nodes: [...b.nodes, ...newNodes] }));
+      for (const n of newNodes) {
+        await handleSendToGtd(n, true);
+      }
+      notify(ideas.length + " KI-Schritte generiert & in GTD übernommen!");
+    } catch {
+      notify("KI-Fehler: Bitte Key unter KI-Einstellungen prüfen", "error");
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
   const handleSendToGtd = async (node: MindNode, silent = false) => {
     try {
       const isMainNode = !node.parentId;
@@ -365,6 +410,16 @@ export function BrainstormingPage() {
           />
           <Button variant="contained" startIcon={<AddIcon />} onClick={handleCreateBoard} disabled={!newBoardTitle.trim()}>
             New
+          </Button>
+          <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={<AiIcon />}
+            onClick={() => void handleAiGenerateIdeas()}
+            disabled={aiGenerating}
+            sx={{ whiteSpace: "nowrap" }}
+          >
+            {aiGenerating ? "KI denkt..." : "KI-Ideen"}
           </Button>
         </Stack>
       </Stack>

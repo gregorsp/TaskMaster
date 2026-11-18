@@ -57,3 +57,46 @@ Antworte direkt mit dem fertigen Text ohne Einleitung.`;
 
   throw new Error("Kein API-Key hinterlegt.");
 }
+export async function generateMindmapIdeas(topic: string, userApiKey?: string): Promise<string[]> {
+  const prompt = `Du bist ein GTD-Produktivitätsexperte nach David Allen.
+Projektthema: "${topic}"
+
+Nenne genau 5 konkrete, kurze nächste physische Schritte (jeweils maximal 5 Wörter, ohne Nummerierung, ohne Aufzählungszeichen, gerne mit @Kontext wie @Computer, @Telefon, @Online, @Besorgungen), um dieses Projekt umzusetzen.
+Antworte nur mit den 5 Zeilen, eine Aufgabe pro Zeile.`;
+
+  const key = (userApiKey || "").trim();
+  const isGemini = key.startsWith("AIza") || key.startsWith("AQ.");
+  const geminiKey = isGemini ? key : (!key ? config.geminiApiKey : undefined);
+  const deepseekKey = (key && !isGemini) ? key : (!key ? config.deepseekApiKey : undefined);
+
+  let rawText = "";
+  if (geminiKey) {
+    const url = "https://" + "generativelanguage.googleapis" + ".com/v1beta/models/gemini-2.5-flash:generateContent";
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": geminiKey },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    });
+    if (!res.ok) throw new Error(`Gemini Fehler (${res.status})`);
+    const data: any = await res.json();
+    rawText = data?.candidates?.at(0)?.content?.parts?.at(0)?.text || "";
+  } else if (deepseekKey) {
+    const url = "https://" + "api.deepseek" + ".com/chat/completions";
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${deepseekKey}` },
+      body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt }], temperature: 0.4 }),
+    });
+    if (!res.ok) throw new Error(`DeepSeek Fehler (${res.status})`);
+    const data: any = await res.json();
+    rawText = data?.choices?.at(0)?.message?.content || "";
+  } else {
+    throw new Error("Kein API-Key hinterlegt.");
+  }
+
+  return rawText
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[\d\.\-\*\•\s]+/, "").trim())
+    .filter((line) => line.length > 1)
+    .slice(0, 6);
+}

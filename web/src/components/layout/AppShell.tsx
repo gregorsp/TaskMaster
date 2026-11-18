@@ -1,3 +1,5 @@
+import { Dialog, DialogTitle, DialogContent, TextField, Button, Stack } from "@mui/material";
+import { Key as KeyIcon } from "@mui/icons-material";
 import { useEffect, useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
@@ -64,6 +66,18 @@ interface NavItem {
 }
 
 export function AppShell() {
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const [aiProvider, setAiProvider] = useState<"gemini" | "deepseek">(() => (localStorage.getItem("taskmaster_ai_provider") as "gemini" | "deepseek") || "gemini");
+  const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem("taskmaster_gemini_key") || localStorage.getItem("taskmaster_ai_api_key") || "");
+  const [deepseekKey, setDeepseekKey] = useState(() => localStorage.getItem("taskmaster_deepseek_key") || "");
+
+  const handleSaveAiSettings = () => {
+    localStorage.setItem("taskmaster_ai_provider", aiProvider);
+    localStorage.setItem("taskmaster_gemini_key", geminiKey.trim());
+    localStorage.setItem("taskmaster_deepseek_key", deepseekKey.trim());
+    localStorage.setItem("taskmaster_ai_api_key", aiProvider === "gemini" ? geminiKey.trim() : deepseekKey.trim());
+    setAiSettingsOpen(false);
+  };
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -89,6 +103,7 @@ export function AppShell() {
     { path: "/categories", label: "Kategorien", icon: <LabelIcon /> },
     { path: "/brainstorming", label: "Brainstorming", icon: <LightbulbIcon /> },
     { path: "/gtd", label: "GTD", icon: <GtdIcon /> },
+  { label: "KI-Einstellungen", path: "#ai-settings", icon: <KeyIcon /> },
   ];
 
   const filteredNav = navItems.filter((item) => !item.adminOnly || user?.isAdmin);
@@ -110,10 +125,10 @@ export function AppShell() {
                 ? location.pathname === "/" || location.pathname.startsWith("/t/")
                 : location.pathname === item.path
             }
-            onClick={() => {
+            onClick={() => { if (item.path === "#ai-settings") { setAiSettingsOpen(true); } else { {
               navigate(item.path);
               if (isMobile) setDrawerOpen(false);
-            }}
+            ; } }}}
           >
             <ListItemIcon>{item.icon}</ListItemIcon>
             <ListItemText primary={item.label} />
@@ -239,7 +254,42 @@ export function AppShell() {
         <Box sx={{ p: 3 }}>
           <Outlet />
         </Box>
-      </Box>
+      </Box>      <Dialog open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>KI-Modell & API-Schlüssel</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} mt={1}>
+            <Typography variant="body2" color="text.secondary">
+              Wähle dein aktives KI-Modell für GTD-Beschreibungen und den Mindmap-Ideengenerator:
+            </Typography>
+            <Stack direction="row" spacing={1}>
+              <Button fullWidth variant={aiProvider === "gemini" ? "contained" : "outlined"} onClick={() => setAiProvider("gemini")}>
+                Google Gemini
+              </Button>
+              <Button fullWidth variant={aiProvider === "deepseek" ? "contained" : "outlined"} onClick={() => setAiProvider("deepseek")}>
+                DeepSeek
+              </Button>
+            </Stack>
+            <TextField
+              label="Google Gemini API-Key (AIza... / AQ....)"
+              type="password"
+              value={geminiKey}
+              onChange={(e) => setGeminiKey(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="DeepSeek API-Key (sk-...)"
+              type="password"
+              value={deepseekKey}
+              onChange={(e) => setDeepseekKey(e.target.value)}
+              fullWidth
+            />
+            <Stack direction="row" justifyContent="flex-end" spacing={1}>
+              <Button onClick={() => setAiSettingsOpen(false)}>Abbrechen</Button>
+              <Button variant="contained" onClick={handleSaveAiSettings}>Speichern</Button>
+            </Stack>
+          </Stack>
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 }

@@ -370,11 +370,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
             >
               {aiDescLoading ? "Lädt..." : "KI-GTD"}
             </Button>
-            <Tooltip title="KI-API-Key ändern">
-              <IconButton size="small" onClick={() => setApiKeyDialogOpen(true)}>
-                <KeyIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            
           </Stack>
           <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap alignItems="center">
             <Typography variant="caption" color="text.secondary">Kontext:</Typography>

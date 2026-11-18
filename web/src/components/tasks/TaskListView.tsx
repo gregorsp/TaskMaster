@@ -145,7 +145,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
                 <TableRow>
                   <TableCell>Titel</TableCell>
                   <TableCell sx={{ width: 110 }}>Fällig</TableCell>
-                  <TableCell align="right" sx={{ width: 88 }}>Aktionen</TableCell>
+                  <TableCell align="right" sx={{ width: 180 }}><Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center"><span>Aktionen</span>{tasks.length > 1 && (<Button size="small" color="error" variant="outlined" onClick={() => { if (window.confirm(`Wirklich alle ${tasks.length} angezeigten Aufgaben löschen?`)) { tasks.forEach((t) => deleteTask(t.id)); } }}>Alle löschen</Button>)}</Stack></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
