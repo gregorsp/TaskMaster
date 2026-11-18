@@ -1,10 +1,12 @@
+import { Key as KeyIcon } from "@mui/icons-material";
 import { useState, useEffect, useMemo } from "react";
 import {
   Dialog, DialogContent, DialogTitle, TextField, Button, Stack, Box,
   FormControlLabel, Switch, MenuItem, Typography, Chip, Autocomplete,
   RadioGroup, Radio, FormControl, FormLabel, Alert, DialogActions,
+  Tooltip, IconButton,
 } from "@mui/material";
-import { createTask, updateTask, listTasks, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations } from "../../api/tasksApi";
+import { createTask, updateTask, listTasks, generateTaskDescriptionAi, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations } from "../../api/tasksApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { useNotify } from "../../context/NotifyContext";
@@ -305,12 +307,112 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
     return items;
   })();
 
+  const [aiDescLoading, setAiDescLoading] = useState(false);
+  const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem("taskmaster_ai_api_key") || "");
+
+  const runAiWithKey = async (keyToUse: string) => {
+    if (!title.trim()) {
+      notify("Bitte zuerst einen Aufgabentitel eingeben", "warning");
+      return;
+    }
+    setAiDescLoading(true);
+    try {
+      const generated = await generateTaskDescriptionAi(title.trim(), description.trim() || undefined, keyToUse);
+      setDescription(generated);
+      notify("GTD-Beschreibung generiert!");
+    } catch {
+      notify("KI-Fehler: Bitte API-Key oder Guthaben prüfen", "error");
+    } finally {
+      setAiDescLoading(false);
+    }
+  };
+
+  const handleGenerateDescription = async () => {
+    const savedKey = localStorage.getItem("taskmaster_ai_api_key") || "";
+    if (!savedKey) {
+      setApiKeyDialogOpen(true);
+      return;
+    }
+    await runAiWithKey(savedKey);
+  };
+
+  const handleSaveApiKeyAndRun = async () => {
+    const trimmed = apiKeyInput.trim();
+    if (!trimmed) return;
+    localStorage.setItem("taskmaster_ai_api_key", trimmed);
+    setApiKeyDialogOpen(false);
+    await runAiWithKey(trimmed);
+  };
+
+  const applyContext = (ctx: string) => {
+    const cleaned = title.replace(/^@[A-Za-zÄÖÜäöüß]+:\s*/, "");
+    setTitle(`${ctx}: ${cleaned}`);
+  };
+
+  const selectGtdCategory = (namePart: string) => {
+    const found = categories.find((c) => c.name.toLowerCase().includes(namePart.toLowerCase()));
+    if (found) setSelectedCategories([found]);
+  };
+
   return (<>
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{isEdit ? "Aufgabe bearbeiten" : "Neue Aufgabe"}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} mt={1}>
-          <TextField label="Titel" value={title} onChange={(e) => setTitle(e.target.value)} required fullWidth autoFocus />
+          <Stack direction="row" spacing={1} alignItems="center">
+            <TextField label="Titel" value={title} onChange={(e) => setTitle(e.target.value)} required fullWidth autoFocus />
+            <Button
+              variant="outlined"
+              onClick={handleGenerateDescription}
+              disabled={aiDescLoading || !title.trim()}
+              sx={{ whiteSpace: "nowrap", height: 56 }}
+            >
+              {aiDescLoading ? "Lädt..." : "KI-GTD"}
+            </Button>
+            <Tooltip title="KI-API-Key ändern">
+              <IconButton size="small" onClick={() => setApiKeyDialogOpen(true)}>
+                <KeyIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+          <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap alignItems="center">
+            <Typography variant="caption" color="text.secondary">Kontext:</Typography>
+            {["@Telefon", "@Computer", "@Online", "@Zuhause", "@Besorgungen", "@Uni"].map((ctx) => (
+              <Chip
+                key={ctx}
+                size="small"
+                label={ctx}
+                variant={title.startsWith(ctx) ? "filled" : "outlined"}
+                color={title.startsWith(ctx) ? "primary" : "default"}
+                onClick={() => applyContext(ctx)}
+              />
+            ))}
+          </Stack>
+          <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap alignItems="center">
+            <Typography variant="caption" color="text.secondary">GTD-Liste:</Typography>
+            {[
+              { label: "Projekt", key: "projekt" },
+              { label: "Nächster Schritt", key: "nächste" },
+              { label: "Warten auf", key: "warten" },
+              { label: "Irgendwann/Vielleicht", key: "irgendwann" },
+            ].map((item) => {
+              const active = selectedCategories.some((c) => c.name.toLowerCase().includes(item.key));
+              return (
+                <Chip
+                  key={item.key}
+                  size="small"
+                  label={item.label}
+                  color={active ? "secondary" : "default"}
+                  variant={active ? "filled" : "outlined"}
+                  onClick={() => selectGtdCategory(item.key)}
+                />
+              );
+            })}
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
+            GTD-Regel (David Allen): Dauert der erste Schritt unter 2 Minuten, erledige ihn sofort. Mehr als 1 Schritt = Projekt + 1 konkreter Nächster Schritt.
+          </Typography>
           <Stack direction="row" spacing={1} alignItems="flex-start">
             <TextField
               label="Beschreibung"
@@ -513,6 +615,31 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           Trotzdem umwandeln
         </Button>
       </DialogActions>
+    </Dialog>
+    <Dialog open={apiKeyDialogOpen} onClose={() => setApiKeyDialogOpen(false)} maxWidth="xs" fullWidth>
+      <DialogTitle>KI-API-Key hinterlegen</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} mt={1}>
+          <Typography variant="body2" color="text.secondary">
+            Gib deinen DeepSeek-Key (<code>sk-...</code>) oder kostenlosen Google Gemini-Key (<code>AIza...</code>) ein. Er wird lokal in deinem Browser gespeichert.
+          </Typography>
+          <TextField
+            label="API-Key"
+            type="password"
+            value={apiKeyInput}
+            onChange={(e) => setApiKeyInput(e.target.value)}
+            fullWidth
+            autoFocus
+            placeholder="sk-... oder AIza..."
+          />
+          <Stack direction="row" justifyContent="flex-end" spacing={1}>
+            <Button onClick={() => setApiKeyDialogOpen(false)}>Abbrechen</Button>
+            <Button variant="contained" onClick={handleSaveApiKeyAndRun} disabled={!apiKeyInput.trim()}>
+              Speichern & Starten
+            </Button>
+          </Stack>
+        </Stack>
+      </DialogContent>
     </Dialog>
   </>);
 }

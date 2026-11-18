@@ -28,6 +28,8 @@ import {
   Today as TodayIcon,
   GridView as MatrixIcon,
   Label as LabelIcon,
+  Lightbulb as LightbulbIcon,
+  CheckCircleOutline as GtdIcon,
   AdminPanelSettings as AdminIcon,
   Person as PersonIcon,
   Audiotrack as AudioIcon,
@@ -85,6 +87,8 @@ export function AppShell() {
     { path: "/plan", label: "Planung", icon: <PlanIcon /> },
     { path: "/matrix", label: "Matrix", icon: <MatrixIcon /> },
     { path: "/categories", label: "Kategorien", icon: <LabelIcon /> },
+    { path: "/brainstorming", label: "Brainstorming", icon: <LightbulbIcon /> },
+    { path: "/gtd", label: "GTD", icon: <GtdIcon /> },
   ];
 
   const filteredNav = navItems.filter((item) => !item.adminOnly || user?.isAdmin);

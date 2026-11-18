@@ -1,4 +1,6 @@
 import { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { generateGtdDescription } from "./ai.service.js";
 import { authGuard } from "../../middleware/auth.hooks.js";
 import { isVisibleToUser } from "../../middleware/visibility.js";
 import {
@@ -24,6 +26,18 @@ async function checkVisibility(request: { params: { id: string }; user: { id: st
 
 export async function tasksRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authGuard);
+
+  app.post("/ai-describe", async (request, reply) => {
+    const schema = z.object({ title: z.string().min(1), description: z.string().optional(), apiKey: z.string().optional() });
+    const { title, description, apiKey } = schema.parse(request.body);
+    try {
+      const text = await generateGtdDescription(title, description, apiKey);
+      return reply.send({ description: text });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "KI-Fehler";
+      return reply.status(502).send({ error: { code: "AI_ERROR", message: msg } });
+    }
+  });
 
   app.get("/", async (request) => {
     const p = request.user as { id: string; isAdmin: boolean };

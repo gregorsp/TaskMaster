@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Box, Typography,
   Stack, Button, Pagination, Alert,
 } from "@mui/material";
 import { Add as AddIcon } from "@mui/icons-material";
-import { listTasks, type Task } from "../api/tasksApi";
+import { listTasks, getSubtasks, type Task } from "../api/tasksApi";
 import { fetchPlanning } from "../api/planningApi";
 import { listCategories, type Category } from "../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../api/usersApi";
@@ -14,7 +15,16 @@ import { TaskFilterBar, createDefaultTaskFilterState, type TaskFilterState } fro
 import { useNotify } from "../context/NotifyContext";
 
 export function DashboardPage() {
-  const [filters, setFilters] = useState<TaskFilterState>(createDefaultTaskFilterState);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [filters, setFilters] = useState<TaskFilterState>(() => ({
+    ...createDefaultTaskFilterState(),
+    categoryId: searchParams.get("categoryId") || "",
+  }));
+
+  useEffect(() => {
+    const urlCat = searchParams.get("categoryId") || "";
+    setFilters((prev) => (prev.categoryId === urlCat ? prev : { ...prev, categoryId: urlCat }));
+  }, [searchParams]);
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [total, setTotal] = useState(0);
@@ -26,10 +36,39 @@ export function DashboardPage() {
   const [overdueCount, setOverdueCount] = useState(0);
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [dismissedWarnings, setDismissedWarnings] = useState<Set<number>>(new Set());
+  const [inboxOnly, setInboxOnly] = useState(false);
+  const [reviewReport, setReviewReport] = useState<{ inboxCount: number; stalledProjects: string[] } | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+
+  const runWeeklyReview = async () => {
+    setReviewLoading(true);
+    try {
+      const openAll = await listTasks({ isCompleted: false, pageSize: 200 });
+      type TaskWithCats = Task & { categories?: { id: string }[] }; const allItems = openAll.items as TaskWithCats[]; const inboxCount = allItems.filter((t) => !t.categories || t.categories.length === 0).length;
+      const projCat = categories.find((c) => c.name.toLowerCase().includes("projekt"));
+      const stalledProjects: string[] = [];
+      if (projCat) {
+        const projects = allItems.filter((t) => t.categories?.some((c) => c.id === projCat.id));
+        for (const p of projects) {
+          const subs = await getSubtasks(p.id);
+          const subItems = Array.isArray(subs) ? subs : (subs as { items?: Task[] }).items || []; const hasOpenNext = subItems.some((s) => !s.isCompleted);
+          if (!hasOpenNext) stalledProjects.push(p.title);
+        }
+      }
+      setReviewReport({ inboxCount, stalledProjects });
+    } finally {
+      setReviewLoading(false);
+    }
+  };
   const notify = useNotify();
 
   const handleFilterChange = useCallback((next: TaskFilterState) => {
     setFilters(next);
+    if (next.categoryId) {
+      setSearchParams({ categoryId: next.categoryId }, { replace: true });
+    } else if (searchParams.has("categoryId")) {
+      setSearchParams({}, { replace: true });
+    }
     setPage(1);
   }, []);
 
@@ -48,13 +87,13 @@ export function DashboardPage() {
         sort: filters.sort,
         order: filters.sortOrder,
       });
-      setTasks(res.items);
+      type TaskWithCats = Task & { categories?: { id: string }[] }; setTasks(inboxOnly ? (res.items as TaskWithCats[]).filter((t) => !t.categories || t.categories.length === 0) : res.items);
       setTotal(res.total);
       setTotalPages(res.totalPages);
     } catch {
       notify("Fehler beim Laden der Aufgaben", "error");
     }
-  }, [page, filters, notify]);
+  }, [page, filters, inboxOnly, notify]);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
@@ -110,6 +149,57 @@ export function DashboardPage() {
           Neue Aufgabe
         </Button>
       </Stack>
+
+      <Stack direction="row" spacing={1} mb={2} flexWrap="wrap" useFlexGap alignItems="center">
+        <Button
+          size="small"
+          variant={inboxOnly ? "contained" : "outlined"}
+          color="warning"
+          onClick={() => {
+            const next = !inboxOnly;
+            setInboxOnly(next);
+            if (next) handleFilterChange({ ...filters, categoryId: "" });
+          }}
+        >
+          Eingangskorb
+        </Button>
+        {[
+          { label: "Alle Aufgaben", id: "" },
+          { label: "Projekte", key: "projekt" },
+          { label: "Nächste Schritte", key: "nächste" },
+          { label: "Warten auf", key: "warten" },
+          { label: "Irgendwann/Vielleicht", key: "irgendwann" },
+        ].map((tab) => {
+          const matchedCat = tab.key
+            ? categories.find((c) => c.name.toLowerCase().includes(tab.key!))
+            : undefined;
+          const targetId = tab.key ? matchedCat?.id : "";
+          if (tab.key && !matchedCat) return null;
+          const isActive = !inboxOnly && filters.categoryId === (targetId || "");
+          return (
+            <Button
+              key={tab.label}
+              size="small"
+              variant={isActive ? "contained" : "outlined"}
+              onClick={() => { setInboxOnly(false); handleFilterChange({ ...filters, categoryId: targetId || "" }); }}
+            >
+              {tab.label}
+            </Button>
+          );
+        })}
+        <Button size="small" variant="outlined" color="secondary" onClick={runWeeklyReview} disabled={reviewLoading} sx={{ ml: "auto" }}>
+          {reviewLoading ? "Prüft..." : "Weekly Review"}
+        </Button>
+      </Stack>
+
+      {reviewReport && (
+        <Alert severity={reviewReport.stalledProjects.length === 0 && reviewReport.inboxCount === 0 ? "success" : "info"} onClose={() => setReviewReport(null)} sx={{ mb: 2 }}>
+          <strong>GTD Weekly Review:</strong> {reviewReport.inboxCount} ungeklärte Aufgabe(n) im Eingangskorb.{" "}
+          {reviewReport.stalledProjects.length === 0
+            ? "Alle aktiven Projekte haben mindestens einen offenen Nächsten Schritt!"
+            : `Projekte ohne Nächsten Schritt: ${reviewReport.stalledProjects.join(", ")}`}
+        </Alert>
+      )}
 
       <TaskFilterBar
         value={filters}

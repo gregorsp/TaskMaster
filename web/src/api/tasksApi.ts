@@ -246,3 +246,8 @@ export async function createTaskOccurrence(id: string, occurrenceDate: string, p
 export async function deleteTaskOccurrence(taskId: string, occurrenceId: string): Promise<void> {
   await client.delete(`/tasks/${taskId}/occurrences/${occurrenceId}`);
 }
+
+export async function generateTaskDescriptionAi(title: string, description?: string, apiKey?: string): Promise<string> {
+  const res = await client.post<{ description: string }>("/tasks/ai-describe", { title, description, apiKey });
+  return res.data.description;
+}

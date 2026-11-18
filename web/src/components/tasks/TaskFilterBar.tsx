@@ -229,6 +229,24 @@ export function TaskFilterBar({
           )}
         </Stack>
       )}
+
+      {(!isMobile || open) && (
+        <Stack direction="row" spacing={1} mb={2} flexWrap="wrap" useFlexGap alignItems="center">
+          {["@Telefon", "@Computer", "@Online", "@Zuhause", "@Besorgungen", "@Uni"].map((ctx) => {
+            const active = value.search.toLowerCase().includes(ctx.toLowerCase());
+            return (
+              <Chip
+                key={ctx}
+                size="small"
+                label={ctx}
+                color={active ? "primary" : "default"}
+                variant={active ? "filled" : "outlined"}
+                onClick={() => update({ search: active ? "" : ctx })}
+              />
+            );
+          })}
+        </Stack>
+      )}
     </Box>
   );
 }
