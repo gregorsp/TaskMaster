@@ -119,6 +119,8 @@ const envSchema = z.object({
    * Verzeichnis für heruntergeladene Modelle. Default: <DB_PATH-Verzeichnis>/models
    */
   MODEL_DIR: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  DEEPSEEK_API_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.parse(process.env);
@@ -167,6 +169,8 @@ export const config = {
   /** Obergrenze pro Job in ms */
   transcribeJobLimitMs: parsed.TRANSCRIBE_JOB_MINUTES * 60_000,
   /** Verzeichnis für Modelldateien (im Test ein temp-Verzeichnis pro Prozess) */
+  geminiApiKey: parsed.GEMINI_API_KEY,
+  deepseekApiKey: parsed.DEEPSEEK_API_KEY,
   modelsDir:
     parsed.MODEL_DIR ||
     (parsed.NODE_ENV === "test"

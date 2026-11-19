@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Box, Typography, TextField, Button, Stack, Chip, IconButton,
   Dialog, DialogContent, DialogTitle,
@@ -7,6 +8,7 @@ import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 import { listCategories, createCategory, deleteCategory, type Category } from "../api/categoriesApi";
 
 export function CategoriesPage() {
+  const navigate = useNavigate();
   const [cats, setCats] = useState<Category[]>([]);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -28,6 +30,21 @@ export function CategoriesPage() {
     load();
   };
 
+  const handleCreateGtdDefaults = async () => {
+    const defaults = [
+      { name: "Projekte", color: "#d4a017" },
+      { name: "Nächste Schritte", color: "#e06c00" },
+      { name: "Warten auf", color: "#7b5ea7" },
+      { name: "Irgendwann/Vielleicht", color: "#78909c" },
+    ];
+    for (const d of defaults) {
+      if (!cats.some((c) => c.name.toLowerCase() === d.name.toLowerCase())) {
+        await createCategory(d);
+      }
+    }
+    load();
+  };
+
   const handleDelete = async (id: string) => {
     await deleteCategory(id);
     load();
@@ -44,11 +61,11 @@ export function CategoriesPage() {
 
       <Stack spacing={1}>
         {cats.map((cat) => (
-          <Stack key={cat.id} direction="row" alignItems="center" spacing={2} sx={{ p: 1.5, borderRadius: 1, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
+          <Stack key={cat.id} direction="row" alignItems="center" spacing={2} onClick={() => navigate(`/?categoryId=${cat.id}`)} sx={{ p: 1.5, borderRadius: 1, bgcolor: "background.paper", border: "1px solid", borderColor: "divider", cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }}>
             <Box sx={{ width: 20, height: 20, borderRadius: "50%", bgcolor: cat.color, flexShrink: 0 }} />
             <Typography sx={{ flexGrow: 1, minWidth: 0, overflowWrap: "anywhere" }}>{cat.name}</Typography>
             <Chip size="small" label={cat.color} sx={{ fontFamily: "monospace" }} />
-            <IconButton size="small" color="error" onClick={() => handleDelete(cat.id)}>
+            <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); handleDelete(cat.id); }}>
               <DeleteIcon fontSize="small" />
             </IconButton>
           </Stack>

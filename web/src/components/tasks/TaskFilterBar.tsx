@@ -50,6 +50,8 @@ interface TaskFilterBarProps {
   overdueCount?: number;
 }
 
+const ENERGY_FILTERS = [{ label: "⚡ < 2 Min", query: "2 min" }, { label: "⏱️ 15 Min", query: "15 min" }, { label: "🔋 Hohe Energie", query: "energie:hoch" }, { label: "🪫 Niedrige Energie", query: "energie:niedrig" }];
+
 export function TaskFilterBar({
   value, onChange, categories, users,
   showSort = true, showStatus = true, showHabits = true, showPlanned = true,
@@ -229,6 +231,56 @@ export function TaskFilterBar({
           )}
         </Stack>
       )}
-    </Box>
+
+      {(!isMobile || open) && (
+        <Stack direction="row" spacing={1} mb={2} flexWrap="wrap" useFlexGap alignItems="center">
+          {["@Telefon", "@Computer", "@Online", "@Zuhause", "@Besorgungen", "@Uni"].map((ctx) => {
+          const allContexts = ["@Telefon", "@Computer", "@Online", "@Zuhause", "@Besorgungen", "@Uni"];
+          const active = (value.search || "").toLowerCase().includes(ctx.toLowerCase());
+          return (
+            <Chip
+              key={ctx}
+              label={ctx}
+              size="small"
+              color={active ? "primary" : "default"}
+              variant={active ? "filled" : "outlined"}
+              onClick={() => {
+                let cleaned = value.search || "";
+                for (const c of allContexts) {
+                  cleaned = cleaned.replace(new RegExp(c, "ig"), "");
+                }
+                cleaned = cleaned.replace(/\s+/g, " ").trim();
+                const nextSearch = active ? cleaned : [cleaned, ctx].filter(Boolean).join(" ");
+                onChange({ ...value, search: nextSearch });
+              }}
+            />
+          );
+        })}
+        </Stack>
+      )}
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap mt={1}>
+        {ENERGY_FILTERS.map((ef) => {
+          const active = (value.search || "").toLowerCase().includes(ef.query);
+          return (
+            <Chip
+              key={ef.query}
+              label={ef.label}
+              size="small"
+              color={active ? "secondary" : "default"}
+              variant={active ? "filled" : "outlined"}
+              onClick={() => {
+                let cleaned = value.search || "";
+                for (const item of ENERGY_FILTERS) {
+                  cleaned = cleaned.replace(new RegExp(item.query, "ig"), "");
+                }
+                cleaned = cleaned.replace(/\s+/g, " ").trim();
+                const nextSearch = active ? cleaned : [cleaned, ef.query].filter(Boolean).join(" ");
+                onChange({ ...value, search: nextSearch });
+              }}
+            />
+          );
+        })}
+      </Stack>
+</Box>
   );
 }
