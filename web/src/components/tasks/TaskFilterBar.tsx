@@ -235,6 +235,7 @@ export function TaskFilterBar({
       {(!isMobile || open) && (
         <Stack direction="row" spacing={1} mb={2} flexWrap="wrap" useFlexGap alignItems="center">
           {["@Telefon", "@Computer", "@Online", "@Zuhause", "@Besorgungen", "@Uni"].map((ctx) => {
+          const allContexts = ["@Telefon", "@Computer", "@Online", "@Zuhause", "@Besorgungen", "@Uni"];
           const active = (value.search || "").toLowerCase().includes(ctx.toLowerCase());
           return (
             <Chip
@@ -244,10 +245,12 @@ export function TaskFilterBar({
               color={active ? "primary" : "default"}
               variant={active ? "filled" : "outlined"}
               onClick={() => {
-                const current = (value.search || "").trim();
-                const nextSearch = active
-                  ? current.replace(new RegExp(ctx, "i"), "").replace(/\s+/g, " ").trim()
-                  : (current + " " + ctx).trim();
+                let cleaned = value.search || "";
+                for (const c of allContexts) {
+                  cleaned = cleaned.replace(new RegExp(c, "ig"), "");
+                }
+                cleaned = cleaned.replace(/\s+/g, " ").trim();
+                const nextSearch = active ? cleaned : [cleaned, ctx].filter(Boolean).join(" ");
                 onChange({ ...value, search: nextSearch });
               }}
             />
@@ -266,10 +269,12 @@ export function TaskFilterBar({
               color={active ? "secondary" : "default"}
               variant={active ? "filled" : "outlined"}
               onClick={() => {
-                const current = (value.search || "").trim();
-                const nextSearch = active
-                  ? current.replace(new RegExp(ef.query, "i"), "").trim()
-                  : (current + " " + ef.query).trim();
+                let cleaned = value.search || "";
+                for (const item of ENERGY_FILTERS) {
+                  cleaned = cleaned.replace(new RegExp(item.query, "ig"), "");
+                }
+                cleaned = cleaned.replace(/\s+/g, " ").trim();
+                const nextSearch = active ? cleaned : [cleaned, ef.query].filter(Boolean).join(" ");
                 onChange({ ...value, search: nextSearch });
               }}
             />

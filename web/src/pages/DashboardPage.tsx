@@ -111,7 +111,7 @@ export function DashboardPage() {
           })
         : res.items;
       setTasks(tokenFiltered);
-      setTotal(res.total);
+      setTotal(searchTokens.length > 1 ? tokenFiltered.length : res.total);
       setTotalPages(res.totalPages);
     } catch {
       notify("Fehler beim Laden der Aufgaben", "error");
