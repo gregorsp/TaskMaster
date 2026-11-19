@@ -56,7 +56,8 @@ export function CategoriesPage() {
         <Typography variant="h4">Kategorien</Typography>
         <Stack direction="row" spacing={1}><Button variant="outlined" onClick={handleCreateGtdDefaults}>GTD-Standardkategorien</Button><Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
           Neue Kategorie
-        </Button>
+          </Button>
+        </Stack>
       </Stack>
 
       <Stack spacing={1}>
