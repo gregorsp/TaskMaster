@@ -13,7 +13,7 @@ import {
   CenterFocusStrong as CenterIcon,
 } from "@mui/icons-material";
 import { createTask, listTasks, deleteTask, updateTask, generateMindmapIdeasAi } from "../api/tasksApi";
-import { listCategories, type Category } from "../api/categoriesApi";
+import {  listCategories, type Category , createCategory } from "../api/categoriesApi";
 import { useNotify } from "../context/NotifyContext";
 
 interface MindNode {
@@ -312,10 +312,22 @@ export function BrainstormingPage() {
   const handleSendToGtd = async (node: MindNode, silent = false) => {
     try {
       const isMainNode = !node.parentId;
-      const catsRaw: any = await listCategories();
-      const catsList: Array<{ id: string; name: string }> = Array.isArray(catsRaw) ? catsRaw : (catsRaw?.items || []);
-      const projCat = catsList.find((cat) => cat.name.toLowerCase().includes("projekt"));
-      const nextCat = catsList.find((cat) => cat.name.toLowerCase().includes("nächste"));
+      const catsResponse: any = await listCategories();
+      const catsList: Array<{ id: string; name: string }> = Array.isArray(catsResponse)
+        ? catsResponse
+        : (catsResponse?.categories || catsResponse?.items || catsResponse?.data || []);
+
+      let projCat = catsList.find((cat) => cat.name.toLowerCase().includes("projekt"));
+      if (!projCat) {
+        const createdP: any = await createCategory({ name: "Projekte", color: "#ed6c02" });
+        projCat = createdP?.category || createdP?.data || createdP;
+      }
+
+      let nextCat = catsList.find((cat) => cat.name.toLowerCase().includes("n\u00e4chste"));
+      if (!nextCat) {
+        const createdN: any = await createCategory({ name: "N\u00e4chste Schritte", color: "#1976d2" });
+        nextCat = createdN?.category || createdN?.data || createdN;
+      }
 
       const findOpenTaskByTitle = async (taskTitle: string) => {
         const res = await listTasks({ isCompleted: false, search: taskTitle.trim() });
@@ -329,7 +341,7 @@ export function BrainstormingPage() {
           projectTask = await createTask({
             title: node.text,
             description: `Projekt aus Mindmap „${activeBoard.title}“ übernommen.`,
-            categoryIds: projCat ? [projCat.id] : [],
+            categoryIds: projCat?.id ? [projCat.id] : [],
           });
           projectCreated = true;
         }
@@ -339,13 +351,12 @@ export function BrainstormingPage() {
         for (const child of children) {
           const existingChild = await findOpenTaskByTitle(child.text);
           if (!existingChild) {
-            const createdChild = await createTask({
+            await createTask({
               title: child.text,
-              description: `Nächster Schritt zum Projekt „${node.text}“.`,
+              description: `N\u00e4chster Schritt zum Projekt „${node.text}“.`,
               parentId: projectTask.id,
-              categoryIds: nextCat ? [nextCat.id] : [],
+              categoryIds: nextCat?.id ? [nextCat.id] : [],
             });
-            
             addedChildren++;
           }
         }
@@ -365,24 +376,24 @@ export function BrainstormingPage() {
         const parentNode = activeBoard?.nodes.find((n) => n.id === node.parentId);
         const existingParent = parentNode ? await findOpenTaskByTitle(parentNode.text) : undefined;
 
-        const createdChild = await createTask({
+        await createTask({
           title: node.text,
           description: parentNode
-            ? `Nächster Schritt zum Projekt „${parentNode.text}“.`
+            ? `N\u00e4chster Schritt zum Projekt „${parentNode.text}“.`
             : `Aus Mindmap „${activeBoard?.title || "Brainstorming"}“ übernommen.`,
           parentId: existingParent?.id,
-          categoryIds: nextCat ? [nextCat.id] : [],
+          categoryIds: nextCat?.id ? [nextCat.id] : [],
         });
 
         if (existingParent) {
-          
-          notify(`„${node.text}“ als Nächster Schritt an Projekt „${parentNode?.text}“ angehängt!`);
+          notify(`„${node.text}“ als N\u00e4chster Schritt an Projekt „${parentNode?.text}“ angehängt!`);
         } else {
-          notify(`„${node.text}“ als Nächster Schritt an GTD gesendet!`);
+          notify(`„${node.text}“ als N\u00e4chster Schritt an GTD gesendet!`);
         }
       }
-    } catch {
-      notify("Fehler beim Übertragen an GTD (läuft der Server auf Port 8080?)", "error");
+    } catch (err) {
+      console.error("GTD-Sync-Fehler:", err);
+      notify("Fehler beim Übertragen an GTD", "error");
     }
   };
 
@@ -563,7 +574,7 @@ export function BrainstormingPage() {
                 </Tooltip>
                 {true && (
                   <>
-                    <Tooltip title="Als Nächster Schritt in TaskMaster übernehmen">
+                    <Tooltip title="Als N\u00e4chster Schritt in TaskMaster übernehmen">
                       <IconButton size="small" sx={{ color: isRoot ? "#fff" : "success.main", p: 0.3 }} onClick={(e) => { e.stopPropagation(); void handleSendToGtd(node); }}>
                         <ArrowForwardIcon fontSize="small" />
                       </IconButton>

@@ -235,18 +235,24 @@ export function TaskFilterBar({
       {(!isMobile || open) && (
         <Stack direction="row" spacing={1} mb={2} flexWrap="wrap" useFlexGap alignItems="center">
           {["@Telefon", "@Computer", "@Online", "@Zuhause", "@Besorgungen", "@Uni"].map((ctx) => {
-            const active = value.search.toLowerCase().includes(ctx.toLowerCase());
-            return (
-              <Chip
-                key={ctx}
-                size="small"
-                label={ctx}
-                color={active ? "primary" : "default"}
-                variant={active ? "filled" : "outlined"}
-                onClick={() => update({ search: active ? "" : ctx })}
-              />
-            );
-          })}
+          const active = (value.search || "").toLowerCase().includes(ctx.toLowerCase());
+          return (
+            <Chip
+              key={ctx}
+              label={ctx}
+              size="small"
+              color={active ? "primary" : "default"}
+              variant={active ? "filled" : "outlined"}
+              onClick={() => {
+                const current = (value.search || "").trim();
+                const nextSearch = active
+                  ? current.replace(new RegExp(ctx, "i"), "").replace(/\s+/g, " ").trim()
+                  : (current + " " + ctx).trim();
+                onChange({ ...value, search: nextSearch });
+              }}
+            />
+          );
+        })}
         </Stack>
       )}
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap mt={1}>

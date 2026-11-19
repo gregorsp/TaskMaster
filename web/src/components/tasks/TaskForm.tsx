@@ -80,6 +80,8 @@ function toInputDate(d: Date | null): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 }
 
+const FORM_ENERGY_TAGS = [{ label: "⚡ < 2 Min", tag: "2 min" }, { label: "⏱️ 15 Min", tag: "15 min" }, { label: "🔋 Hohe Energie", tag: "energie:hoch" }, { label: "🪫 Niedrige Energie", tag: "energie:niedrig" }];
+
 export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const isEdit = !!task;
   const [title, setTitle] = useState("");
@@ -418,6 +420,26 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
               rows={3}
               fullWidth
             />
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {FORM_ENERGY_TAGS.map((item) => {
+            const active = description.toLowerCase().includes(item.tag);
+            return (
+              <Chip
+                key={item.tag}
+                label={item.label}
+                size="small"
+                color={active ? "secondary" : "default"}
+                variant={active ? "filled" : "outlined"}
+                onClick={() => {
+                  const nextDesc = active
+                    ? description.replace(new RegExp(`\\s*${item.tag}`, "i"), "").trim()
+                    : (description.trim() + " " + item.tag).trim();
+                  setDescription(nextDesc);
+                }}
+              />
+            );
+          })}
+        </Stack>
             <DictateButton
               onText={(text) => setDescription((current) => (current ? `${current} ${text}` : text))}
             />

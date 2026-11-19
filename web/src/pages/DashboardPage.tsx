@@ -14,6 +14,8 @@ import { TaskForm } from "../components/tasks/TaskForm";
 import { TaskFilterBar, createDefaultTaskFilterState, type TaskFilterState } from "../components/tasks/TaskFilterBar";
 import { useNotify } from "../context/NotifyContext";
 
+
+
 export function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState<TaskFilterState>(() => ({
@@ -31,6 +33,13 @@ export function DashboardPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [categorizedIds, setCategorizedIds] = useState<Set<string>>(new Set());
+  const checkIsInbox = (t: any) => {
+    if (categorizedIds.has(t.id)) return false;
+    const hasCats = Array.isArray(t.categories) && t.categories.length > 0;
+    const hasCatIds = Array.isArray(t.categoryIds) && t.categoryIds.length > 0;
+    return !hasCats && !hasCatIds;
+  };
   const [users, setUsers] = useState<UserPickerItem[]>([]);
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [overdueCount, setOverdueCount] = useState(0);
@@ -44,7 +53,7 @@ export function DashboardPage() {
     setReviewLoading(true);
     try {
       const openAll = await listTasks({ isCompleted: false, pageSize: 200 });
-      type TaskWithCats = Task & { categories?: { id: string }[] }; const allItems = openAll.items as TaskWithCats[]; const inboxCount = allItems.filter((t) => !t.categories || t.categories.length === 0).length;
+      type TaskWithCats = Task & { categories?: { id: string }[] }; const allItems = openAll.items as TaskWithCats[]; const inboxCount = allItems.filter(checkIsInbox).length;
       const projCat = categories.find((c) => c.name.toLowerCase().includes("projekt"));
       const stalledProjects: string[] = [];
       if (projCat) {
@@ -74,10 +83,17 @@ export function DashboardPage() {
 
   const fetchTasks = useCallback(async () => {
     try {
+      try {
+        const cats = await listCategories();
+        const catLists = await Promise.all(cats.map((c) => listTasks({ isCompleted: false, categoryId: c.id })));
+        const ids = new Set<string>();
+        catLists.forEach((r) => r.items.forEach((item) => ids.add(item.id)));
+        setCategorizedIds(ids);
+      } catch {}
       const res = await listTasks({
         page,
         pageSize: 20,
-        search: filters.search || undefined,
+        search: filters.search ? filters.search.trim().split(/\s+/)[0] : undefined,
         isCompleted: filters.status === "all" ? undefined : filters.status === "done",
         categoryId: filters.categoryId || undefined,
         isOverdue: filters.isOverdue || undefined,
@@ -87,7 +103,14 @@ export function DashboardPage() {
         sort: filters.sort,
         order: filters.sortOrder,
       });
-      type TaskWithCats = Task & { categories?: { id: string }[] }; setTasks(inboxOnly ? (res.items as TaskWithCats[]).filter((t) => !t.categories || t.categories.length === 0) : res.items);
+      type TaskWithCats = Task & { categories?: { id: string }[] }; const searchTokens = (filters.search || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const tokenFiltered = searchTokens.length > 1
+        ? res.items.filter((t) => {
+            const hay = ((t.title || "") + " " + (t.description || "")).toLowerCase();
+            return searchTokens.every((tok) => hay.includes(tok));
+          })
+        : res.items;
+      setTasks(tokenFiltered);
       setTotal(res.total);
       setTotalPages(res.totalPages);
     } catch {
@@ -110,7 +133,7 @@ export function DashboardPage() {
     listTasks({
       isOverdue: true,
       pageSize: 1,
-      search: filters.search || undefined,
+      search: filters.search ? filters.search.trim().split(/\s+/)[0] : undefined,
       categoryId: filters.categoryId || undefined,
       assigneeIds: filters.assigneeIds.length > 0 ? filters.assigneeIds : undefined,
       hidePlanned: filters.hidePlanned || undefined,
@@ -209,7 +232,7 @@ export function DashboardPage() {
         overdueCount={overdueCount}
       />
 
-      <TaskListView tasks={tasks} onUpdated={fetchTasks} />
+      <TaskListView tasks={inboxOnly && !filters.categoryId ? tasks.filter(checkIsInbox) : tasks} onUpdated={fetchTasks} />
 
       {loadWarnings.length > 0 && (
         <Stack spacing={0.5} mt={2}>
