@@ -98,5 +98,5 @@ Antworte nur mit den 5 Zeilen, eine Aufgabe pro Zeile.`;
     .split(/\r?\n/)
     .map((line) => line.replace(/^[\d\.\-\*\•\s]+/, "").trim())
     .filter((line) => line.length > 1)
-    .slice(0, 6);
+    .slice(0, 5);
 }

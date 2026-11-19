@@ -24,29 +24,32 @@ async function checkVisibility(request: { params: { id: string }; user: { id: st
   return null;
 }
 
+const aiRateLimitMap = new Map<string, number[]>();
+function checkAiRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const recent = (aiRateLimitMap.get(userId) || []).filter((ts) => now - ts < 60_000);
+  if (recent.length >= 10) return false;
+  recent.push(now);
+  aiRateLimitMap.set(userId, recent);
+  return true;
+}
+
 export async function tasksRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authGuard);
 
   app.post("/ai-mindmap", async (request, reply) => {
-    const schema = z.object({ topic: z.string().min(1), apiKey: z.string().optional() });
-    const { topic, apiKey } = schema.parse(request.body);
-    try {
-      const ideas = await generateMindmapIdeas(topic, apiKey);
-      return reply.send({ ideas });
-    } catch (err: any) {
-      return reply.status(400).send({ error: { message: err?.message || "KI-Fehler" } });
-    }
+    const p = request.user as { id: string };
+    if (!checkAiRateLimit(p.id)) return reply.status(429).send({ error: { code: "RATE_LIMITED", message: "Zu viele KI-Anfragen." } });
+    const { topic, apiKey } = z.object({ topic: z.string().min(1).max(200), apiKey: z.string().max(256).optional() }).parse(request.body);
+    try { return reply.send({ ideas: await generateMindmapIdeas(topic, apiKey) }); }
+    catch (err) { return reply.status(400).send({ error: { code: "AI_ERROR", message: err instanceof Error ? err.message : "KI-Fehler" } }); }
   });
   app.post("/ai-describe", async (request, reply) => {
-    const schema = z.object({ title: z.string().min(1), description: z.string().optional(), apiKey: z.string().optional() });
-    const { title, description, apiKey } = schema.parse(request.body);
-    try {
-      const text = await generateGtdDescription(title, description, apiKey);
-      return reply.send({ description: text });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "KI-Fehler";
-      return reply.status(502).send({ error: { code: "AI_ERROR", message: msg } });
-    }
+    const p = request.user as { id: string };
+    if (!checkAiRateLimit(p.id)) return reply.status(429).send({ error: { code: "RATE_LIMITED", message: "Zu viele KI-Anfragen." } });
+    const { title, description, apiKey } = z.object({ title: z.string().min(1).max(200), description: z.string().max(2000).optional(), apiKey: z.string().max(256).optional() }).parse(request.body);
+    try { return reply.send({ description: await generateGtdDescription(title, description, apiKey) }); }
+    catch (err) { return reply.status(502).send({ error: { code: "AI_ERROR", message: err instanceof Error ? err.message : "KI-Fehler" } }); }
   });
 
   app.get("/", async (request) => {

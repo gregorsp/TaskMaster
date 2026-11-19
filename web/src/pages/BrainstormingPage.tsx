@@ -22,6 +22,7 @@ interface MindNode {
   x: number;
   y: number;
   color: string;
+  gtdTaskId?: string;
   parentId: string | null;
 }
 
@@ -121,20 +122,9 @@ export function BrainstormingPage() {
   };
 
   const deleteBoardTasksFromGtd = async (boardToDelete: MindMapBoard) => {
-    try {
-      const rootNode = boardToDelete.nodes.find((n) => !n.parentId);
-      const titlesToDelete = new Set(
-        [boardToDelete.title, rootNode?.text, ...boardToDelete.nodes.map((n) => n.text)]
-          .filter((t): t is string => Boolean(t && t.trim()))
-          .map((t) => t.trim().toLowerCase())
-      );
-      const openTasks = await listTasks({ isCompleted: false });
-      for (const task of openTasks.items) {
-        if (titlesToDelete.has(task.title.trim().toLowerCase())) {
-          await deleteTask(task.id);
-        }
-      }
-    } catch {}
+    for (const cn of boardToDelete.nodes.filter((n) => Boolean(n.parentId))) {
+      if (cn.gtdTaskId) { try { await deleteTask(cn.gtdTaskId); } catch {} }
+    }
   };
   const removeTaskByTitle = async (taskTitle: string) => {
     try {

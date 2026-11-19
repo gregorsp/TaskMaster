@@ -52,22 +52,28 @@ export function DashboardPage() {
   const runWeeklyReview = async () => {
     setReviewLoading(true);
     try {
-      const openAll = await listTasks({ isCompleted: false, pageSize: 200 });
-      type TaskWithCats = Task & { categories?: { id: string }[] }; const allItems = openAll.items as TaskWithCats[]; const inboxCount = allItems.filter(checkIsInbox).length;
-      const projCat = categories.find((c) => c.name.toLowerCase().includes("projekt"));
+      const fetchAllPages = async (params: Record<string, unknown>): Promise<Task[]> => {
+        const all: Task[] = [];
+        for (let pNum = 1; ; pNum++) {
+          const res = await listTasks({ ...params, page: pNum, pageSize: 100 });
+          all.push(...res.items);
+          if (pNum >= res.totalPages || res.items.length === 0) break;
+        }
+        return all;
+      };
+      const inboxItems = await fetchAllPages({ isCompleted: false, uncategorized: true });
+      const projCat = categories.find((cat) => cat.name.toLowerCase().includes("projekt"));
       const stalledProjects: string[] = [];
       if (projCat) {
-        const projects = allItems.filter((t) => t.categories?.some((c) => c.id === projCat.id));
-        for (const p of projects) {
-          const subs = await getSubtasks(p.id);
-          const subItems = Array.isArray(subs) ? subs : (subs as { items?: Task[] }).items || []; const hasOpenNext = subItems.some((s) => !s.isCompleted);
-          if (!hasOpenNext) stalledProjects.push(p.title);
+        const projects = await fetchAllPages({ isCompleted: false, categoryId: projCat.id });
+        for (const proj of projects) {
+          const subs = await getSubtasks(proj.id);
+          const subItems = Array.isArray(subs) ? subs : (subs.subtasks || []);
+          if (!subItems.some((s) => !s.isCompleted)) stalledProjects.push(proj.title);
         }
       }
-      setReviewReport({ inboxCount, stalledProjects });
-    } finally {
-      setReviewLoading(false);
-    }
+      setReviewReport({ inboxCount: inboxItems.length, stalledProjects });
+    } finally { setReviewLoading(false); }
   };
   const notify = useNotify();
 
@@ -83,39 +89,20 @@ export function DashboardPage() {
 
   const fetchTasks = useCallback(async () => {
     try {
-      try {
-        const cats = await listCategories();
-        const catLists = await Promise.all(cats.map((c) => listTasks({ isCompleted: false, categoryId: c.id })));
-        const ids = new Set<string>();
-        catLists.forEach((r) => r.items.forEach((item) => ids.add(item.id)));
-        setCategorizedIds(ids);
-      } catch {}
       const res = await listTasks({
-        page,
-        pageSize: 20,
-        search: filters.search ? filters.search.trim().split(/\s+/)[0] : undefined,
+        page, pageSize: 20,
+        search: filters.search ? filters.search.trim() : undefined,
         isCompleted: filters.status === "all" ? undefined : filters.status === "done",
-        categoryId: filters.categoryId || undefined,
+        categoryId: !inboxOnly && filters.categoryId ? filters.categoryId : undefined,
+        uncategorized: inboxOnly && !filters.categoryId ? true : undefined,
         isOverdue: filters.isOverdue || undefined,
         isHabit: filters.habitFilter === "all" ? undefined : filters.habitFilter === "habits",
         assigneeIds: filters.assigneeIds.length > 0 ? filters.assigneeIds : undefined,
         hidePlanned: filters.hidePlanned || undefined,
-        sort: filters.sort,
-        order: filters.sortOrder,
+        sort: filters.sort, order: filters.sortOrder,
       });
-      type TaskWithCats = Task & { categories?: { id: string }[] }; const searchTokens = (filters.search || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
-      const tokenFiltered = searchTokens.length > 1
-        ? res.items.filter((t) => {
-            const hay = ((t.title || "") + " " + (t.description || "")).toLowerCase();
-            return searchTokens.every((tok) => hay.includes(tok));
-          })
-        : res.items;
-      setTasks(tokenFiltered);
-      setTotal(searchTokens.length > 1 ? tokenFiltered.length : res.total);
-      setTotalPages(res.totalPages);
-    } catch {
-      notify("Fehler beim Laden der Aufgaben", "error");
-    }
+      setTasks(res.items); setTotal(res.total); setTotalPages(res.totalPages);
+    } catch { notify("Fehler beim Laden der Aufgaben", "error"); }
   }, [page, filters, inboxOnly, notify]);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
@@ -133,7 +120,7 @@ export function DashboardPage() {
     listTasks({
       isOverdue: true,
       pageSize: 1,
-      search: filters.search ? filters.search.trim().split(/\s+/)[0] : undefined,
+      search: filters.search ? filters.search.trim() : undefined,
       categoryId: filters.categoryId || undefined,
       assigneeIds: filters.assigneeIds.length > 0 ? filters.assigneeIds : undefined,
       hidePlanned: filters.hidePlanned || undefined,
@@ -232,7 +219,7 @@ export function DashboardPage() {
         overdueCount={overdueCount}
       />
 
-      <TaskListView tasks={inboxOnly && !filters.categoryId ? tasks.filter(checkIsInbox) : tasks} onUpdated={fetchTasks} />
+      <TaskListView tasks={tasks} onUpdated={fetchTasks} />
 
       {loadWarnings.length > 0 && (
         <Stack spacing={0.5} mt={2}>

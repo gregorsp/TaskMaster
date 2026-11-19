@@ -61,6 +61,7 @@ export interface TaskListResponse {
 export interface TaskFilters {
   isCompleted?: boolean;
   categoryId?: string;
+  uncategorized?: boolean;
   assigneeId?: string;
   assigneeIds?: string[];
   isOverdue?: boolean;
