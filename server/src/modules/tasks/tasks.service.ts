@@ -126,8 +126,15 @@ export function listTasks(
   }
 
   if (query.search) {
-    const term = `%${query.search}%`;
-    conditions.push(or(like(tasks.title, term), like(tasks.description, term)) as SQL);
+    for (const token of String(query.search).trim().split(/\s+/).filter(Boolean)) {
+      const term = `%${token}%`;
+      conditions.push(or(like(tasks.title, term), like(tasks.description, term)) as SQL);
+    }
+  }
+
+  if (query.uncategorized === "true" || query.uncategorized === true) {
+    const catTaskIds = [...new Set(db.select({ taskId: taskCategories.taskId }).from(taskCategories).all().map((r) => r.taskId))];
+    if (catTaskIds.length > 0) conditions.push(drizzleSql`${tasks.id} NOT IN (${drizzleSql.join(catTaskIds.map((id) => drizzleSql`${id}`), drizzleSql`, `)})`);
   }
 
   if (query.categoryId) {
