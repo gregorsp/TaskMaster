@@ -1,9 +1,13 @@
-import { Box, Typography, Paper, Stack, Chip, Divider, Button } from "@mui/material";
-import { CheckCircleOutline as GtdIcon, ArrowForward as ArrowIcon } from "@mui/icons-material";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import {
+  Box, Typography, Paper, Stack, Chip, Divider, Accordion,
+  AccordionSummary, AccordionDetails,
+} from "@mui/material";
+import { CheckCircleOutline as GtdIcon, ExpandMore as ExpandMoreIcon } from "@mui/icons-material";
+import { TaskListPane } from "../components/tasks/TaskListPane";
 
 export function GtdGuidePage() {
-  const navigate = useNavigate();
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const steps = [
     {
@@ -28,53 +32,55 @@ export function GtdGuidePage() {
     },
     {
       title: "6. Reflektieren (Weekly Review)",
-      desc: "Klicke einmal pro Woche in der Aufgabenansicht oben rechts auf „Weekly Review“. So stellst du sicher, dass der Eingangskorb leer ist und jedes Projekt mindestens einen offenen Nächsten Schritt besitzt.",
+      desc: "Klicke oben in der Liste auf „Weekly Review“. So stellst du sicher, dass der Eingangskorb leer ist und jedes Projekt mindestens einen offenen Nächsten Schritt besitzt.",
     },
   ];
 
   return (
     <Box>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2} mb={2}>
-        <Stack direction="row" alignItems="center" spacing={1.5}>
-          <GtdIcon color="primary" fontSize="large" />
-          <Typography variant="h4">Getting Things Done (GTD)</Typography>
-        </Stack>
-        <Button variant="contained" endIcon={<ArrowIcon />} onClick={() => navigate("/")}>
-          Zu meinen Aufgaben
-        </Button>
+      <Stack direction="row" alignItems="center" spacing={1.5} mb={1}>
+        <GtdIcon color="primary" fontSize="large" />
+        <Typography variant="h4">Getting Things Done (GTD)</Typography>
       </Stack>
-
-      <Typography variant="body1" color="text.secondary" mb={3}>
-        Die Selbstmanagement-Methode nach David Allen – integriert in TaskMaster für stressfreie Produktivität.
+      <Typography variant="body2" color="text.secondary" mb={2}>
+        Die Selbstmanagement-Methode nach David Allen — hier filterst du deine Aufgaben direkt nach den GTD-Listen.
       </Typography>
 
-      <Stack spacing={2} mb={3}>
-        {steps.map((s) => (
-          <Paper key={s.title} variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
-            <Typography variant="h6" color="primary" gutterBottom>
-              {s.title}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {s.desc}
-            </Typography>
-          </Paper>
-        ))}
-      </Stack>
+      <TaskListPane title="Aufgaben" showGtdTabs showWeeklyReview />
 
-      <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
-        <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-          Standard-Kontexte
-        </Typography>
-        <Divider sx={{ mb: 1.5 }} />
-        <Stack direction="row" flexWrap="wrap" gap={1} mb={1.5}>
-          {["Telefon", "Computer", "Online", "Zuhause", "Besorgungen", "Uni"].map((ctx) => (
-            <Chip key={ctx} label={ctx} color="primary" variant="outlined" />
-          ))}
-        </Stack>
-        <Typography variant="body2" color="text.secondary">
-          Eigene Kontexte legst du unter „Kontexte“ an — sie erscheinen als Badge an der Aufgabe und sind filterbar.
-        </Typography>
-      </Paper>
+      <Accordion expanded={guideOpen} onChange={(_, open) => setGuideOpen(open)} sx={{ mt: 3 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="subtitle1" fontWeight={600}>GTD-Anleitung & Kontexte</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Stack spacing={2}>
+            {steps.map((s) => (
+              <Paper key={s.title} variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
+                <Typography variant="h6" color="primary" gutterBottom>
+                  {s.title}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {s.desc}
+                </Typography>
+              </Paper>
+            ))}
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
+              <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                Standard-Kontexte
+              </Typography>
+              <Divider sx={{ mb: 1.5 }} />
+              <Stack direction="row" flexWrap="wrap" gap={1} mb={1.5}>
+                {["Telefon", "Computer", "Online", "Zuhause", "Besorgungen", "Uni"].map((ctx) => (
+                  <Chip key={ctx} label={ctx} color="primary" variant="outlined" />
+                ))}
+              </Stack>
+              <Typography variant="body2" color="text.secondary">
+                Eigene Kontexte legst du unter „Kontexte“ an — sie erscheinen als Badge an der Aufgabe und sind filterbar.
+              </Typography>
+            </Paper>
+          </Stack>
+        </AccordionDetails>
+      </Accordion>
     </Box>
   );
 }

@@ -54,6 +54,7 @@ interface TaskFilterBarProps {
   users: UserPickerItem[];
   showSort?: boolean;
   showStatus?: boolean;
+  showGtdStatus?: boolean;
   showHabits?: boolean;
   showPlanned?: boolean;
   showCompletionMode?: boolean;
@@ -62,7 +63,7 @@ interface TaskFilterBarProps {
 
 export function TaskFilterBar({
   value, onChange, categories, contexts, users,
-  showSort = true, showStatus = true, showHabits = true, showPlanned = true,
+  showSort = true, showStatus = true, showGtdStatus = true, showHabits = true, showPlanned = true,
   showCompletionMode = false, overdueCount,
 }: TaskFilterBarProps) {
   const theme = useTheme();
@@ -74,7 +75,7 @@ export function TaskFilterBar({
   const activeFilterCount = [
     value.search.trim() !== "",
     showStatus && value.status !== "open",
-    value.gtdStatus !== "",
+    showGtdStatus && value.gtdStatus !== "",
     value.duration !== "",
     value.energy !== "",
     value.categoryId !== "",
@@ -128,19 +129,21 @@ export function TaskFilterBar({
             </FormControl>
           )}
 
-          <FormControl size="small" sx={{ minWidth: 160 }}>
-            <InputLabel>GTD-Status</InputLabel>
-            <Select
-              value={value.gtdStatus}
-              label="GTD-Status"
-              onChange={(e) => update({ gtdStatus: e.target.value as TaskFilterState["gtdStatus"] })}
-            >
-              <MenuItem value="">Alle</MenuItem>
-              <MenuItem value="next">Nächster Schritt</MenuItem>
-              <MenuItem value="waiting">Warten auf</MenuItem>
-              <MenuItem value="someday">Irgendwann</MenuItem>
-            </Select>
-          </FormControl>
+          {showGtdStatus && (
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel>GTD-Status</InputLabel>
+              <Select
+                value={value.gtdStatus}
+                label="GTD-Status"
+                onChange={(e) => update({ gtdStatus: e.target.value as TaskFilterState["gtdStatus"] })}
+              >
+                <MenuItem value="">Alle</MenuItem>
+                <MenuItem value="next">Nächster Schritt</MenuItem>
+                <MenuItem value="waiting">Warten auf</MenuItem>
+                <MenuItem value="someday">Irgendwann</MenuItem>
+              </Select>
+            </FormControl>
+          )}
 
           <FormControl size="small" sx={{ minWidth: 140 }}>
             <InputLabel>Dauer</InputLabel>

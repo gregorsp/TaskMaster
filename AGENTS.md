@@ -269,6 +269,7 @@ When changing `server/src/db/schema.ts`:
 - `web/src/components/tasks/` — most complex component area:
   - `TaskForm.tsx` — create/edit task dialog with recurrence, assignment, categories, urgency settings.
   - `TaskCard.tsx` / `TaskListView.tsx` — task display components.
+  - `TaskListPane.tsx` — shared list surface (filters, pagination, planning warnings, new-task button). Dashboard renders it plain; the GTD page additionally enables the GTD tabs (Alle / Nächster Schritt / Warten auf / Irgendwann / Projekte / Eingangskorb) and the Weekly Review.
   - `TaskTree/` — recursive tree component for parent/child task hierarchy.
   - `TaskGraphDialog.tsx` — interactive graph visualization of task links.
   - `TaskRelationsSidebar.tsx` — shows linked tasks in a side panel.
@@ -278,7 +279,8 @@ When changing `server/src/db/schema.ts`:
   - `OccurrencePicker.tsx` — date picker for selecting occurrence dates.
   - `ModalStackProvider.tsx` / `ModalStackRenderer.tsx` — manages a stack of modals (used when task interactions chain, e.g., opening a link task from a task detail, then editing that linked task).
 - `web/src/pages/` — one page component per route:
-  - `DashboardPage` — main task list with filters.
+  - `DashboardPage` — main task list with filters (no GTD tabs; those live on the GTD page).
+  - `GtdGuidePage` — GTD workspace: the task list with the GTD tabs + Weekly Review, plus the collapsed GTD guide.
   - `CalendarPage` — month/week calendar.
   - `MatrixPage` — Eisenhower matrix with drag-and-drop.
   - `DailyPage` — today's view (habits, tasks, occurrences).
