@@ -10,6 +10,9 @@ export interface User {
   capacity: Record<string, number> | null;
   confirmHabitCompletion: boolean;
   transcriptionLanguage: string;
+  defaultPrivate: boolean;
+  aiProvider: "gemini" | "deepseek" | null;
+  hasAiKey: boolean;
 }
 
 export interface AuthResponse {
@@ -95,5 +98,20 @@ export async function updateTranscriptionLanguage(
   const { data } = await client.put<{ user: User }>("/auth/me/transcription-language", {
     transcriptionLanguage,
   });
+  return data.user;
+}
+
+export async function updateDefaultPrivate(defaultPrivate: boolean): Promise<User> {
+  const { data } = await client.put<{ user: User }>("/auth/me/default-private", { defaultPrivate });
+  return data.user;
+}
+
+export async function saveAiKey(provider: "gemini" | "deepseek", key: string): Promise<User> {
+  const { data } = await client.put<{ user: User }>("/auth/me/ai-key", { provider, key });
+  return data.user;
+}
+
+export async function clearAiKey(): Promise<User> {
+  const { data } = await client.delete<{ user: User }>("/auth/me/ai-key");
   return data.user;
 }

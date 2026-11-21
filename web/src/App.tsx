@@ -13,6 +13,8 @@ import { NotesPage } from "./pages/NotesPage";
 import { MeditationPage } from "./pages/MeditationPage";
 import { MatrixPage } from "./pages/MatrixPage";
 import { CategoriesPage } from "./pages/CategoriesPage";
+import { ContextsPage } from "./pages/ContextsPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { BrainstormingPage } from "./pages/BrainstormingPage";
 import { GtdGuidePage } from "./pages/GtdGuidePage";
 import { AdminPage } from "./pages/AdminPage";
@@ -77,9 +79,11 @@ export default function App() {
           <Route path="plan" element={<PlanningPage />} />
           <Route path="matrix" element={<MatrixPage />} />
           <Route path="categories" element={<CategoriesPage />} />
+          <Route path="contexts" element={<ContextsPage />} />
           <Route path="brainstorming" element={<BrainstormingPage />} />
           <Route path="gtd" element={<GtdGuidePage />} />
           <Route path="profile" element={<ProfilePage />} />
+          <Route path="settings" element={<SettingsPage />} />
           <Route path="audio" element={<AudioPage />} />
           <Route path="stats" element={<StatsPage />} />
           <Route

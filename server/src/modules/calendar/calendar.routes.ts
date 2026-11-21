@@ -33,8 +33,7 @@ export async function calendarRoutes(app: FastifyInstance) {
     const to = query.to ? new Date(query.to) : new Date(from.getFullYear(), from.getMonth() + 1, 0);
     const db = getDb();
 
-    const targetUserId = reqUser.isAdmin && query.userId ? query.userId : reqUser.id;
-    const targetIsAdmin = reqUser.isAdmin && !query.userId;
+    const targetUserId = reqUser.isAdmin && query.userId ? query.userId : null;
 
     const dateConditions: SQL[] = [];
     if (showDue) {
@@ -43,9 +42,12 @@ export async function calendarRoutes(app: FastifyInstance) {
     if (showPlanned) {
       dateConditions.push(isNotNull(tasks.plannedDate) as SQL);
     }
-    const conditions: SQL[] = [or(...dateConditions) as SQL];
-    const visFilter = visibilityFilter(targetUserId, targetIsAdmin);
-    if (visFilter) conditions.push(visFilter);
+    // Sichtbarkeit richtet sich immer nach dem anfragenden Nutzer – auch ein
+    // Admin sieht über den Umschalter nur öffentliche Aufgaben der Person.
+    const conditions: SQL[] = [or(...dateConditions) as SQL, visibilityFilter(reqUser.id)];
+    if (targetUserId && targetUserId !== reqUser.id) {
+      conditions.push(eq(tasks.createdById, targetUserId));
+    }
 
     const rows = db
       .select()

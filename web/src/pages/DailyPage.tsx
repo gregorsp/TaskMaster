@@ -125,7 +125,7 @@ export function DailyPage() {
         title,
         dueAt: iso,
         plannedDate: iso,
-        isPrivate: true,
+        isPrivate: user.defaultPrivate ?? true,
         assigneeIds: [user.id],
       });
       setQuickAddTitle("");

@@ -1,4 +1,3 @@
-import { Key as KeyIcon } from "@mui/icons-material";
 import { useState, useEffect, useMemo } from "react";
 import {
   Dialog, DialogContent, DialogTitle, TextField, Button, Stack, Box,
@@ -8,6 +7,7 @@ import {
 } from "@mui/material";
 import { createTask, updateTask, listTasks, generateTaskDescriptionAi, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations } from "../../api/tasksApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
+import { listContexts, type TaskContext } from "../../api/contextsApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { useNotify } from "../../context/NotifyContext";
 import { useAuth } from "../../context/AuthContext";
@@ -80,8 +80,6 @@ function toInputDate(d: Date | null): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 }
 
-const FORM_ENERGY_TAGS = [{ label: "⚡ < 2 Min", tag: "2 min" }, { label: "⏱️ 15 Min", tag: "15 min" }, { label: "🔋 Hohe Energie", tag: "energie:hoch" }, { label: "🪫 Niedrige Energie", tag: "energie:niedrig" }];
-
 export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const isEdit = !!task;
   const [title, setTitle] = useState("");
@@ -103,6 +101,11 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const [yearMonth, setYearMonth] = useState(1);
   const [yearDay, setYearDay] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
+  const [selectedContexts, setSelectedContexts] = useState<TaskContext[]>([]);
+  const [contextOptions, setContextOptions] = useState<TaskContext[]>([]);
+  const [status, setStatus] = useState<"next" | "waiting" | "someday" | null>(null);
+  const [duration, setDuration] = useState<"under_2_min" | "15_min" | null>(null);
+  const [energy, setEnergy] = useState<"low" | "high" | null>(null);
   const [selectedAssignees, setSelectedAssignees] = useState<UserPickerItem[]>([]);
   const [parentTask, setParentTask] = useState<TaskWithRelations | null>(null);
   const [parentOptions, setParentOptions] = useState<TaskWithRelations[]>([]);
@@ -121,6 +124,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   useEffect(() => {
     if (open) {
       listCategories().then(setCategories).catch(() => []);
+      listContexts().then(setContextOptions).catch(() => []);
       listUsersPicker().then((all) => {
         setUsers(all);
         if (!task && currentUser) {
@@ -148,6 +152,10 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         setUrgencyValue(task.urgencyValue ?? 3);
         setRecurrenceType(task.isHabit ? "habit" : (task.recurrenceType || "none"));
         setSelectedCategories((task.categories || []) as Category[]);
+        setSelectedContexts((task.contexts || []) as TaskContext[]);
+        setStatus(task.status ?? null);
+        setDuration(task.duration ?? null);
+        setEnergy(task.energy ?? null);
         setSelectedAssignees(task.assignees || []);
         if (task.parentId) {
           import("../../api/tasksApi").then(({ getTask: gt }) => {
@@ -169,10 +177,12 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         }
       } catch (e) { console.error("TaskForm prefill error:", e); }
     } else if (open && !task) {
-      setTitle(""); setDescription(""); setDueDate(""); setPlannedDate(""); setIsPrivate(false);
+      setTitle(""); setDescription(""); setDueDate(""); setPlannedDate("");
+      setIsPrivate(currentUser?.defaultPrivate ?? true);
       setIsImportant(false); setPomodoros(null); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
       setFreq("WEEKLY"); setInterval(1); setSelectedDays([]);
-      setMonthDay(""); setUseNthWeekday(false); setSelectedCategories([]);
+      setMonthDay(""); setUseNthWeekday(false); setSelectedCategories([]); setSelectedContexts([]);
+      setStatus(null); setDuration(null); setEnergy(null);
       setParentTask(null);
       const me = users.find((u) => u.id === currentUser?.id);
       setSelectedAssignees(me ? [me] : []);
@@ -237,9 +247,13 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           dueAt: !isHabit && dueDate ? new Date(dueDate).toISOString() : null,
           isImportant, isPrivate, pomodoros, urgencyMode, urgencyValue,
           isHabit,
+          status: isHabit ? null : status,
+          duration: isHabit ? null : duration,
+          energy: isHabit ? null : energy,
           recurrenceType: isHabit ? "none" : recurrenceType,
           recurrenceRule: isHabit ? null : (ruleStr || null),
           categoryIds: selectedCategories.map((c) => c.id),
+          contextIds: isHabit ? [] : selectedContexts.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
           parentId: isHabit ? null : (parentTask?.id || null),
           plannedDate: isHabit ? null : (plannedDate ? new Date(plannedDate).toISOString() : null),
@@ -256,9 +270,13 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           dueAt: !isHabit && dueDate ? new Date(dueDate).toISOString() : undefined,
           isImportant, isPrivate, pomodoros, urgencyMode, urgencyValue,
           isHabit,
+          status: isHabit ? null : status,
+          duration: isHabit ? null : duration,
+          energy: isHabit ? null : energy,
           recurrenceType: isHabit ? "none" : recurrenceType,
           recurrenceRule: isHabit ? undefined : ruleStr,
           categoryIds: selectedCategories.map((c) => c.id),
+          contextIds: isHabit ? [] : selectedContexts.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
           parentId: isHabit ? null : (parentTask?.id || null),
           plannedDate: isHabit ? undefined : (plannedDate ? new Date(plannedDate).toISOString() : undefined),
@@ -310,51 +328,32 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   })();
 
   const [aiDescLoading, setAiDescLoading] = useState(false);
-  const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem("taskmaster_ai_api_key") || "");
 
-  const runAiWithKey = async (keyToUse: string) => {
+  const handleGenerateDescription = async () => {
     if (!title.trim()) {
       notify("Bitte zuerst einen Aufgabentitel eingeben", "warning");
       return;
     }
     setAiDescLoading(true);
     try {
-      const generated = await generateTaskDescriptionAi(title.trim(), description.trim() || undefined, keyToUse);
-      setDescription(generated);
-      notify("GTD-Beschreibung generiert!");
-    } catch {
-      notify("KI-Fehler: Bitte API-Key oder Guthaben prüfen", "error");
+      const suggestion = await generateTaskDescriptionAi(title.trim(), description.trim() || undefined);
+      setDescription(suggestion.description);
+      if (suggestion.duration) setDuration(suggestion.duration);
+      if (suggestion.energy) setEnergy(suggestion.energy);
+      if (suggestion.status) setStatus(suggestion.status);
+      if (suggestion.context) {
+        const match = contextOptions.find((c) => c.name.toLowerCase() === suggestion.context!.toLowerCase());
+        if (match) {
+          setSelectedContexts((current) => (current.some((c) => c.id === match.id) ? current : [...current, match]));
+        }
+      }
+      notify("Vorschlag übernommen");
+    } catch (e) {
+      const err = e as { response?: { data?: { error?: { message?: string } } } };
+      notify(err?.response?.data?.error?.message || "KI-Fehler: Bitte Schlüssel in den Einstellungen prüfen", "error");
     } finally {
       setAiDescLoading(false);
     }
-  };
-
-  const handleGenerateDescription = async () => {
-    const savedKey = localStorage.getItem("taskmaster_ai_api_key") || "";
-    if (!savedKey) {
-      setApiKeyDialogOpen(true);
-      return;
-    }
-    await runAiWithKey(savedKey);
-  };
-
-  const handleSaveApiKeyAndRun = async () => {
-    const trimmed = apiKeyInput.trim();
-    if (!trimmed) return;
-    localStorage.setItem("taskmaster_ai_api_key", trimmed);
-    setApiKeyDialogOpen(false);
-    await runAiWithKey(trimmed);
-  };
-
-  const applyContext = (ctx: string) => {
-    const cleaned = title.replace(/^@[A-Za-zÄÖÜäöüß]+:\s*/, "");
-    setTitle(`${ctx}: ${cleaned}`);
-  };
-
-  const selectGtdCategory = (namePart: string) => {
-    const found = categories.find((c) => c.name.toLowerCase().includes(namePart.toLowerCase()));
-    if (found) setSelectedCategories([found]);
   };
 
   return (<>
@@ -374,43 +373,60 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
             </Button>
             
           </Stack>
-          <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap alignItems="center">
-            <Typography variant="caption" color="text.secondary">Kontext:</Typography>
-            {["@Telefon", "@Computer", "@Online", "@Zuhause", "@Besorgungen", "@Uni"].map((ctx) => (
-              <Chip
-                key={ctx}
-                size="small"
-                label={ctx}
-                variant={title.startsWith(ctx) ? "filled" : "outlined"}
-                color={title.startsWith(ctx) ? "primary" : "default"}
-                onClick={() => applyContext(ctx)}
-              />
-            ))}
-          </Stack>
-          <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap alignItems="center">
-            <Typography variant="caption" color="text.secondary">GTD-Liste:</Typography>
-            {[
-              { label: "Projekt", key: "projekt" },
-              { label: "Nächster Schritt", key: "nächste" },
-              { label: "Warten auf", key: "warten" },
-              { label: "Irgendwann/Vielleicht", key: "irgendwann" },
-            ].map((item) => {
-              const active = selectedCategories.some((c) => c.name.toLowerCase().includes(item.key));
-              return (
-                <Chip
-                  key={item.key}
-                  size="small"
-                  label={item.label}
-                  color={active ? "secondary" : "default"}
-                  variant={active ? "filled" : "outlined"}
-                  onClick={() => selectGtdCategory(item.key)}
-                />
-              );
-            })}
-          </Stack>
-          <Typography variant="caption" color="text.secondary">
-            GTD-Regel (David Allen): Dauert der erste Schritt unter 2 Minuten, erledige ihn sofort. Mehr als 1 Schritt = Projekt + 1 konkreter Nächster Schritt.
-          </Typography>
+          {recurrenceType !== "habit" && (
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <TextField
+                select size="small" label="Status"
+                value={status ?? ""}
+                onChange={(e) => setStatus((e.target.value || null) as "next" | "waiting" | "someday" | null)}
+                sx={{ minWidth: 170 }}
+              >
+                <MenuItem value="">Kein Status</MenuItem>
+                <MenuItem value="next">Nächster Schritt</MenuItem>
+                <MenuItem value="waiting">Warten auf</MenuItem>
+                <MenuItem value="someday">Irgendwann</MenuItem>
+              </TextField>
+              <TextField
+                select size="small" label="Dauer"
+                value={duration ?? ""}
+                onChange={(e) => setDuration((e.target.value || null) as "under_2_min" | "15_min" | null)}
+                sx={{ minWidth: 150 }}
+              >
+                <MenuItem value="">Keine Angabe</MenuItem>
+                <MenuItem value="under_2_min">Unter 2 Min</MenuItem>
+                <MenuItem value="15_min">15 Min</MenuItem>
+              </TextField>
+              <TextField
+                select size="small" label="Energie"
+                value={energy ?? ""}
+                onChange={(e) => setEnergy((e.target.value || null) as "low" | "high" | null)}
+                sx={{ minWidth: 150 }}
+              >
+                <MenuItem value="">Keine Angabe</MenuItem>
+                <MenuItem value="low">Niedrig</MenuItem>
+                <MenuItem value="high">Hoch</MenuItem>
+              </TextField>
+            </Stack>
+          )}
+          {recurrenceType !== "habit" && (
+            <Autocomplete
+              multiple
+              options={contextOptions}
+              getOptionLabel={(c) => c.name}
+              value={selectedContexts}
+              onChange={(_, v) => setSelectedContexts(v)}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
+              renderInput={(p) => <TextField {...p} label="Kontexte" placeholder="z. B. Telefon, Computer" />}
+              renderOption={(props, opt) => (
+                <li {...props} key={opt.id}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: opt.color }} />
+                    {opt.name}
+                  </Box>
+                </li>
+              )}
+            />
+          )}
           <Stack direction="row" spacing={1} alignItems="flex-start">
             <TextField
               label="Beschreibung"
@@ -420,26 +436,6 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
               rows={3}
               fullWidth
             />
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-          {FORM_ENERGY_TAGS.map((item) => {
-            const active = description.toLowerCase().includes(item.tag);
-            return (
-              <Chip
-                key={item.tag}
-                label={item.label}
-                size="small"
-                color={active ? "secondary" : "default"}
-                variant={active ? "filled" : "outlined"}
-                onClick={() => {
-                  const nextDesc = active
-                    ? description.replace(new RegExp(`\\s*${item.tag}`, "i"), "").trim()
-                    : (description.trim() + " " + item.tag).trim();
-                  setDescription(nextDesc);
-                }}
-              />
-            );
-          })}
-        </Stack>
             <DictateButton
               onText={(text) => setDescription((current) => (current ? `${current} ${text}` : text))}
             />
@@ -633,31 +629,6 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           Trotzdem umwandeln
         </Button>
       </DialogActions>
-    </Dialog>
-    <Dialog open={apiKeyDialogOpen} onClose={() => setApiKeyDialogOpen(false)} maxWidth="xs" fullWidth>
-      <DialogTitle>KI-API-Key hinterlegen</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} mt={1}>
-          <Typography variant="body2" color="text.secondary">
-            Gib deinen DeepSeek-Key (<code>sk-...</code>) oder kostenlosen Google Gemini-Key (<code>AIza...</code>) ein. Er wird lokal in deinem Browser gespeichert.
-          </Typography>
-          <TextField
-            label="API-Key"
-            type="password"
-            value={apiKeyInput}
-            onChange={(e) => setApiKeyInput(e.target.value)}
-            fullWidth
-            autoFocus
-            placeholder="sk-... oder AIza..."
-          />
-          <Stack direction="row" justifyContent="flex-end" spacing={1}>
-            <Button onClick={() => setApiKeyDialogOpen(false)}>Abbrechen</Button>
-            <Button variant="contained" onClick={handleSaveApiKeyAndRun} disabled={!apiKeyInput.trim()}>
-              Speichern & Starten
-            </Button>
-          </Stack>
-        </Stack>
-      </DialogContent>
     </Dialog>
   </>);
 }

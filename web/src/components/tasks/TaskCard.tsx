@@ -19,6 +19,7 @@ import { CompleteBlockedDialog } from "./CompleteBlockedDialog";
 import { OccurrencePicker } from "./OccurrencePicker";
 import { hashColor } from "./AssigneeAvatars";
 import { useNotify } from "../../context/NotifyContext";
+import { useAuth } from "../../context/AuthContext";
 import { useModalStack } from "./ModalStackProvider";
 import client from "../../api/client";
 import { DictateButton } from "../audio/DictateButton";
@@ -91,6 +92,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
   const [cascadeDialogOpen, setCascadeDialogOpen] = useState(false);
   const [completableParent, setCompletableParent] = useState<{ id: string; title: string } | null>(null);
   const notify = useNotify();
+  const { user } = useAuth();
   const { push, closeAll } = useModalStack();
 
   const handleNavigateToTask = (target: Task) => {
@@ -315,6 +317,38 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
   const taskCats = task.categories || [];
   const taskAssignees = task.assignees || [];
   const availCats = allCats.filter(c => !taskCats.find(tc => tc.id === c.id));
+  const groupedCats = (() => {
+    const map = new Map<string, { name: string; color: string; ids: string[] }>();
+    for (const cat of taskCats) {
+      const key = cat.name.trim().toLowerCase();
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, { name: cat.name, color: cat.color, ids: [cat.id] });
+        continue;
+      }
+      existing.ids.push(cat.id);
+      // Eigene Farbe hat Vorrang vor der Farbe fremder Kategorien.
+      if (cat.createdById && cat.createdById === user?.id) {
+        existing.color = cat.color;
+        existing.name = cat.name;
+      }
+    }
+    return [...map.values()];
+  })();
+  const groupedContexts: { name: string; color: string }[] = (() => {
+    const map = new Map<string, { name: string; color: string }>();
+    for (const ctx of task.contexts || []) {
+      const key = ctx.name.trim().toLowerCase();
+      const existing = map.get(key);
+      if (!existing) map.set(key, { name: ctx.name, color: ctx.color });
+      else if (ctx.createdById && ctx.createdById === user?.id) {
+        existing.color = ctx.color;
+        existing.name = ctx.name;
+      }
+    }
+    return [...map.values()];
+  })();
+  const canEditPrivacy = task.createdById === user?.id;
   const rt = task.recurrenceType;
   const hasOpenSubtasks = subtaskOpenCount > 0;
   const isPlannedToday = !!task.plannedDate && toInputDate(new Date(task.plannedDate)) === toInputDate(new Date());
@@ -365,7 +399,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                   </Tooltip>
                 )}
                 <IconButton size="small" onClick={() => setEditOpen(true)}><EditIcon fontSize="small" /></IconButton>
-                {!task.isHabit && (
+                {!task.isHabit && canEditPrivacy && (
                   <IconButton size="small" onClick={() => safeCall(async () => { await updateTask(taskId, { isPrivate: !task.isPrivate }); setTask({ ...task, isPrivate: !task.isPrivate }); })}>
                     {task.isPrivate ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" color="disabled" />}
                   </IconButton>
@@ -378,9 +412,9 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
             </Stack>
 
             <Stack direction="row" flexWrap="wrap" gap={1} mb={2}>
-              {taskCats.map(cat => (
-                <Chip key={cat.id} label={cat.name} size="small" sx={{ bgcolor: cat.color + "20", color: cat.color, fontWeight: 500 }}
-                  onDelete={() => safeCall(async () => { await updateTask(taskId, { categoryIds: taskCats.filter(c => c.id !== cat.id).map(c => c.id) }); load(); })} />
+              {groupedCats.map(cat => (
+                <Chip key={cat.name} label={cat.name} size="small" sx={{ bgcolor: cat.color + "20", color: cat.color, fontWeight: 500 }}
+                  onDelete={() => safeCall(async () => { await updateTask(taskId, { categoryIds: taskCats.filter(c => !cat.ids.includes(c.id)).map(c => c.id) }); load(); })} />
               ))}
               {availCats.length > 0 && (<>
                 <Chip icon={<AddIcon />} label="" size="small" variant="outlined" onClick={e => setCatMenuAnchor(e.currentTarget)} />
@@ -388,6 +422,21 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                   {availCats.map(cat => <MenuItem key={cat.id} onClick={() => { safeCall(async () => { await updateTask(taskId, { categoryIds: [...taskCats.map(c => c.id), cat.id] }); load(); }); setCatMenuAnchor(null); }}><Box sx={{ display: "flex", alignItems: "center", gap: 1 }}><Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: cat.color }} />{cat.name}</Box></MenuItem>)}
                 </Menu>
               </>)}
+              {groupedContexts.map(ctx => (
+                <Chip key={ctx.name} label={ctx.name} size="small" variant="outlined"
+                  sx={{ borderColor: ctx.color, color: ctx.color }} />
+              ))}
+              {task.status && (
+                <Chip size="small" color="secondary" variant="outlined"
+                  label={task.status === "next" ? "Nächster Schritt" : task.status === "waiting" ? "Warten auf" : "Irgendwann"} />
+              )}
+              {task.duration && (
+                <Chip size="small" variant="outlined" label={task.duration === "under_2_min" ? "unter 2 Min" : "15 Min"} />
+              )}
+              {task.energy && (
+                <Chip size="small" variant="outlined" label={task.energy === "high" ? "hohe Energie" : "niedrige Energie"} />
+              )}
+              {task.isProject && <Chip size="small" color="info" variant="outlined" label="Projekt" />}
             </Stack>
 
             {task.description && <Box mb={3}><Markdown color="text.secondary" onToggleTask={handleToggleDescription}>{task.description}</Markdown></Box>}

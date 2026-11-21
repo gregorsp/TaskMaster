@@ -6,7 +6,7 @@
 - The Fastify server doubles as the SPA host in production: it serves the built React app from `server/public/` (copied from `web/dist/` during Docker build) and falls back to `index.html` for client-side routing.
 - DB is SQLite via `sql.js` (WASM, no native modules). Drizzle ORM for schema + queries. Migrations are in `server/src/db/migrations/`.
 - Nightly server-side transcription (optional, `TRANSCRIBE_SERVER=true`) runs the same Parakeet model in a `worker_threads` worker via `onnxruntime-node`; the only native dependency. Everything else stays toolchain-free.
-- Current schema version: `SCHEMA_VERSION = 16` (defined in `server/src/db/version.ts`). There are 19 migration files (`0000` through `0018`).
+- Current schema version: `SCHEMA_VERSION = 17` (defined in `server/src/db/version.ts`). There are 20 migration files (`0000` through `0019`).
 
 ### Server startup flow
 
@@ -74,6 +74,7 @@ All business logic lives under `server/src/modules/`, organized by domain:
 | Auth | `modules/auth/` | `/api/auth` | `auth.routes.ts`, `auth.service.ts`, `auth.schema.ts`, `profile.service.ts` |
 | Tasks | `modules/tasks/` | `/api/tasks` | `tasks.routes.ts`, `tasks.service.ts`, `tasks.schema.ts`, `completion.service.ts` |
 | Categories | `modules/categories/` | `/api/categories` | `categories.routes.ts`, `categories.service.ts`, `colors.ts` |
+| Contexts | `modules/contexts/` | `/api/contexts` | `contexts.routes.ts`, `contexts.service.ts` (CRUD + `seedDefaultContexts`, `DEFAULT_CONTEXTS`) |
 | Users | `modules/users/` | `/api/users` | `users.routes.ts`, `users.service.ts` |
 | Calendar | `modules/calendar/` | `/api/calendar` | `calendar.routes.ts`, `recurrence.service.ts` |
 | Planning | `modules/planning/` | `/api/planning` | `planning.routes.ts`, `planning.service.ts` |
@@ -96,7 +97,7 @@ Each module follows a consistent pattern:
 | File | Purpose |
 |---|---|
 | `auth.hooks.ts` | Exports `authGuard` (verifies JWT from `Authorization: Bearer` header, populates `request.user` with `{ id, isAdmin }`) and `adminGuard` (checks `request.user.isAdmin`). |
-| `visibility.ts` | Exports `isVisibleToUser(taskId, userId, isAdmin)` — returns false for tasks the user should not see (private tasks where user is neither creator, assignee, nor admin). Also exports `buildVisibilityClause` used by the task list query to filter at the SQL level. |
+| `visibility.ts` | Exports `visibilityFilter(userId)` (SQL WHERE clause: public, creator, or assignee — no admin bypass), `isVisibleToUserSync(taskId, userId)` (fail-closed) and the async `isVisibleToUser` wrapper. Used by every task-reading module. |
 | `error.handler.ts` | Fastify `setErrorHandler` that normalizes all errors to `{ error: { code, message } }`. Handles Zod validation errors (400), Fastify validation errors (400), and custom errors with `statusCode`/`code`. |
 
 ## Route registration and auth flow
@@ -111,18 +112,20 @@ Each module follows a consistent pattern:
 
 ### Schema overview (`server/src/db/schema.ts`)
 
-18 Drizzle tables:
+20 Drizzle tables:
 
 | Table | Purpose |
 |---|---|
-| `users` | User accounts: id, username, email, passwordHash, displayName, isAdmin, profilePicture, capacity, confirmHabitCompletion, createdAt |
-| `tasks` | Tasks with 25 columns including: title, description, dueAt, baseDate, lastCompletedAt, isCompleted, completedAt, isImportant, isUrgent, pomodoros, urgencyMode, urgencyValue, isPrivate, isHabit, recurrenceType, recurrenceRule, parentId, plannedDate |
+| `users` | User accounts: id, username, email, passwordHash, displayName, isAdmin, profilePicture, capacity, confirmHabitCompletion, transcriptionLanguage, **defaultPrivate** (new tasks private by default, default true), **aiProvider** / **aiKeyEncrypted** (encrypted per-user AI key), createdAt |
+| `tasks` | Tasks with 28 columns including: title, description, dueAt, baseDate, lastCompletedAt, isCompleted, completedAt, isImportant, isUrgent, pomodoros, urgencyMode, urgencyValue, isPrivate, isHabit, **status** (`next`/`waiting`/`someday`), **duration** (`under_2_min`/`15_min`), **energy** (`low`/`high`), recurrenceType, recurrenceRule, parentId, plannedDate |
 | `task_assignees` | Join table: taskId ↔ userId (composite PK) |
 | `task_categories` | Join table: taskId ↔ categoryId (composite PK) |
+| `categories` | Per-user task categories: id, name, color, createdById, createdAt |
+| `contexts` | Per-user GTD contexts (Telefon, Computer, Online …): id, name, color, createdById, createdAt |
+| `task_contexts` | Join table: taskId ↔ contextId (composite PK) |
 | `task_events` | Audit log: id, taskId, userId, type (completed/reopened/comment), content, occurrenceDate, createdAt |
 | `task_links` | Bidirectional task relationships: taskIdA ↔ taskIdB (composite PK) |
 | `task_occurrences` | Individual recurrence instances: id, taskId, occurrenceDate, plannedDate, isCompleted, completedAt, completedById, note, createdAt |
-| `categories` | Task categories: id, name, color, createdById, createdAt |
 | `notes` | Private notes: id, userId, kind (`text`/`audio`), title, body, createdAt, updatedAt |
 | `recordings` | Audio of any owner: ownerType (`note`/`journal_entry`/`journal_answer`/`meditation_session`), ownerId, ordinal, filename, mimeType, byteSize, chunkCount, durationMs, language, status |
 | `transcription_jobs` | One job per recording: status, progressMs, epoch (revision, bumped on takeover → stale writers get 409), claimedBy, leaseUntil, attempts, error, startedAt/finishedAt (measured processing time, migration 0018), engine (`server`/`device`) |
@@ -172,7 +175,11 @@ When changing `server/src/db/schema.ts`:
 
 ### Private tasks visibility
 
-- Private tasks (`isPrivate = true`) are **server-filtered**. The `visibility.ts` middleware adds a WHERE clause to all task queries: the user must be the creator, an assignee, or an admin.
+- Private tasks (`isPrivate = true`) are **server-filtered**. `visibility.ts` adds a WHERE clause to all task queries: the user must be the creator, an assignee, or the task must be public. **There is deliberately no admin bypass** — admins see private tasks only if they created them or are assigned.
+- Habits (`isHabit = true`) are always private and invisible to everyone else, **including admins**. Stats’ `scope=all` omits habit data entirely (`habits.available === false`).
+- New tasks default to private per user (`users.default_private`); the client may override with an explicit `isPrivate`. Subtasks inherit the parent’s privacy — changing a parent’s privacy cascades to all descendants.
+- Only the **creator** may change `isPrivate`, `assigneeIds` or delete a task. Assignees may edit content, categories, contexts and status.
+- Relationship endpoints (`/links`, `/subtasks`, `/siblings`) filter by visibility, `parentId` is validated (existence + visibility + cycle), occurrence deletion is scoped to the task, and planning-draft confirmations only move visible tasks.
 - **Never replicate this logic on the frontend** — it's authoritative on the server. The frontend just receives already-filtered data.
 
 ### JWT refresh is cookie-based
@@ -276,13 +283,15 @@ When changing `server/src/db/schema.ts`:
   - `MatrixPage` — Eisenhower matrix with drag-and-drop.
   - `DailyPage` — today's view (habits, tasks, occurrences).
   - `PlanningPage` — weekly planning grid.
-  - `CategoriesPage` — category management.
+  - `CategoriesPage` — category management (own categories).
+  - `ContextsPage` — GTD context management (own contexts).
+  - `SettingsPage` — general/KI/behavior settings (default-private, encrypted AI key, habit confirmation, transcription language, auto-transcribe).
   - `AdminPage` — user management (admin only).
-  - `ProfilePage` — user's own profile settings.
+  - `ProfilePage` — avatar, master data, capacity, password.
   - `AudioPage` — audio processing overview: queue, live progress + ETA, recent/failed jobs, retry, stats block.
   - `StatsPage` — three sections (tasks, meditation, audio) with a shared range selector, per-section comparisons and admin per-user tables.
   - `MigrationPage` — shown in maintenance mode.
-- Sidebar navigation has two tiers: the working pages (`AppShell.tsx` `navItems`) and a **"Verwaltung"** group inside the avatar menu (Profil, Audio, Statistik, Admin). Admin-only entries are filtered by `user?.isAdmin`.
+- Sidebar navigation has two tiers: the working pages (`AppShell.tsx` `navItems`: Aufgaben, Tagesansicht, Notizen, Meditation, Kalender, Planung, Matrix, Kategorien, Kontexte, Brainstorming, GTD) and a **"Verwaltung"** group inside the avatar menu (Profil, Einstellungen, Audio, Statistik, Admin). Admin-only entries are filtered by `user?.isAdmin`.
 
 ## Environment and config
 
@@ -326,7 +335,7 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 - **Framework**: Vitest (`server/package.json` → `"test": "vitest run"`, `"test:watch": "vitest"`).
 - **Database**: In-memory SQLite (`DB_PATH` is `:memory:` when `NODE_ENV=test`).
 - **HTTP**: Tests use Fastify's `inject()` method to call routes without a running server. Each test file builds a fresh app instance via `buildApp()` and seeds the necessary data.
-- **Current coverage**: 207 tests across 16 test files.
+- **Current coverage**: 237 tests across 18 test files.
 - New modules have their own files: `notes.test.ts` (11), `journal.test.ts` (5), `meditation.test.ts` (3), `stats.test.ts` (13), `transcription-server.test.ts` (20), `audio-overview.test.ts` (24).
 
 ### Test files
@@ -334,7 +343,9 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 | File | Test count | What's covered |
 |---|---|---|
 | `test/tasks.test.ts` | 53 | Task CRUD, filtering, pagination, visibility, subtasks, links, occurrences, urgency |
-| `test/migration.test.ts` | 19 | Migration from old schema versions, backup/restore |
+| `test/privacy.test.ts` | 12 | Default-private, subtask inheritance/cascade, link/subtask/sibling filtering, creator-only writes, occurrence scoping, `parentId` validation, no admin bypass, habit invisibility |
+| `test/organization.test.ts` | 13 | Per-user categories + name grouping, contexts CRUD/seeding, status/duration/energy filters, inbox, project derivation, encrypted AI key |
+| `test/migration.test.ts` | 24 | Migration from old schema versions, 0019 data conversion (contexts, title prefixes, energy tags, GTD categories, privacy normalization), backup/restore |
 | `test/habits.test.ts` | 15 | Habit creation, completion, occurrence tracking, streaks |
 | `test/planning.test.ts` | 12 | Planning grid, draft/confirm, capacity |
 | `test/capacity.test.ts` | 9 | User capacity CRUD, validation |
@@ -399,7 +410,7 @@ npm run test:watch   # watch mode, re-runs on file changes
 
 - **PWA cache in development**: After making frontend changes, the service worker may serve cached files. Do a hard reload (Ctrl+Shift+R) or disable the service worker in DevTools → Application → Service Workers.
 - **sql.js async initialization**: Always `await initDb()` before any DB operations. The `getDb()` function returns the shared Drizzle instance — never try to create a new one.
-- **Visibility filter**: When writing new task queries, always include the visibility clause from `buildVisibilityClause()` or call `isVisibleToUser()`. Missing this is a security bug.
+- **Visibility filter**: When writing new task queries, always include `visibilityFilter(userId)` from `middleware/visibility.ts` or call `isVisibleToUserSync()`/`isVisibleToUser()`. Missing this is a security bug. There is no admin bypass.
 - **Migration files are immutable**: Never edit an existing migration file. Always create a new one. Old migrations are the source of truth for the DB state they produce.
 - **SCHEMA_VERSION must match**: If you forget to bump `SCHEMA_VERSION` after adding a migration, the server won't detect the migration and will start in maintenance mode or refuse to start.
 - **Zod validation**: All user input in routes is validated with Zod schemas. Errors are caught by the global error handler and returned as 400 with `{ error: { code: "VALIDATION_ERROR", message: "...", issues: [...] } }`.

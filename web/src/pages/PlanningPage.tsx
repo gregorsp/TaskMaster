@@ -514,6 +514,7 @@ export function PlanningPage() {
                   value={filters}
                   onChange={setFilters}
                   categories={categories}
+                  contexts={[]}
                   users={users}
                   showStatus={false}
                   showHabits={false}

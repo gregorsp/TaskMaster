@@ -3,8 +3,10 @@ import { registerSchema, loginSchema } from "./auth.schema.js";
 import {
   registerUser, authenticateUser, getUserById, updateCurrentUser, changePassword,
   getCurrentUserCapacity, updateCurrentUserCapacity, updateCurrentUserHabitConfirm,
-  updateCurrentUserTranscriptionLanguage,
+  updateCurrentUserTranscriptionLanguage, updateCurrentUserDefaultPrivate,
+  updateCurrentUserAiKey, clearCurrentUserAiKey,
 } from "./auth.service.js";
+import { encryptSecret } from "../../lib/secrets.js";
 import { authGuard } from "../../middleware/auth.hooks.js";
 import { config } from "../../config.js";
 import { z } from "zod";
@@ -34,6 +36,15 @@ const updateHabitConfirmSchema = z.object({
 
 const updateTranscriptionLanguageSchema = z.object({
   transcriptionLanguage: z.enum(["de", "en", "auto"]),
+});
+
+const updateDefaultPrivateSchema = z.object({
+  defaultPrivate: z.boolean(),
+});
+
+const updateAiKeySchema = z.object({
+  provider: z.enum(["gemini", "deepseek"]),
+  key: z.string().min(8).max(256),
 });
 
 export async function authRoutes(app: FastifyInstance) {
@@ -174,8 +185,43 @@ export async function authRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post("/me/profile-picture", { preHandler: authGuard }, async (request, reply) => {
+  app.put("/me/default-private", { preHandler: authGuard }, async (request, reply) => {
     const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
+    const input = updateDefaultPrivateSchema.parse(request.body);
+
+    try {
+      return reply.send({ user: updateCurrentUserDefaultPrivate(authUser.id, input.defaultPrivate) });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string };
+      return reply.status(e.statusCode || 500).send({ error: { code: e.code || "UPDATE_FAILED", message: e.message } });
+    }
+  });
+
+  app.put("/me/ai-key", { preHandler: authGuard }, async (request, reply) => {
+    const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
+    const input = updateAiKeySchema.parse(request.body);
+
+    try {
+      const user = updateCurrentUserAiKey(authUser.id, input.provider, encryptSecret(input.key.trim()));
+      return reply.send({ user });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string };
+      return reply.status(e.statusCode || 500).send({ error: { code: e.code || "UPDATE_FAILED", message: e.message } });
+    }
+  });
+
+  app.delete("/me/ai-key", { preHandler: authGuard }, async (request, reply) => {
+    const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
+
+    try {
+      return reply.send({ user: clearCurrentUserAiKey(authUser.id) });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string };
+      return reply.status(e.statusCode || 500).send({ error: { code: e.code || "UPDATE_FAILED", message: e.message } });
+    }
+  });
+
+  app.post("/me/profile-picture", { preHandler: authGuard }, async (request, reply) => {    const { user: authUser } = request as { user: { id: string; isAdmin: boolean } };
     const data = await request.file();
 
     if (!data) {

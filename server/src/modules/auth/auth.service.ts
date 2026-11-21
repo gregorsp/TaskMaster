@@ -6,6 +6,8 @@ import { users } from "../../db/schema.js";
 import type { RegisterInput } from "./auth.schema.js";
 import { getProfilePictureUrl } from "./profile.service.js";
 import { parseCapacity, serializeCapacity, type Capacity } from "../../lib/capacity.js";
+import { seedDefaultContexts } from "../contexts/contexts.service.js";
+import { decryptSecret } from "../../lib/secrets.js";
 
 const KEYLEN = 64;
 
@@ -39,6 +41,10 @@ function userToResponse(user: typeof users.$inferSelect) {
     capacity: parseCapacity(user.capacity),
     confirmHabitCompletion: user.confirmHabitCompletion,
     transcriptionLanguage: user.transcriptionLanguage,
+    defaultPrivate: user.defaultPrivate,
+    aiProvider: user.aiProvider,
+    /** Der Schlüssel selbst verlässt den Server nie. */
+    hasAiKey: Boolean(user.aiKeyEncrypted),
   };
 }
 
@@ -80,15 +86,11 @@ export async function registerUser(input: RegisterInput) {
   };
 
   db.insert(users).values(user).run();
+  // Jeder Nutzer startet mit den sechs Standard-Kontexten.
+  seedDefaultContexts(user.id);
 
-  return {
-    id: user.id,
-    username: user.username,
-    email: user.email,
-    displayName: user.displayName,
-    isAdmin: user.isAdmin,
-    profilePicture: null,
-  };
+  const created = db.select().from(users).where(eq(users.id, user.id)).get()!;
+  return userToResponse(created);
 }
 
 export async function authenticateUser(email: string, password: string) {
@@ -202,4 +204,49 @@ export function updateCurrentUserTranscriptionLanguage(id: string, language: str
   db.update(users).set({ transcriptionLanguage: language }).where(eq(users.id, id)).run();
   const updated = db.select().from(users).where(eq(users.id, id)).get()!;
   return userToResponse(updated);
+}
+
+export function updateCurrentUserDefaultPrivate(id: string, defaultPrivate: boolean) {
+  const db = getDb();
+  const existing = db.select({ id: users.id }).from(users).where(eq(users.id, id)).get();
+  if (!existing) {
+    throw Object.assign(new Error("User not found"), { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+
+  db.update(users).set({ defaultPrivate }).where(eq(users.id, id)).run();
+  const updated = db.select().from(users).where(eq(users.id, id)).get()!;
+  return userToResponse(updated);
+}
+
+export function updateCurrentUserAiKey(id: string, provider: "gemini" | "deepseek", encrypted: string) {
+  const db = getDb();
+  const existing = db.select({ id: users.id }).from(users).where(eq(users.id, id)).get();
+  if (!existing) {
+    throw Object.assign(new Error("User not found"), { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+
+  db.update(users).set({ aiProvider: provider, aiKeyEncrypted: encrypted }).where(eq(users.id, id)).run();
+  const updated = db.select().from(users).where(eq(users.id, id)).get()!;
+  return userToResponse(updated);
+}
+
+export function clearCurrentUserAiKey(id: string) {
+  const db = getDb();
+  const existing = db.select({ id: users.id }).from(users).where(eq(users.id, id)).get();
+  if (!existing) {
+    throw Object.assign(new Error("User not found"), { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+
+  db.update(users).set({ aiProvider: null, aiKeyEncrypted: null }).where(eq(users.id, id)).run();
+  const updated = db.select().from(users).where(eq(users.id, id)).get()!;
+  return userToResponse(updated);
+}
+
+/** Liefert den entschlüsselten KI-Schlüssel eines Nutzers (oder null). */
+export function getCurrentUserAiKey(id: string): { provider: string | null; apiKey: string | null } {
+  const db = getDb();
+  const row = db.select({ aiProvider: users.aiProvider, aiKeyEncrypted: users.aiKeyEncrypted })
+    .from(users).where(eq(users.id, id)).get();
+  if (!row) return { provider: null, apiKey: null };
+  return { provider: row.aiProvider, apiKey: decryptSecret(row.aiKeyEncrypted) };
 }

@@ -1,7 +1,7 @@
 import { eq, and, SQL, ne, isNotNull, inArray } from "drizzle-orm";
 import { getDb } from "../../db/client.js";
 import { tasks, taskAssignees, appMeta, taskOccurrences, users, taskCategories, categories } from "../../db/schema.js";
-import { visibilityFilter } from "../../middleware/visibility.js";
+import { visibilityFilter, isVisibleToUserSync } from "../../middleware/visibility.js";
 import { WEEKDAYS, parseCapacity } from "../../lib/capacity.js";
 import { enrichTask } from "../tasks/tasks.service.js";
 import { getProfilePictureUrl } from "../auth/profile.service.js";
@@ -145,14 +145,16 @@ function attachRelations(tasks: ReturnType<typeof enrichTask>[]): PlanningTask[]
   }));
 }
 
-export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to: Date): PlanningData {
+export function getPlanningData(viewerId: string, targetUserId: string | null, from: Date, to: Date): PlanningData {
   const db = getDb();
 
-  const visFilter = visibilityFilter(userId, isAdmin);
-  const conditions: SQL[] = [];
-  if (visFilter) conditions.push(visFilter);
+  const conditions: SQL[] = [visibilityFilter(viewerId)];
+  // Admin-Ansicht: nur die öffentlichen Aufgaben der gewählten Person.
+  if (targetUserId && targetUserId !== viewerId) {
+    conditions.push(eq(tasks.createdById, targetUserId));
+  }
 
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const whereClause = and(...conditions);
 
   const taskRows = db.select().from(tasks)
     .leftJoin(taskAssignees, eq(tasks.id, taskAssignees.taskId))
@@ -163,6 +165,7 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
 
   const habitRows = taskRows.filter((t) => t.isHabit);
   const normalRows = taskRows.filter((t) => !t.isHabit);
+  const ownerId = targetUserId ?? viewerId;
 
   const enriched = attachRelations(normalRows.map(enrichTask));
 
@@ -200,7 +203,7 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
   }
 
   const habits: PlanningHabit[] = habitRows
-    .filter((h) => h.createdById === userId)
+    .filter((h) => h.createdById === ownerId)
     .map((h) => ({
       id: h.id,
       title: h.title,
@@ -229,7 +232,7 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
   const capacity = parseCapacity(
     db.select({ capacity: users.capacity })
       .from(users)
-      .where(eq(users.id, userId))
+      .where(eq(users.id, ownerId))
       .get()?.capacity ?? null
   );
 
@@ -322,7 +325,7 @@ export function getPlanningData(userId: string, isAdmin: boolean, from: Date, to
     }
   }
 
-  const draft = loadDraft(userId);
+  const draft = loadDraft(viewerId);
 
   return { tasks: enriched, days, draft, horizonWarnings, habits };
 }
@@ -378,6 +381,8 @@ export function confirmPlanning(userId: string): { updated: number } {
 
   let updated = 0;
   for (const [taskId, plannedDateStr] of Object.entries(draft.changes)) {
+    // Nur Aufgaben verschieben, die der Nutzer auch sehen darf (und keine Habits).
+    if (!isVisibleToUserSync(taskId, userId)) continue;
     const target = db.select({ isHabit: tasks.isHabit }).from(tasks).where(eq(tasks.id, taskId)).get();
     if (target?.isHabit) continue;
     const plannedDate = plannedDateStr ? new Date(plannedDateStr) : null;

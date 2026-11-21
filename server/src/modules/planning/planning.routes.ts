@@ -17,10 +17,9 @@ export async function planningRoutes(app: FastifyInstance) {
     const from = query.from ? parseCalendarDate(query.from) : new Date();
     const to = query.to ? parseCalendarDate(query.to) : new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6);
 
-    const targetUserId = reqUser.isAdmin && query.userId ? query.userId : reqUser.id;
-    const targetIsAdmin = reqUser.isAdmin && !query.userId;
+    const targetUserId = reqUser.isAdmin && query.userId ? query.userId : null;
 
-    return getPlanningData(targetUserId, targetIsAdmin, from, to);
+    return getPlanningData(reqUser.id, targetUserId, from, to);
   });
 
   app.put("/draft", async (request, reply) => {

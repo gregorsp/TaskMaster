@@ -1,11 +1,8 @@
 import { useState } from "react";
 import { Box, Typography } from "@mui/material";
 import type { Task } from "../../../api/tasksApi";
-import type { Category } from "../../../api/categoriesApi";
 
-export interface TaskWithMeta extends Task {
-  categories?: Category[];
-}
+export type TaskWithMeta = Task;
 
 interface TaskTreeNodeProps {
   task: TaskWithMeta;

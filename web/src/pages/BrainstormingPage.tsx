@@ -261,17 +261,9 @@ export function BrainstormingPage() {
     if (!activeBoard) return;
     const rootNode = activeBoard.nodes.find((n) => !n.parentId);
     const topic = (rootNode?.text || activeBoard.title).trim();
-    const provider = localStorage.getItem("taskmaster_ai_provider") || "gemini";
-    const apiKey = provider === "gemini"
-      ? (localStorage.getItem("taskmaster_gemini_key") || localStorage.getItem("taskmaster_ai_api_key") || "")
-      : (localStorage.getItem("taskmaster_deepseek_key") || localStorage.getItem("taskmaster_ai_api_key") || "");
-    if (!apiKey) {
-      notify("Bitte zuerst links unter GTD → KI-Einstellungen einen API-Key hinterlegen", "warning");
-      return;
-    }
     setAiGenerating(true);
     try {
-      const ideas = await generateMindmapIdeasAi(topic, apiKey);
+      const ideas = await generateMindmapIdeasAi(topic);
       if (ideas.length === 0) {
         notify("Keine Ideen zurückerhalten", "warning");
         return;
@@ -293,7 +285,7 @@ export function BrainstormingPage() {
       }
       notify(ideas.length + " KI-Schritte generiert & in GTD übernommen!");
     } catch {
-      notify("KI-Fehler: Bitte Key unter KI-Einstellungen prüfen", "error");
+      notify("KI-Fehler: Bitte Schlüssel unter Verwaltung → Einstellungen prüfen", "error");
     } finally {
       setAiGenerating(false);
     }
@@ -302,22 +294,6 @@ export function BrainstormingPage() {
   const handleSendToGtd = async (node: MindNode, silent = false) => {
     try {
       const isMainNode = !node.parentId;
-      const catsResponse: any = await listCategories();
-      const catsList: Array<{ id: string; name: string }> = Array.isArray(catsResponse)
-        ? catsResponse
-        : (catsResponse?.categories || catsResponse?.items || catsResponse?.data || []);
-
-      let projCat = catsList.find((cat) => cat.name.toLowerCase().includes("projekt"));
-      if (!projCat) {
-        const createdP: any = await createCategory({ name: "Projekte", color: "#ed6c02" });
-        projCat = createdP?.category || createdP?.data || createdP;
-      }
-
-      let nextCat = catsList.find((cat) => cat.name.toLowerCase().includes("n\u00e4chste"));
-      if (!nextCat) {
-        const createdN: any = await createCategory({ name: "N\u00e4chste Schritte", color: "#1976d2" });
-        nextCat = createdN?.category || createdN?.data || createdN;
-      }
 
       const findOpenTaskByTitle = async (taskTitle: string) => {
         const res = await listTasks({ isCompleted: false, search: taskTitle.trim() });
@@ -331,7 +307,6 @@ export function BrainstormingPage() {
           projectTask = await createTask({
             title: node.text,
             description: `Projekt aus Mindmap „${activeBoard.title}“ übernommen.`,
-            categoryIds: projCat?.id ? [projCat.id] : [],
           });
           projectCreated = true;
         }
@@ -343,9 +318,9 @@ export function BrainstormingPage() {
           if (!existingChild) {
             await createTask({
               title: child.text,
-              description: `N\u00e4chster Schritt zum Projekt „${node.text}“.`,
+              description: `Nächster Schritt zum Projekt „${node.text}“.`,
               parentId: projectTask.id,
-              categoryIds: nextCat?.id ? [nextCat.id] : [],
+              status: "next",
             });
             addedChildren++;
           }
@@ -372,7 +347,7 @@ export function BrainstormingPage() {
             ? `N\u00e4chster Schritt zum Projekt „${parentNode.text}“.`
             : `Aus Mindmap „${activeBoard?.title || "Brainstorming"}“ übernommen.`,
           parentId: existingParent?.id,
-          categoryIds: nextCat?.id ? [nextCat.id] : [],
+          status: "next",
         });
 
         if (existingParent) {

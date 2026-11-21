@@ -7,12 +7,17 @@ import { FilterList as FilterListIcon } from "@mui/icons-material";
 import { useTheme } from "@mui/material/styles";
 import { useMediaQuery } from "@mui/material";
 import type { Category } from "../../api/categoriesApi";
+import type { TaskContext } from "../../api/contextsApi";
 import type { UserPickerItem } from "../../api/usersApi";
 
 export interface TaskFilterState {
   search: string;
   status: "all" | "open" | "done";
+  gtdStatus: "" | "next" | "waiting" | "someday";
+  duration: "" | "under_2_min" | "15_min";
+  energy: "" | "low" | "high";
   categoryId: string;
+  contextId: string;
   assigneeIds: string[];
   habitFilter: "all" | "habits" | "no_habits";
   isOverdue: boolean;
@@ -26,7 +31,11 @@ export function createDefaultTaskFilterState(): TaskFilterState {
   return {
     search: "",
     status: "open",
+    gtdStatus: "",
+    duration: "",
+    energy: "",
     categoryId: "",
+    contextId: "",
     assigneeIds: [],
     habitFilter: "all",
     isOverdue: false,
@@ -41,6 +50,7 @@ interface TaskFilterBarProps {
   value: TaskFilterState;
   onChange: (next: TaskFilterState) => void;
   categories: Category[];
+  contexts: TaskContext[];
   users: UserPickerItem[];
   showSort?: boolean;
   showStatus?: boolean;
@@ -50,10 +60,8 @@ interface TaskFilterBarProps {
   overdueCount?: number;
 }
 
-const ENERGY_FILTERS = [{ label: "⚡ < 2 Min", query: "2 min" }, { label: "⏱️ 15 Min", query: "15 min" }, { label: "🔋 Hohe Energie", query: "energie:hoch" }, { label: "🪫 Niedrige Energie", query: "energie:niedrig" }];
-
 export function TaskFilterBar({
-  value, onChange, categories, users,
+  value, onChange, categories, contexts, users,
   showSort = true, showStatus = true, showHabits = true, showPlanned = true,
   showCompletionMode = false, overdueCount,
 }: TaskFilterBarProps) {
@@ -66,7 +74,11 @@ export function TaskFilterBar({
   const activeFilterCount = [
     value.search.trim() !== "",
     showStatus && value.status !== "open",
+    value.gtdStatus !== "",
+    value.duration !== "",
+    value.energy !== "",
     value.categoryId !== "",
+    value.contextId !== "",
     value.assigneeIds.length > 0,
     showHabits && value.habitFilter !== "all",
     value.isOverdue,
@@ -116,6 +128,46 @@ export function TaskFilterBar({
             </FormControl>
           )}
 
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <InputLabel>GTD-Status</InputLabel>
+            <Select
+              value={value.gtdStatus}
+              label="GTD-Status"
+              onChange={(e) => update({ gtdStatus: e.target.value as TaskFilterState["gtdStatus"] })}
+            >
+              <MenuItem value="">Alle</MenuItem>
+              <MenuItem value="next">Nächster Schritt</MenuItem>
+              <MenuItem value="waiting">Warten auf</MenuItem>
+              <MenuItem value="someday">Irgendwann</MenuItem>
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ minWidth: 140 }}>
+            <InputLabel>Dauer</InputLabel>
+            <Select
+              value={value.duration}
+              label="Dauer"
+              onChange={(e) => update({ duration: e.target.value as TaskFilterState["duration"] })}
+            >
+              <MenuItem value="">Alle</MenuItem>
+              <MenuItem value="under_2_min">Unter 2 Min</MenuItem>
+              <MenuItem value="15_min">15 Min</MenuItem>
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ minWidth: 140 }}>
+            <InputLabel>Energie</InputLabel>
+            <Select
+              value={value.energy}
+              label="Energie"
+              onChange={(e) => update({ energy: e.target.value as TaskFilterState["energy"] })}
+            >
+              <MenuItem value="">Alle</MenuItem>
+              <MenuItem value="low">Niedrig</MenuItem>
+              <MenuItem value="high">Hoch</MenuItem>
+            </Select>
+          </FormControl>
+
           <FormControl size="small" sx={{ minWidth: 150 }}>
             <InputLabel>Kategorie</InputLabel>
             <Select
@@ -125,6 +177,25 @@ export function TaskFilterBar({
             >
               <MenuItem value="">Alle</MenuItem>
               {categories.map((c) => (
+                <MenuItem key={c.id} value={c.id}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: c.color }} />
+                    {c.name}
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <InputLabel>Kontext</InputLabel>
+            <Select
+              value={value.contextId}
+              label="Kontext"
+              onChange={(e) => update({ contextId: e.target.value })}
+            >
+              <MenuItem value="">Alle</MenuItem>
+              {contexts.map((c) => (
                 <MenuItem key={c.id} value={c.id}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: c.color }} />
@@ -231,56 +302,6 @@ export function TaskFilterBar({
           )}
         </Stack>
       )}
-
-      {(!isMobile || open) && (
-        <Stack direction="row" spacing={1} mb={2} flexWrap="wrap" useFlexGap alignItems="center">
-          {["@Telefon", "@Computer", "@Online", "@Zuhause", "@Besorgungen", "@Uni"].map((ctx) => {
-          const allContexts = ["@Telefon", "@Computer", "@Online", "@Zuhause", "@Besorgungen", "@Uni"];
-          const active = (value.search || "").toLowerCase().includes(ctx.toLowerCase());
-          return (
-            <Chip
-              key={ctx}
-              label={ctx}
-              size="small"
-              color={active ? "primary" : "default"}
-              variant={active ? "filled" : "outlined"}
-              onClick={() => {
-                let cleaned = value.search || "";
-                for (const c of allContexts) {
-                  cleaned = cleaned.replace(new RegExp(c, "ig"), "");
-                }
-                cleaned = cleaned.replace(/\s+/g, " ").trim();
-                const nextSearch = active ? cleaned : [cleaned, ctx].filter(Boolean).join(" ");
-                onChange({ ...value, search: nextSearch });
-              }}
-            />
-          );
-        })}
-        </Stack>
-      )}
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap mt={1}>
-        {ENERGY_FILTERS.map((ef) => {
-          const active = (value.search || "").toLowerCase().includes(ef.query);
-          return (
-            <Chip
-              key={ef.query}
-              label={ef.label}
-              size="small"
-              color={active ? "secondary" : "default"}
-              variant={active ? "filled" : "outlined"}
-              onClick={() => {
-                let cleaned = value.search || "";
-                for (const item of ENERGY_FILTERS) {
-                  cleaned = cleaned.replace(new RegExp(item.query, "ig"), "");
-                }
-                cleaned = cleaned.replace(/\s+/g, " ").trim();
-                const nextSearch = active ? cleaned : [cleaned, ef.query].filter(Boolean).join(" ");
-                onChange({ ...value, search: nextSearch });
-              }}
-            />
-          );
-        })}
-      </Stack>
-</Box>
+    </Box>
   );
 }

@@ -96,6 +96,12 @@ export interface HabitStatsPerUser extends HabitStatsTotals {
 }
 
 export interface HabitStats {
+  /**
+   * false, wenn die Habit-Auswertung für diesen Aufruf nicht verfügbar ist.
+   * Habits sind dauerhaft privat – die Admin-Gesamtansicht zeigt sie deshalb
+   * gar nicht (auch nicht anonym).
+   */
+  available: boolean;
   overall: HabitStatsTotals;
   items: HabitStatsItem[] | null;
   perUser: HabitStatsPerUser[] | null;
@@ -472,7 +478,7 @@ function computeHabits(data: StatsData, scope: StatsScope, userId: string, tz: s
   const overall = aggregateHabits(items);
 
   if (scope === "mine") {
-    return { overall, items, perUser: null };
+    return { available: true, overall, items, perUser: null };
   }
 
   const byUser = new Map<string, HabitStatsItem[]>();
@@ -491,7 +497,7 @@ function computeHabits(data: StatsData, scope: StatsScope, userId: string, tz: s
   }));
   perUser.sort((a, b) => b.completedDays - a.completedDays);
 
-  return { overall, items: null, perUser };
+  return { available: true, overall, items: null, perUser };
 }
 
 export function getTaskStats(options: {
@@ -517,9 +523,24 @@ export function getTaskStats(options: {
 
   let perUser: TaskStatsPerUser[] | null = null;
   if (options.scope === "all") {
+    // Personen-Aufschlüsselung ohne fremde private Aufgaben: pro Person ist nur
+    // sichtbar, was der anfragende Nutzer auch sonst sehen dürfte. Die
+    // Gesamtsummen oben enthalten private Aufgaben dagegen anonym.
+    const visibleTaskIds = new Set(
+      data.tasks
+        .filter((task) => !task.isPrivate || task.createdById === options.userId)
+        .map((task) => task.id)
+    );
+    const visibleData: StatsData = {
+      ...data,
+      tasks: data.tasks.filter((task) => visibleTaskIds.has(task.id)),
+      events: data.events.filter((event) => visibleTaskIds.has(event.taskId)),
+    };
+    const visibleWindow = buildWindow(visibleData, options.range, "current");
+
     const rows: TaskStatsPerUser[] = [];
-    for (const [id, displayName] of data.users) {
-      const computed = computeWindow(data, currentWindow, options.range.tz, options.lens, id, true);
+    for (const [id, displayName] of visibleData.users) {
+      const computed = computeWindow(visibleData, visibleWindow, options.range.tz, options.lens, id, true);
       const totals = computed.totals;
       if (totals.completed + totals.created + (totals.open ?? 0) === 0) continue;
       rows.push({ userId: id, displayName, ...totals });
@@ -530,6 +551,10 @@ export function getTaskStats(options: {
     perUser = rows;
   }
 
+  const habits: HabitStats = options.scope === "all"
+    ? { available: false, overall: aggregateHabits([]), items: null, perUser: null }
+    : computeHabits(data, options.scope, options.userId, options.range.tz, now);
+
   return {
     scope: options.scope,
     lens: options.lens,
@@ -538,7 +563,7 @@ export function getTaskStats(options: {
     previous: previous.totals,
     days: current.days,
     distributions: current.distributions,
-    habits: computeHabits(data, options.scope, options.userId, options.range.tz, now),
+    habits,
     perUser,
   };
 }

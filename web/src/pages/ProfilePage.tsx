@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { Link as RouterLink } from "react-router-dom";
 import {
   Box, Typography, TextField, Button, Stack, Avatar, Paper, Divider, Slider,
   FormControlLabel, Switch, FormControl, InputLabel, Select, MenuItem,
@@ -354,63 +355,18 @@ export function ProfilePage() {
       </Paper>
 
       <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" mb={1}>Einstellungen</Typography>
         <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
           <Box>
-            <Typography variant="body1">Habit-Erledigung bestätigen</Typography>
+            <Typography variant="h6">Einstellungen</Typography>
             <Typography variant="caption" color="text.secondary">
-              Beim Abhaken eines Habits in der Tagesansicht nachfragen. Deaktiviert, um Habits ohne Bestätigung abzuhaken.
+              Standard-Privat, KI-Schlüssel, Habit-Bestätigung, Transkriptionssprache und Auto-Transkription.
             </Typography>
           </Box>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={confirmHabitCompletion}
-                onChange={(e) => handleHabitConfirmChange(e.target.checked)}
-              />
-            }
-            label=""
-          />
+          <Button component={RouterLink} to="/settings" variant="outlined">Öffnen</Button>
         </Stack>
+      </Paper>
 
-        <Divider sx={{ my: 2 }} />
-
-        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
-          <Box>
-            <Typography variant="body1">Sprache der Transkription</Typography>
-            <Typography variant="caption" color="text.secondary">
-              Standard für neue Aufnahmen; einzelne Aufnahmen behalten ihre gespeicherte Sprache.
-            </Typography>
-          </Box>
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Sprache</InputLabel>
-            <Select
-              label="Sprache"
-              value={transcriptionLanguage}
-              onChange={(event) => void handleLanguageChange(event.target.value as "de" | "en" | "auto")}
-            >
-              <MenuItem value="de">Deutsch</MenuItem>
-              <MenuItem value="en">Englisch</MenuItem>
-              <MenuItem value="auto">Automatisch</MenuItem>
-            </Select>
-          </FormControl>
-        </Stack>
-
-        <Divider sx={{ my: 2 }} />
-
-        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
-          <Box>
-            <Typography variant="body1">Automatisch transkribieren</Typography>
-            <Typography variant="caption" color="text.secondary">
-              Offene Aufnahmen werden im Hintergrund verarbeitet, solange die App offen ist. Pausiert bei laufender
-              Aufnahme und wenn der Tab unsichtbar ist.
-            </Typography>
-          </Box>
-          <Switch checked={autoTranscribe} onChange={(event) => handleAutoTranscribeChange(event.target.checked)} />
-        </Stack>
-
-        <Divider sx={{ my: 2 }} />
-
+      <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="body1" sx={{ mb: 0.5 }}>
           Transkription auf diesem Gerät
         </Typography>

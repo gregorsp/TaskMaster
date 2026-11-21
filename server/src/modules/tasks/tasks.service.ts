@@ -2,12 +2,21 @@ import { eq, and, like, or, inArray, ne, SQL, sql as drizzleSql, isNotNull, isNu
 import { v7 as uuid } from "uuid";
 import { randomBytes } from "node:crypto";
 import { getDb } from "../../db/client.js";
-import { tasks, taskAssignees, taskCategories, taskEvents, taskLinks, taskOccurrences, users, categories } from "../../db/schema.js";
-import { visibilityFilter } from "../../middleware/visibility.js";
+import {
+  tasks, taskAssignees, taskCategories, taskEvents, taskLinks, taskOccurrences,
+  users, categories, contexts, taskContexts,
+} from "../../db/schema.js";
+import { visibilityFilter, isVisibleToUserSync } from "../../middleware/visibility.js";
+import { categoryIdsWithSameName } from "../categories/categories.service.js";
+import { contextIdsWithSameName } from "../contexts/contexts.service.js";
 import { parsePageQuery, paginate } from "../../lib/paging.js";
 import { getEffectiveDueAt, isTaskOverdue, computeIsUrgent, getOccurrences } from "../calendar/recurrence.service.js";
 import { getProfilePictureUrl } from "../auth/profile.service.js";
 import type { CreateTaskInput, UpdateTaskInput } from "./tasks.schema.js";
+
+export const TASK_STATUSES = ["next", "waiting", "someday"] as const;
+export const TASK_DURATIONS = ["under_2_min", "15_min"] as const;
+export const TASK_ENERGIES = ["low", "high"] as const;
 
 export function enrichTask(task: typeof tasks.$inferSelect) {
   return {
@@ -59,6 +68,20 @@ interface TaskAssignee {
   profilePicture: string | null;
 }
 
+interface TaskCategory {
+  id: string;
+  name: string;
+  color: string;
+  createdById: string;
+}
+
+interface TaskContext {
+  id: string;
+  name: string;
+  color: string;
+  createdById: string;
+}
+
 function assigneesByTaskId(taskIds: string[]) {
   const db = getDb();
   if (taskIds.length === 0) return new Map<string, TaskAssignee[]>();
@@ -88,23 +111,85 @@ function assigneesByTaskId(taskIds: string[]) {
   return map;
 }
 
-function withAssignees<T extends { id: string }>(items: T[]): (T & { assignees: TaskAssignee[] })[] {
-  const map = assigneesByTaskId(items.map((i) => i.id));
-  return items.map((item) => ({ ...item, assignees: map.get(item.id) || [] }));
+function categoriesByTaskId(taskIds: string[]) {
+  const db = getDb();
+  const map = new Map<string, TaskCategory[]>();
+  if (taskIds.length === 0) return map;
+  const rows = db
+    .select({
+      taskId: taskCategories.taskId,
+      id: categories.id,
+      name: categories.name,
+      color: categories.color,
+      createdById: categories.createdById,
+    })
+    .from(taskCategories)
+    .innerJoin(categories, eq(taskCategories.categoryId, categories.id))
+    .where(inArray(taskCategories.taskId, taskIds))
+    .all();
+  for (const row of rows) {
+    const list = map.get(row.taskId) || [];
+    list.push({ id: row.id, name: row.name, color: row.color, createdById: row.createdById });
+    map.set(row.taskId, list);
+  }
+  return map;
+}
+
+function contextsByTaskId(taskIds: string[]) {
+  const db = getDb();
+  const map = new Map<string, TaskContext[]>();
+  if (taskIds.length === 0) return map;
+  const rows = db
+    .select({
+      taskId: taskContexts.taskId,
+      id: contexts.id,
+      name: contexts.name,
+      color: contexts.color,
+      createdById: contexts.createdById,
+    })
+    .from(taskContexts)
+    .innerJoin(contexts, eq(taskContexts.contextId, contexts.id))
+    .where(inArray(taskContexts.taskId, taskIds))
+    .all();
+  for (const row of rows) {
+    const list = map.get(row.taskId) || [];
+    list.push({ id: row.id, name: row.name, color: row.color, createdById: row.createdById });
+    map.set(row.taskId, list);
+  }
+  return map;
+}
+
+/** IDs aller Aufgaben, die mindestens eine Unteraufgabe haben (= Projekte). */
+function projectTaskIds(): Set<string> {
+  const db = getDb();
+  const rows = db.select({ parentId: tasks.parentId }).from(tasks).where(isNotNull(tasks.parentId)).all();
+  return new Set(rows.map((row) => row.parentId!).filter(Boolean));
+}
+
+function withRelations<T extends { id: string }>(items: T[]) {
+  const ids = items.map((i) => i.id);
+  const assignees = assigneesByTaskId(ids);
+  const cats = categoriesByTaskId(ids);
+  const ctxs = contextsByTaskId(ids);
+  const projects = projectTaskIds();
+  return items.map((item) => ({
+    ...item,
+    assignees: assignees.get(item.id) || [],
+    categories: cats.get(item.id) || [],
+    contexts: ctxs.get(item.id) || [],
+    isProject: projects.has(item.id),
+  }));
 }
 
 export function listTasks(
   userId: string,
-  isAdmin: boolean,
+  _isAdmin: boolean,
   query: Record<string, unknown>
 ) {
   const db = getDb();
   const paging = parsePageQuery(query);
 
-  const visFilter = visibilityFilter(userId, isAdmin);
-  const conditions: SQL[] = [];
-
-  if (visFilter) conditions.push(visFilter);
+  const conditions: SQL[] = [visibilityFilter(userId)];
 
   const isCompleted = query.isCompleted !== undefined
     ? (query.isCompleted === "true" || query.isCompleted === true)
@@ -125,6 +210,22 @@ export function listTasks(
     conditions.push(isNull(tasks.plannedDate));
   }
 
+  if (query.status !== undefined) {
+    const status = String(query.status);
+    if (status === "none") conditions.push(isNull(tasks.status));
+    else if ((TASK_STATUSES as readonly string[]).includes(status)) conditions.push(eq(tasks.status, status));
+  }
+  if (query.duration !== undefined) {
+    const duration = String(query.duration);
+    if (duration === "none") conditions.push(isNull(tasks.duration));
+    else if ((TASK_DURATIONS as readonly string[]).includes(duration)) conditions.push(eq(tasks.duration, duration));
+  }
+  if (query.energy !== undefined) {
+    const energy = String(query.energy);
+    if (energy === "none") conditions.push(isNull(tasks.energy));
+    else if ((TASK_ENERGIES as readonly string[]).includes(energy)) conditions.push(eq(tasks.energy, energy));
+  }
+
   if (query.search) {
     for (const token of String(query.search).trim().split(/\s+/).filter(Boolean)) {
       const term = `%${token}%`;
@@ -132,14 +233,41 @@ export function listTasks(
     }
   }
 
+  if (query.isProject === "true" || query.isProject === true) {
+    const projectIds = [...projectTaskIds()];
+    if (projectIds.length === 0) return paginate([], 0, paging);
+    conditions.push(inArray(tasks.id, projectIds));
+  }
+
   if (query.uncategorized === "true" || query.uncategorized === true) {
-    const catTaskIds = [...new Set(db.select({ taskId: taskCategories.taskId }).from(taskCategories).all().map((r) => r.taskId))];
-    if (catTaskIds.length > 0) conditions.push(drizzleSql`${tasks.id} NOT IN (${drizzleSql.join(catTaskIds.map((id) => drizzleSql`${id}`), drizzleSql`, `)})`);
+    const withCategory = new Set(
+      db.select({ taskId: taskCategories.taskId }).from(taskCategories).all().map((r) => r.taskId)
+    );
+    const ids = db.select({ id: tasks.id, status: tasks.status }).from(tasks).all()
+      .filter((row) => !withCategory.has(row.id) && !row.status)
+      .map((row) => row.id);
+    if (ids.length === 0) return paginate([], 0, paging);
+    conditions.push(inArray(tasks.id, ids));
   }
 
   if (query.categoryId) {
-    const sub = db.select({ taskId: taskCategories.taskId }).from(taskCategories).where(eq(taskCategories.categoryId, query.categoryId as string));
-    const ids = sub.all().map((r) => r.taskId);
+    const sameNameIds = categoryIdsWithSameName(String(query.categoryId));
+    const rows = sameNameIds.length > 0
+      ? db.select({ taskId: taskCategories.taskId }).from(taskCategories)
+          .where(inArray(taskCategories.categoryId, sameNameIds)).all()
+      : [];
+    const ids = [...new Set(rows.map((r) => r.taskId))];
+    if (ids.length > 0) conditions.push(inArray(tasks.id, ids));
+    else return paginate([], 0, paging);
+  }
+
+  if (query.contextId) {
+    const sameNameIds = contextIdsWithSameName(String(query.contextId));
+    const rows = sameNameIds.length > 0
+      ? db.select({ taskId: taskContexts.taskId }).from(taskContexts)
+          .where(inArray(taskContexts.contextId, sameNameIds)).all()
+      : [];
+    const ids = [...new Set(rows.map((r) => r.taskId))];
     if (ids.length > 0) conditions.push(inArray(tasks.id, ids));
     else return paginate([], 0, paging);
   }
@@ -178,7 +306,7 @@ export function listTasks(
     }
   }
 
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const whereClause = and(...conditions);
 
   const rawItems = db.select().from(tasks)
     .leftJoin(taskAssignees, eq(tasks.id, taskAssignees.taskId))
@@ -214,26 +342,16 @@ export function listTasks(
   const start = (paging.page - 1) * paging.pageSize;
   const items = sorted.slice(start, start + paging.pageSize);
 
-  return paginate(withAssignees(items), total, paging);
+  return paginate(withRelations(items), total, paging);
 }
 
-export async function getTask(id: string, userId: string, isAdmin: boolean) {
+export async function getTask(id: string, userId: string, _isAdmin: boolean) {
   const db = getDb();
   const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
   if (!task) return null;
 
-  const assignees = db
-    .select({ id: users.id, username: users.username, displayName: users.displayName, profilePicture: users.profilePicture })
-    .from(taskAssignees).innerJoin(users, eq(taskAssignees.userId, users.id))
-    .where(eq(taskAssignees.taskId, id)).all()
-    .map((a) => ({ ...a, profilePicture: getProfilePictureUrl(a.profilePicture) }));
-
-  const cats = db
-    .select({ id: categories.id, name: categories.name, color: categories.color })
-    .from(taskCategories).innerJoin(categories, eq(taskCategories.categoryId, categories.id))
-    .where(eq(taskCategories.taskId, id)).all();
-
-  return enrichTask({ ...task, assignees, categories: cats } as unknown as typeof task);
+  const [withRel] = withRelations([task]);
+  return enrichTask(withRel as unknown as typeof task);
 }
 
 export interface DueDateConflict {
@@ -361,9 +479,29 @@ function applyDueDateResolution(opts: {
   return changed;
 }
 
+function requireVisibleTask(taskId: string, userId: string, code = "PARENT_NOT_FOUND"): typeof tasks.$inferSelect {
+  const db = getDb();
+  const row = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+  if (!row || !isVisibleToUserSync(taskId, userId)) {
+    throw Object.assign(new Error("Parent task not found"), { statusCode: 404, code });
+  }
+  return row;
+}
+
 export function createTask(input: CreateTaskInput, createdById: string): (typeof tasks.$inferInsert) | DueDateBlocked {
   const db = getDb();
   const isHabit = input.isHabit ?? false;
+  const creator = db.select({ defaultPrivate: users.defaultPrivate }).from(users).where(eq(users.id, createdById)).get();
+  const defaultPrivate = creator?.defaultPrivate ?? true;
+
+  let parent: typeof tasks.$inferSelect | undefined;
+  if (!isHabit && input.parentId) {
+    parent = requireVisibleTask(input.parentId, createdById);
+    if (parent.isHabit) {
+      throw Object.assign(new Error("Habits cannot have subtasks"), { statusCode: 400, code: "PARENT_IS_HABIT" });
+    }
+  }
+
   const dueAtVal = isHabit ? null
     : input.recurrenceType === "rrule" ? null
     : input.dueAt ? new Date(input.dueAt) : null;
@@ -382,6 +520,10 @@ export function createTask(input: CreateTaskInput, createdById: string): (typeof
     }
   }
 
+  // Privatheit: Habits immer privat, Unteraufgaben erben von der Elternaufgabe,
+  // sonst gilt die Nutzer-Voreinstellung (Standard: privat).
+  const isPrivate = isHabit ? true : parent ? parent.isPrivate : (input.isPrivate ?? defaultPrivate);
+
   const task = {
     id: uuid(),
     slug: generateUniqueTaskSlug(),
@@ -398,8 +540,11 @@ export function createTask(input: CreateTaskInput, createdById: string): (typeof
     isUrgent: false, // computed field
     urgencyMode: isHabit ? "never" : (input.urgencyMode ?? "before_days"),
     urgencyValue: isHabit ? null : (input.urgencyValue ?? 3),
-    isPrivate: isHabit ? true : (input.isPrivate ?? false),
+    isPrivate,
     isHabit,
+    status: isHabit ? null : (input.status ?? null),
+    duration: isHabit ? null : (input.duration ?? null),
+    energy: isHabit ? null : (input.energy ?? null),
     recurrenceType: isHabit ? "none" : (input.recurrenceType ?? "none"),
     recurrenceRule: isHabit ? null : (input.recurrenceRule || null),
     parentId: isHabit ? null : (input.parentId || null),
@@ -423,7 +568,14 @@ export function createTask(input: CreateTaskInput, createdById: string): (typeof
     }
   }
   for (const catId of (input.categoryIds || [])) {
-    db.insert(taskCategories).values({ taskId: task.id, categoryId: catId }).run();
+    if (db.select({ id: categories.id }).from(categories).where(eq(categories.id, catId)).get()) {
+      db.insert(taskCategories).values({ taskId: task.id, categoryId: catId }).run();
+    }
+  }
+  for (const ctxId of (input.contextIds || [])) {
+    if (db.select({ id: contexts.id }).from(contexts).where(eq(contexts.id, ctxId)).get()) {
+      db.insert(taskContexts).values({ taskId: task.id, contextId: ctxId }).run();
+    }
   }
 
   return task;
@@ -433,6 +585,19 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
   const db = getDb();
   const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
   if (!existing) return null;
+
+  const isOwner = existing.createdById === userId;
+  if (!isOwner) {
+    if (input.isPrivate !== undefined) {
+      throw Object.assign(new Error("Only the creator may change privacy"), { statusCode: 403, code: "FORBIDDEN" });
+    }
+    if (input.assigneeIds !== undefined) {
+      throw Object.assign(new Error("Only the creator may change assignees"), { statusCode: 403, code: "FORBIDDEN" });
+    }
+    if (input.isHabit !== undefined && input.isHabit !== existing.isHabit) {
+      throw Object.assign(new Error("Only the creator may convert habits"), { statusCode: 403, code: "FORBIDDEN" });
+    }
+  }
 
   const isHabit = input.isHabit ?? existing.isHabit;
 
@@ -445,10 +610,18 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
   if (input.urgencyMode !== undefined) updates.urgencyMode = input.urgencyMode;
   if (input.urgencyValue !== undefined) updates.urgencyValue = input.urgencyValue;
   if (input.isHabit !== undefined && input.isHabit !== existing.isHabit) updates.isHabit = input.isHabit;
+  if (!isHabit) {
+    if (input.status !== undefined) updates.status = input.status;
+    if (input.duration !== undefined) updates.duration = input.duration;
+    if (input.energy !== undefined) updates.energy = input.energy;
+  }
 
   const becomingHabit = input.isHabit === true && existing.isHabit !== true;
   if (becomingHabit) {
     updates.isPrivate = true;
+    updates.status = null;
+    updates.duration = null;
+    updates.energy = null;
     updates.plannedDate = null;
     updates.dueAt = null;
     updates.baseDate = null;
@@ -474,7 +647,29 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
 
   if (input.recurrenceType !== undefined && !isHabit) updates.recurrenceType = input.recurrenceType;
   if (input.recurrenceRule !== undefined && !isHabit) updates.recurrenceRule = input.recurrenceRule;
-  if (input.parentId !== undefined && !isHabit) updates.parentId = input.parentId;
+
+  if (input.parentId !== undefined && !isHabit) {
+    if (input.parentId === null) {
+      updates.parentId = null;
+    } else {
+      if (input.parentId === id) {
+        throw Object.assign(new Error("A task cannot be its own parent"), { statusCode: 400, code: "INVALID_PARENT" });
+      }
+      const parent = requireVisibleTask(input.parentId, userId);
+      if (parent.isHabit) {
+        throw Object.assign(new Error("Habits cannot have subtasks"), { statusCode: 400, code: "PARENT_IS_HABIT" });
+      }
+      const descendants = new Set<string>();
+      collectDescendantIds(id, descendants);
+      if (descendants.has(input.parentId)) {
+        throw Object.assign(new Error("A task cannot move below its own descendant"), { statusCode: 400, code: "INVALID_PARENT" });
+      }
+      updates.parentId = input.parentId;
+      // Unteraufgaben erben die Privatheit der neuen Elternaufgabe.
+      if (!isHabit) updates.isPrivate = parent.isPrivate;
+    }
+  }
+
   if (input.plannedDate !== undefined && !isHabit) updates.plannedDate = input.plannedDate ? new Date(input.plannedDate) : null;
 
   if (input.dueAt !== undefined && !isHabit) {
@@ -513,6 +708,17 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
     db.update(tasks).set(updates).where(eq(tasks.id, id)).run();
   }
 
+  // Privatheit ist an der Wurzel definiert: Ändert sie sich, ziehen alle
+  // Unteraufgaben mit (auch nach einem Elternwechsel).
+  const privacyChanged = updates.isPrivate !== undefined && updates.isPrivate !== existing.isPrivate;
+  if (privacyChanged) {
+    const descendants = new Set<string>();
+    collectDescendantIds(id, descendants);
+    for (const descendantId of descendants) {
+      db.update(tasks).set({ isPrivate: updates.isPrivate as boolean }).where(eq(tasks.id, descendantId)).run();
+    }
+  }
+
   if (recurrenceChanging && input.forceUpdateRecurrence) {
     db.delete(taskOccurrences)
       .where(and(eq(taskOccurrences.taskId, id), isNotNull(taskOccurrences.plannedDate)))
@@ -527,28 +733,44 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
 
   if (input.assigneeIds !== undefined && !isHabit) {
     db.delete(taskAssignees).where(eq(taskAssignees.taskId, id)).run();
+    const seen = new Set<string>();
     for (const aid of input.assigneeIds) {
+      if (seen.has(aid)) continue;
+      seen.add(aid);
       db.insert(taskAssignees).values({ taskId: id, userId: aid }).run();
     }
   }
   if (isHabit) {
     db.delete(taskAssignees).where(eq(taskAssignees.taskId, id)).run();
-    db.insert(taskAssignees).values({ taskId: id, userId: userId }).run();
+    db.insert(taskAssignees).values({ taskId: id, userId: existing.createdById }).run();
   }
   if (input.categoryIds !== undefined) {
     db.delete(taskCategories).where(eq(taskCategories.taskId, id)).run();
     for (const cid of input.categoryIds) {
-      db.insert(taskCategories).values({ taskId: id, categoryId: cid }).run();
+      if (db.select({ id: categories.id }).from(categories).where(eq(categories.id, cid)).get()) {
+        db.insert(taskCategories).values({ taskId: id, categoryId: cid }).run();
+      }
+    }
+  }
+  if (input.contextIds !== undefined && !isHabit) {
+    db.delete(taskContexts).where(eq(taskContexts.taskId, id)).run();
+    for (const cid of input.contextIds) {
+      if (db.select({ id: contexts.id }).from(contexts).where(eq(contexts.id, cid)).get()) {
+        db.insert(taskContexts).values({ taskId: id, contextId: cid }).run();
+      }
     }
   }
 
   return getTask(id, userId, isAdmin);
 }
 
-export async function deleteTask(id: string): Promise<boolean | { blocked: boolean; code: string }> {
+export async function deleteTask(id: string, userId: string): Promise<boolean | { blocked: boolean; code: string }> {
   const db = getDb();
   const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
   if (!existing) return false;
+  if (existing.createdById !== userId) {
+    throw Object.assign(new Error("Only the creator may delete a task"), { statusCode: 403, code: "FORBIDDEN" });
+  }
 
   const childCount = db.select({ count: drizzleSql<number>`COUNT(*)` }).from(tasks).where(eq(tasks.parentId, id)).get();
   if (childCount && childCount.count > 0) {
@@ -557,15 +779,17 @@ export async function deleteTask(id: string): Promise<boolean | { blocked: boole
 
   db.delete(taskAssignees).where(eq(taskAssignees.taskId, id)).run();
   db.delete(taskCategories).where(eq(taskCategories.taskId, id)).run();
+  db.delete(taskContexts).where(eq(taskContexts.taskId, id)).run();
   db.delete(taskEvents).where(eq(taskEvents.taskId, id)).run();
   db.delete(taskLinks).where(or(eq(taskLinks.taskIdA, id), eq(taskLinks.taskIdB, id))).run();
   db.delete(tasks).where(eq(tasks.id, id)).run();
   return true;
 }
 
-export function getSubtasks(taskId: string) {
+export function getSubtasks(taskId: string, userId: string) {
   const db = getDb();
-  const children = db.select().from(tasks).where(eq(tasks.parentId, taskId)).all();
+  const children = db.select().from(tasks).where(eq(tasks.parentId, taskId)).all()
+    .filter((child) => isVisibleToUserSync(child.id, userId));
 
   const completed = children.filter((c) => c.isCompleted).length;
   const total = children.length;
@@ -575,19 +799,21 @@ export function getSubtasks(taskId: string) {
     allDescendantIds.add(child.id);
     collectDescendantIds(child.id, allDescendantIds);
   }
-  const allDescendants = [...allDescendantIds];
+  const visibleDescendants = [...allDescendantIds].filter((descendantId) => isVisibleToUserSync(descendantId, userId));
 
   let completedDescendants = 0;
-  for (const id of allDescendants) {
-    const t = db.select().from(tasks).where(eq(tasks.id, id)).get();
+  for (const descendantId of visibleDescendants) {
+    const t = db.select().from(tasks).where(eq(tasks.id, descendantId)).get();
     if (t?.isCompleted) completedDescendants++;
   }
 
   return {
-    subtasks: withAssignees(children.map(enrichTask)),
+    subtasks: withRelations(children.map(enrichTask)),
     progress: {
       completed: completedDescendants,
-      total: allDescendants.length,
+      total: visibleDescendants.length,
+      completedDirect: completed,
+      totalDirect: total,
     },
   };
 }
@@ -617,19 +843,19 @@ export function getOpenSubtaskCount(taskId: string): number {
   return rows.filter((r) => !r.isCompleted).length;
 }
 
-export function getSiblings(taskId: string) {
+export function getSiblings(taskId: string, userId: string) {
   const db = getDb();
   const task = db.select({ parentId: tasks.parentId }).from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task?.parentId) return [];
 
   const siblings = db.select().from(tasks)
     .where(eq(tasks.parentId, task.parentId))
-    .all();
-  const filtered = siblings.filter((s) => s.id !== taskId);
-  return withAssignees(filtered.map(enrichTask));
+    .all()
+    .filter((s) => s.id !== taskId && isVisibleToUserSync(s.id, userId));
+  return withRelations(siblings.map(enrichTask));
 }
 
-export function getTaskLinks(taskId: string) {
+export function getTaskLinks(taskId: string, userId: string) {
   const db = getDb();
   const rows = db.select({
     taskId: drizzleSql<string>`CASE WHEN task_links.task_id_a = ${taskId} THEN task_links.task_id_b ELSE task_links.task_id_a END`,
@@ -640,13 +866,18 @@ export function getTaskLinks(taskId: string) {
   if (rows.length === 0) return [];
 
   const linkedIds = rows.map((r) => r.taskId);
-  const linkedTasks = db.select().from(tasks).where(inArray(tasks.id, linkedIds)).all();
-  return withAssignees(linkedTasks.map(enrichTask));
+  const linkedTasks = db.select().from(tasks).where(inArray(tasks.id, linkedIds)).all()
+    .filter((task) => isVisibleToUserSync(task.id, userId));
+  return withRelations(linkedTasks.map(enrichTask));
 }
 
 export function addTaskLink(taskId: string, linkedTaskId: string) {
   const db = getDb();
   const now = new Date();
+  const existing = db.select({ taskIdA: taskLinks.taskIdA }).from(taskLinks)
+    .where(and(eq(taskLinks.taskIdA, taskId), eq(taskLinks.taskIdB, linkedTaskId)))
+    .get();
+  if (existing) return { ok: true };
   db.insert(taskLinks).values({ taskIdA: taskId, taskIdB: linkedTaskId, createdAt: now }).run();
   db.insert(taskLinks).values({ taskIdA: linkedTaskId, taskIdB: taskId, createdAt: now }).run();
   return { ok: true };
@@ -696,9 +927,11 @@ export function createTaskOccurrence(taskId: string, occurrenceDate: string, pla
   return row;
 }
 
-export function deleteTaskOccurrence(occurrenceId: string) {
+export function deleteTaskOccurrence(taskId: string, occurrenceId: string) {
   const db = getDb();
-  db.delete(taskOccurrences).where(eq(taskOccurrences.id, occurrenceId)).run();
+  db.delete(taskOccurrences)
+    .where(and(eq(taskOccurrences.id, occurrenceId), eq(taskOccurrences.taskId, taskId)))
+    .run();
   return { ok: true };
 }
 

@@ -1,19 +1,32 @@
 import { z } from "zod";
 
+export const taskStatusSchema = z.enum(["next", "waiting", "someday"]);
+export const taskDurationSchema = z.enum(["under_2_min", "15_min"]);
+export const taskEnergySchema = z.enum(["low", "high"]);
+
 export const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
   description: z.string().max(5000).nullable().optional(),
   dueAt: z.string().nullable().optional(),
   isImportant: z.boolean().default(false),
   pomodoros: z.number().int().min(1).max(999).nullable().optional(),
-  isPrivate: z.boolean().default(false),
+  /**
+   * Fehlt das Feld, wendet der Server die Nutzer-Voreinstellung an
+   * (`users.default_private`, Standard: privat). Unteraufgaben erben die
+   * Privatheit ihrer Elternaufgabe.
+   */
+  isPrivate: z.boolean().optional(),
   isHabit: z.boolean().default(false),
+  status: taskStatusSchema.nullable().optional(),
+  duration: taskDurationSchema.nullable().optional(),
+  energy: taskEnergySchema.nullable().optional(),
   urgencyMode: z.enum(["never", "always", "before_days", "before_percent"]).default("before_days"),
   urgencyValue: z.number().int().min(1).max(99).optional().nullable(),
   recurrenceType: z.enum(["none", "rrule", "on_completion"]).default("none"),
   recurrenceRule: z.string().nullable().optional(),
   assigneeIds: z.array(z.string()).default([]),
   categoryIds: z.array(z.string()).default([]),
+  contextIds: z.array(z.string()).default([]),
   parentId: z.string().nullable().optional(),
   plannedDate: z.string().nullable().optional(),
   forceDueDate: z.boolean().optional(),
@@ -28,12 +41,16 @@ export const updateTaskSchema = z.object({
   pomodoros: z.number().int().min(1).max(999).nullable().optional(),
   isPrivate: z.boolean().optional(),
   isHabit: z.boolean().optional(),
+  status: taskStatusSchema.nullable().optional(),
+  duration: taskDurationSchema.nullable().optional(),
+  energy: taskEnergySchema.nullable().optional(),
   urgencyMode: z.enum(["never", "always", "before_days", "before_percent"]).optional(),
   urgencyValue: z.number().int().min(1).max(99).optional().nullable(),
   recurrenceType: z.enum(["none", "rrule", "on_completion"]).optional(),
   recurrenceRule: z.string().nullable().optional(),
   assigneeIds: z.array(z.string()).optional(),
   categoryIds: z.array(z.string()).optional(),
+  contextIds: z.array(z.string()).optional(),
   parentId: z.string().nullable().optional(),
   plannedDate: z.string().nullable().optional(),
   forceUpdateRecurrence: z.boolean().optional(),

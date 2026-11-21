@@ -109,6 +109,8 @@ export interface HabitStatsPerUser extends HabitStatsTotals {
 }
 
 export interface HabitStats {
+  /** false in der Admin-Gesamtansicht: Habits sind dauerhaft privat. */
+  available: boolean;
   overall: HabitStatsTotals;
   items: HabitStatsItem[] | null;
   perUser: HabitStatsPerUser[] | null;

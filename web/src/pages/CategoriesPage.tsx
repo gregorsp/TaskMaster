@@ -2,13 +2,17 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box, Typography, TextField, Button, Stack, Chip, IconButton,
-  Dialog, DialogContent, DialogTitle,
+  Dialog, DialogContent, DialogTitle, Alert,
 } from "@mui/material";
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 import { listCategories, createCategory, deleteCategory, type Category } from "../api/categoriesApi";
+import { useNotify } from "../context/NotifyContext";
+
+const PALETTE = ["#0c66e4","#1982c4","#7b5ea7","#c43e2c","#e06c00","#d4a017","#2d8c4a","#0b8043","#5c6bc0","#ec407a","#8d6e63","#78909c"];
 
 export function CategoriesPage() {
   const navigate = useNavigate();
+  const notify = useNotify();
   const [cats, setCats] = useState<Category[]>([]);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -23,42 +27,41 @@ export function CategoriesPage() {
 
   const handleCreate = async () => {
     if (!name.trim()) return;
-    await createCategory({ name: name.trim(), color });
-    setName("");
-    setColor("#1976d2");
-    setOpen(false);
-    load();
-  };
-
-  const handleCreateGtdDefaults = async () => {
-    const defaults = [
-      { name: "Projekte", color: "#d4a017" },
-      { name: "Nächste Schritte", color: "#e06c00" },
-      { name: "Warten auf", color: "#7b5ea7" },
-      { name: "Irgendwann/Vielleicht", color: "#78909c" },
-    ];
-    for (const d of defaults) {
-      if (!cats.some((c) => c.name.toLowerCase() === d.name.toLowerCase())) {
-        await createCategory(d);
-      }
+    try {
+      await createCategory({ name: name.trim(), color });
+      setName("");
+      setColor("#1976d2");
+      setOpen(false);
+      load();
+    } catch (e) {
+      const err = e as { response?: { data?: { error?: { message?: string } } } };
+      notify(err?.response?.data?.error?.message || "Kategorie konnte nicht angelegt werden", "error");
     }
-    load();
   };
 
   const handleDelete = async (id: string) => {
-    await deleteCategory(id);
-    load();
+    try {
+      await deleteCategory(id);
+      load();
+    } catch (e) {
+      const err = e as { response?: { data?: { error?: { message?: string } } } };
+      notify(err?.response?.data?.error?.message || "Kategorie konnte nicht gelöscht werden", "error");
+    }
   };
 
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
         <Typography variant="h4">Kategorien</Typography>
-        <Stack direction="row" spacing={1}><Button variant="outlined" onClick={handleCreateGtdDefaults}>GTD-Standardkategorien</Button><Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
           Neue Kategorie
-          </Button>
-        </Stack>
+        </Button>
       </Stack>
+
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Kategorien gehören dir. Gleichnamige Kategorien anderer Nutzer erscheinen in der Anzeige als dieselbe Kategorie,
+        bleiben aber getrennt gespeichert.
+      </Alert>
 
       <Stack spacing={1}>
         {cats.map((cat) => (
@@ -83,7 +86,7 @@ export function CategoriesPage() {
             <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} fullWidth autoFocus />
             <Typography variant="caption" color="text.secondary">Farbe wählen:</Typography>
             <Stack direction="row" flexWrap="wrap" gap={0.8}>
-              {["#0c66e4","#1982c4","#7b5ea7","#c43e2c","#e06c00","#d4a017","#2d8c4a","#0b8043","#5c6bc0","#ec407a","#8d6e63","#78909c"].map((c) => (
+              {PALETTE.map((c) => (
                 <Box
                   key={c}
                   onClick={() => setColor(c)}

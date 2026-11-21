@@ -9,6 +9,7 @@ import { errorHandler } from "./middleware/error.handler.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { tasksRoutes } from "./modules/tasks/tasks.routes.js";
 import { categoriesRoutes } from "./modules/categories/categories.routes.js";
+import { contextsRoutes } from "./modules/contexts/contexts.routes.js";
 import { usersRoutes } from "./modules/users/users.routes.js";
 import { calendarRoutes } from "./modules/calendar/calendar.routes.js";
 import { planningRoutes } from "./modules/planning/planning.routes.js";
@@ -108,6 +109,7 @@ export async function buildApp(opts?: { migrationMode?: boolean; onMigrationDone
   } else {
     await app.register(tasksRoutes, { prefix: "/api/tasks" });
     await app.register(categoriesRoutes, { prefix: "/api/categories" });
+    await app.register(contextsRoutes, { prefix: "/api/contexts" });
     await app.register(usersRoutes, { prefix: "/api/users" });
     await app.register(calendarRoutes, { prefix: "/api/calendar" });
     await app.register(planningRoutes, { prefix: "/api/planning" });

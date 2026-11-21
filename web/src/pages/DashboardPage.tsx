@@ -8,24 +8,38 @@ import { Add as AddIcon } from "@mui/icons-material";
 import { listTasks, getSubtasks, type Task } from "../api/tasksApi";
 import { fetchPlanning } from "../api/planningApi";
 import { listCategories, type Category } from "../api/categoriesApi";
+import { listContexts, type TaskContext } from "../api/contextsApi";
 import { listUsersPicker, type UserPickerItem } from "../api/usersApi";
 import { TaskListView } from "../components/tasks/TaskListView";
 import { TaskForm } from "../components/tasks/TaskForm";
 import { TaskFilterBar, createDefaultTaskFilterState, type TaskFilterState } from "../components/tasks/TaskFilterBar";
 import { useNotify } from "../context/NotifyContext";
 
+type DashboardTab = "" | "next" | "waiting" | "someday" | "project" | "inbox";
 
+const TABS: { key: DashboardTab; label: string }[] = [
+  { key: "", label: "Alle Aufgaben" },
+  { key: "next", label: "Nächster Schritt" },
+  { key: "waiting", label: "Warten auf" },
+  { key: "someday", label: "Irgendwann" },
+  { key: "project", label: "Projekte" },
+  { key: "inbox", label: "Eingangskorb" },
+];
 
 export function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState<TaskFilterState>(() => ({
     ...createDefaultTaskFilterState(),
     categoryId: searchParams.get("categoryId") || "",
+    contextId: searchParams.get("contextId") || "",
   }));
 
   useEffect(() => {
     const urlCat = searchParams.get("categoryId") || "";
-    setFilters((prev) => (prev.categoryId === urlCat ? prev : { ...prev, categoryId: urlCat }));
+    const urlCtx = searchParams.get("contextId") || "";
+    setFilters((prev) =>
+      prev.categoryId === urlCat && prev.contextId === urlCtx ? prev : { ...prev, categoryId: urlCat, contextId: urlCtx }
+    );
   }, [searchParams]);
 
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -33,19 +47,13 @@ export function DashboardPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [categorizedIds, setCategorizedIds] = useState<Set<string>>(new Set());
-  const checkIsInbox = (t: any) => {
-    if (categorizedIds.has(t.id)) return false;
-    const hasCats = Array.isArray(t.categories) && t.categories.length > 0;
-    const hasCatIds = Array.isArray(t.categoryIds) && t.categoryIds.length > 0;
-    return !hasCats && !hasCatIds;
-  };
+  const [contexts, setContexts] = useState<TaskContext[]>([]);
   const [users, setUsers] = useState<UserPickerItem[]>([]);
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [overdueCount, setOverdueCount] = useState(0);
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [dismissedWarnings, setDismissedWarnings] = useState<Set<number>>(new Set());
-  const [inboxOnly, setInboxOnly] = useState(false);
+  const [tab, setTab] = useState<DashboardTab>("");
   const [reviewReport, setReviewReport] = useState<{ inboxCount: number; stalledProjects: string[] } | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
 
@@ -62,15 +70,12 @@ export function DashboardPage() {
         return all;
       };
       const inboxItems = await fetchAllPages({ isCompleted: false, uncategorized: true });
-      const projCat = categories.find((cat) => cat.name.toLowerCase().includes("projekt"));
+      const projects = await fetchAllPages({ isCompleted: false, isProject: true });
       const stalledProjects: string[] = [];
-      if (projCat) {
-        const projects = await fetchAllPages({ isCompleted: false, categoryId: projCat.id });
-        for (const proj of projects) {
-          const subs = await getSubtasks(proj.id);
-          const subItems = Array.isArray(subs) ? subs : (subs.subtasks || []);
-          if (!subItems.some((s) => !s.isCompleted)) stalledProjects.push(proj.title);
-        }
+      for (const proj of projects) {
+        const subs = await getSubtasks(proj.id);
+        const subItems = Array.isArray(subs) ? subs : (subs.subtasks || []);
+        if (!subItems.some((s) => !s.isCompleted)) stalledProjects.push(proj.title);
       }
       setReviewReport({ inboxCount: inboxItems.length, stalledProjects });
     } finally { setReviewLoading(false); }
@@ -79,9 +84,12 @@ export function DashboardPage() {
 
   const handleFilterChange = useCallback((next: TaskFilterState) => {
     setFilters(next);
-    if (next.categoryId) {
-      setSearchParams({ categoryId: next.categoryId }, { replace: true });
-    } else if (searchParams.has("categoryId")) {
+    const params: Record<string, string> = {};
+    if (next.categoryId) params.categoryId = next.categoryId;
+    if (next.contextId) params.contextId = next.contextId;
+    if (Object.keys(params).length > 0) {
+      setSearchParams(params, { replace: true });
+    } else if (searchParams.has("categoryId") || searchParams.has("contextId")) {
       setSearchParams({}, { replace: true });
     }
     setPage(1);
@@ -89,12 +97,18 @@ export function DashboardPage() {
 
   const fetchTasks = useCallback(async () => {
     try {
+      const tabStatus = tab === "next" || tab === "waiting" || tab === "someday" ? tab : undefined;
       const res = await listTasks({
         page, pageSize: 20,
         search: filters.search ? filters.search.trim() : undefined,
         isCompleted: filters.status === "all" ? undefined : filters.status === "done",
-        categoryId: !inboxOnly && filters.categoryId ? filters.categoryId : undefined,
-        uncategorized: inboxOnly && !filters.categoryId ? true : undefined,
+        categoryId: filters.categoryId || undefined,
+        contextId: filters.contextId || undefined,
+        status: tabStatus ?? (filters.gtdStatus || undefined),
+        duration: filters.duration || undefined,
+        energy: filters.energy || undefined,
+        isProject: tab === "project" ? true : undefined,
+        uncategorized: tab === "inbox" ? true : undefined,
         isOverdue: filters.isOverdue || undefined,
         isHabit: filters.habitFilter === "all" ? undefined : filters.habitFilter === "habits",
         assigneeIds: filters.assigneeIds.length > 0 ? filters.assigneeIds : undefined,
@@ -103,12 +117,13 @@ export function DashboardPage() {
       });
       setTasks(res.items); setTotal(res.total); setTotalPages(res.totalPages);
     } catch { notify("Fehler beim Laden der Aufgaben", "error"); }
-  }, [page, filters, inboxOnly, notify]);
+  }, [page, filters, tab, notify]);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
   useEffect(() => {
     listCategories().then(setCategories).catch(() => {});
+    listContexts().then(setContexts).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -161,42 +176,17 @@ export function DashboardPage() {
       </Stack>
 
       <Stack direction="row" spacing={1} mb={2} flexWrap="wrap" useFlexGap alignItems="center">
-        <Button
-          size="small"
-          variant={inboxOnly ? "contained" : "outlined"}
-          color="warning"
-          onClick={() => {
-            const next = !inboxOnly;
-            setInboxOnly(next);
-            if (next) handleFilterChange({ ...filters, categoryId: "" });
-          }}
-        >
-          Eingangskorb
-        </Button>
-        {[
-          { label: "Alle Aufgaben", id: "" },
-          { label: "Projekte", key: "projekt" },
-          { label: "Nächste Schritte", key: "nächste" },
-          { label: "Warten auf", key: "warten" },
-          { label: "Irgendwann/Vielleicht", key: "irgendwann" },
-        ].map((tab) => {
-          const matchedCat = tab.key
-            ? categories.find((c) => c.name.toLowerCase().includes(tab.key!))
-            : undefined;
-          const targetId = tab.key ? matchedCat?.id : "";
-          if (tab.key && !matchedCat) return null;
-          const isActive = !inboxOnly && filters.categoryId === (targetId || "");
-          return (
-            <Button
-              key={tab.label}
-              size="small"
-              variant={isActive ? "contained" : "outlined"}
-              onClick={() => { setInboxOnly(false); handleFilterChange({ ...filters, categoryId: targetId || "" }); }}
-            >
-              {tab.label}
-            </Button>
-          );
-        })}
+        {TABS.map((entry) => (
+          <Button
+            key={entry.key || "all"}
+            size="small"
+            variant={tab === entry.key ? "contained" : "outlined"}
+            color={entry.key === "inbox" ? "warning" : "primary"}
+            onClick={() => { setTab(entry.key); setPage(1); }}
+          >
+            {entry.label}
+          </Button>
+        ))}
         <Button size="small" variant="outlined" color="secondary" onClick={runWeeklyReview} disabled={reviewLoading} sx={{ ml: "auto" }}>
           {reviewLoading ? "Prüft..." : "Weekly Review"}
         </Button>
@@ -206,7 +196,7 @@ export function DashboardPage() {
         <Alert severity={reviewReport.stalledProjects.length === 0 && reviewReport.inboxCount === 0 ? "success" : "info"} onClose={() => setReviewReport(null)} sx={{ mb: 2 }}>
           <strong>GTD Weekly Review:</strong> {reviewReport.inboxCount} ungeklärte Aufgabe(n) im Eingangskorb.{" "}
           {reviewReport.stalledProjects.length === 0
-            ? "Alle aktiven Projekte haben mindestens einen offenen Nächsten Schritt!"
+            ? "Alle Projekte haben mindestens einen offenen Nächsten Schritt!"
             : `Projekte ohne Nächsten Schritt: ${reviewReport.stalledProjects.join(", ")}`}
         </Alert>
       )}
@@ -215,6 +205,7 @@ export function DashboardPage() {
         value={filters}
         onChange={handleFilterChange}
         categories={categories}
+        contexts={contexts}
         users={users}
         overdueCount={overdueCount}
       />

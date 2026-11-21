@@ -353,7 +353,7 @@ export function TaskStatsPanel({ scope, range }: Props) {
             </Box>
           )}
 
-          {habits && (
+          {habits && habits.available !== false && (
             <Box sx={{ mt: 2.5 }}>
               <Stack direction="row" alignItems="baseline" spacing={1} flexWrap="wrap" useFlexGap>
                 <Typography variant="subtitle2">Habits</Typography>

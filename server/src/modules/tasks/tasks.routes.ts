@@ -10,6 +10,7 @@ import {
   findTaskIdBySlug, ensureTaskSlug,
 } from "./tasks.service.js";
 import { completeTask, reopenTask, getTaskEvents, addTaskComment } from "./completion.service.js";
+import { getCurrentUserAiKey } from "../auth/auth.service.js";
 import { createTaskSchema, updateTaskSchema, completeTaskSchema, addLinkSchema, commentSchema, reopenTaskSchema } from "./tasks.schema.js";
 
 function getPayload(request: unknown) {
@@ -40,15 +41,17 @@ export async function tasksRoutes(app: FastifyInstance) {
   app.post("/ai-mindmap", async (request, reply) => {
     const p = request.user as { id: string };
     if (!checkAiRateLimit(p.id)) return reply.status(429).send({ error: { code: "RATE_LIMITED", message: "Zu viele KI-Anfragen." } });
-    const { topic, apiKey } = z.object({ topic: z.string().min(1).max(200), apiKey: z.string().max(256).optional() }).parse(request.body);
-    try { return reply.send({ ideas: await generateMindmapIdeas(topic, apiKey) }); }
+    const { topic } = z.object({ topic: z.string().min(1).max(200) }).parse(request.body);
+    const { apiKey } = getCurrentUserAiKey(p.id);
+    try { return reply.send({ ideas: await generateMindmapIdeas(topic, apiKey ?? undefined) }); }
     catch (err) { return reply.status(400).send({ error: { code: "AI_ERROR", message: err instanceof Error ? err.message : "KI-Fehler" } }); }
   });
   app.post("/ai-describe", async (request, reply) => {
     const p = request.user as { id: string };
     if (!checkAiRateLimit(p.id)) return reply.status(429).send({ error: { code: "RATE_LIMITED", message: "Zu viele KI-Anfragen." } });
-    const { title, description, apiKey } = z.object({ title: z.string().min(1).max(200), description: z.string().max(2000).optional(), apiKey: z.string().max(256).optional() }).parse(request.body);
-    try { return reply.send({ description: await generateGtdDescription(title, description, apiKey) }); }
+    const { title, description } = z.object({ title: z.string().min(1).max(200), description: z.string().max(2000).optional() }).parse(request.body);
+    const { apiKey } = getCurrentUserAiKey(p.id);
+    try { return reply.send(await generateGtdDescription(title, description, apiKey ?? undefined)); }
     catch (err) { return reply.status(502).send({ error: { code: "AI_ERROR", message: err instanceof Error ? err.message : "KI-Fehler" } }); }
   });
 
@@ -129,7 +132,7 @@ export async function tasksRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
-    const result = await deleteTask(id);
+    const result = await deleteTask(id, p.id);
     if (result === false) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
     if (typeof result === "object" && result.blocked) {
       return reply.status(409).send({ error: { code: result.code, message: "Task has open subtasks" } });
@@ -181,7 +184,7 @@ export async function tasksRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
-    return getSubtasks(id);
+    return getSubtasks(id, p.id);
   });
 
   app.get("/:id/siblings", async (request, reply) => {
@@ -189,7 +192,7 @@ export async function tasksRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
-    return getSiblings(id);
+    return getSiblings(id, p.id);
   });
 
   app.get("/:id/links", async (request, reply) => {
@@ -197,7 +200,7 @@ export async function tasksRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
-    return getTaskLinks(id);
+    return getTaskLinks(id, p.id);
   });
 
   app.post("/:id/links", async (request, reply) => {
@@ -261,6 +264,6 @@ export async function tasksRoutes(app: FastifyInstance) {
     const { id, occurrenceId } = request.params as { id: string; occurrenceId: string };
     if (!(await isVisibleToUser(id, p.id, p.isAdmin)))
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Task not found" } });
-    return deleteTaskOccurrence(occurrenceId);
+    return deleteTaskOccurrence(id, occurrenceId);
   });
 }

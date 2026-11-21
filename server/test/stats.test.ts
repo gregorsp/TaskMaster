@@ -315,7 +315,7 @@ describe("Statistik: Aufgaben", () => {
     expect(res.json().error.code).toBe("FORBIDDEN");
   });
 
-  it("gruppiert für Admins pro Nutzer – auch private Aufgaben", async () => {
+  it("gruppiert für Admins pro Nutzer – ohne fremde private Aufgaben", async () => {
     const privateTask = insertTask({ isPrivate: true, createdById: otherId });
     insertEvent(privateTask, otherId, new Date());
     const ownTask = insertTask();
@@ -327,11 +327,14 @@ describe("Statistik: Aufgaben", () => {
       headers: headers(adminToken),
     });
     const body = res.json();
+    // Gesamtsumme zählt private Aufgaben anonym mit …
     expect(body.totals.completed).toBe(2);
-    expect(body.perUser).toHaveLength(2);
-    const names = body.perUser.map((row: { displayName: string }) => row.displayName).sort();
-    expect(names).toEqual(["stats_other", "stats_user"]);
-    expect(body.habits.perUser).not.toBeNull();
+    // … die Personen-Aufschlüsselung zeigt sie aber nicht.
+    expect(body.perUser).toHaveLength(1);
+    expect(body.perUser[0].displayName).toBe("stats_user");
+    // Habits bleiben für Admins komplett unsichtbar.
+    expect(body.habits.available).toBe(false);
+    expect(body.habits.perUser).toBeNull();
   });
 });
 

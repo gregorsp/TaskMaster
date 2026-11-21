@@ -942,7 +942,7 @@ describe("Task share links", () => {
   });
 
   it("public tasks can be opened via slug by any user", async () => {
-    const pub = await createVia(adminToken, { title: "Public Link" });
+    const pub = await createVia(adminToken, { title: "Public Link", isPrivate: false });
     const res = await app.inject({ method: "GET", url: `/api/tasks/by-slug/${pub.slug}`, headers: headers(userToken) });
     expect(res.statusCode).toBe(200);
     expect(res.json().id).toBe(pub.id);

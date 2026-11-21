@@ -2,11 +2,13 @@ import { buildApp } from "./app.js";
 import { initDb, getDb, saveDb, closeDb, startAutoSave, stopAutoSave, getRawDb } from "./db/client.js";
 import { config } from "./config.js";
 import { users } from "./db/schema.js";
+import { eq } from "drizzle-orm";
 import { scrypt, randomBytes } from "node:crypto";
 import { v7 as uuid } from "uuid";
 import { getDbState, SCHEMA_VERSION } from "./db/version.js";
 import { runMigration } from "./db/migrations.js";
 import { startTranscriptionScheduler, stopTranscriptionScheduler } from "./modules/transcription/server/scheduler.js";
+import { seedDefaultContexts } from "./modules/contexts/contexts.service.js";
 
 const KEYLEN = 64;
 
@@ -35,6 +37,9 @@ async function seedAdmin() {
     isAdmin: true,
     createdAt: new Date(),
   }).run();
+
+  const admin = db.select({ id: users.id }).from(users).where(eq(users.email, adminEmail)).get();
+  if (admin) seedDefaultContexts(admin.id);
 
   console.log(`Admin created: ${adminEmail}`);
 }

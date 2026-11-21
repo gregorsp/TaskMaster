@@ -7,6 +7,24 @@ export interface TaskAssignee {
   profilePicture: string | null;
 }
 
+export interface TaskCategoryRef {
+  id: string;
+  name: string;
+  color: string;
+  createdById?: string;
+}
+
+export interface TaskContextRef {
+  id: string;
+  name: string;
+  color: string;
+  createdById?: string;
+}
+
+export type TaskStatus = "next" | "waiting" | "someday";
+export type TaskDuration = "under_2_min" | "15_min";
+export type TaskEnergy = "low" | "high";
+
 export interface Task {
   id: string;
   slug: string | null;
@@ -27,6 +45,9 @@ export interface Task {
   urgencyValue: number | null;
   isPrivate: boolean;
   isHabit: boolean;
+  status: TaskStatus | null;
+  duration: TaskDuration | null;
+  energy: TaskEnergy | null;
   recurrenceType: "none" | "rrule" | "on_completion";
   recurrenceRule: string | null;
   parentId: string | null;
@@ -34,11 +55,12 @@ export interface Task {
   createdById: string;
   createdAt: string;
   assignees: TaskAssignee[];
+  categories: TaskCategoryRef[];
+  contexts: TaskContextRef[];
+  isProject?: boolean;
 }
 
-export interface TaskWithRelations extends Task {
-  categories: { id: string; name: string; color: string }[];
-}
+export type TaskWithRelations = Task;
 
 export interface SubtaskProgress {
   completed: number;
@@ -61,6 +83,7 @@ export interface TaskListResponse {
 export interface TaskFilters {
   isCompleted?: boolean;
   categoryId?: string;
+  contextId?: string;
   uncategorized?: boolean;
   assigneeId?: string;
   assigneeIds?: string[];
@@ -68,6 +91,10 @@ export interface TaskFilters {
   important?: boolean;
   urgent?: boolean;
   isHabit?: boolean;
+  status?: TaskStatus | "none";
+  duration?: TaskDuration | "none";
+  energy?: TaskEnergy | "none";
+  isProject?: boolean;
   search?: string;
   hidePlanned?: boolean;
   sort?: "createdAt" | "dueAt" | "title";
@@ -84,12 +111,16 @@ export interface CreateTaskInput {
   pomodoros?: number | null;
   isPrivate?: boolean;
   isHabit?: boolean;
+  status?: TaskStatus | null;
+  duration?: TaskDuration | null;
+  energy?: TaskEnergy | null;
   urgencyMode?: "never" | "always" | "before_days" | "before_percent";
   urgencyValue?: number | null;
   recurrenceType?: "none" | "rrule" | "on_completion";
   recurrenceRule?: string;
   assigneeIds?: string[];
   categoryIds?: string[];
+  contextIds?: string[];
   parentId?: string | null;
   plannedDate?: string | null;
   forceDueDate?: boolean;
@@ -126,12 +157,16 @@ export interface UpdateTaskInput {
   pomodoros?: number | null;
   isPrivate?: boolean;
   isHabit?: boolean;
+  status?: TaskStatus | null;
+  duration?: TaskDuration | null;
+  energy?: TaskEnergy | null;
   urgencyMode?: "never" | "always" | "before_days" | "before_percent";
   urgencyValue?: number | null;
   recurrenceType?: "none" | "rrule" | "on_completion";
   recurrenceRule?: string | null;
   assigneeIds?: string[];
   categoryIds?: string[];
+  contextIds?: string[];
   parentId?: string | null;
   plannedDate?: string | null;
   forceUpdateRecurrence?: boolean;
@@ -143,6 +178,12 @@ export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResp
   const params = new URLSearchParams();
   if (filters.isCompleted !== undefined) params.set("isCompleted", String(filters.isCompleted));
   if (filters.categoryId) params.set("categoryId", filters.categoryId);
+  if (filters.contextId) params.set("contextId", filters.contextId);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.duration) params.set("duration", filters.duration);
+  if (filters.energy) params.set("energy", filters.energy);
+  if (filters.isProject !== undefined) params.set("isProject", String(filters.isProject));
+  if (filters.uncategorized) params.set("uncategorized", "true");
   if (filters.assigneeId) params.set("assigneeId", filters.assigneeId);
   if (filters.assigneeIds && filters.assigneeIds.length > 0) params.set("assigneeIds", filters.assigneeIds.join(","));
   if (filters.isOverdue !== undefined) params.set("isOverdue", String(filters.isOverdue));
@@ -248,11 +289,21 @@ export async function deleteTaskOccurrence(taskId: string, occurrenceId: string)
   await client.delete(`/tasks/${taskId}/occurrences/${occurrenceId}`);
 }
 
-export async function generateTaskDescriptionAi(title: string, description?: string, apiKey?: string): Promise<string> {
-  const res = await client.post<{ description: string }>("/tasks/ai-describe", { title, description, apiKey });
-  return res.data.description;
+export interface AiTaskSuggestion {
+  description: string;
+  context: string | null;
+  duration: TaskDuration | null;
+  energy: TaskEnergy | null;
+  status: TaskStatus | null;
 }
-export async function generateMindmapIdeasAi(topic: string, apiKey?: string): Promise<string[]> {
-  const res = await client.post<{ ideas: string[] }>("/tasks/ai-mindmap", { topic, apiKey });
+
+/** Fragt die KI nach Beschreibung und Einordnung. Der Schlüssel liegt auf dem Server. */
+export async function generateTaskDescriptionAi(title: string, description?: string): Promise<AiTaskSuggestion> {
+  const res = await client.post<AiTaskSuggestion>("/tasks/ai-describe", { title, description });
+  return res.data;
+}
+
+export async function generateMindmapIdeasAi(topic: string): Promise<string[]> {
+  const res = await client.post<{ ideas: string[] }>("/tasks/ai-mindmap", { topic });
   return res.data.ideas || [];
 }

@@ -11,6 +11,18 @@ export const users = sqliteTable("users", {
   capacity: text("capacity"),
   confirmHabitCompletion: integer("confirm_habit_completion", { mode: "boolean" }).notNull().default(true),
   transcriptionLanguage: text("transcription_language").notNull().default("de"),
+  /**
+   * Nutzer-Voreinstellung: neue Aufgaben sind standardmäßig privat.
+   * Der Server wendet sie an, wenn ein `POST /api/tasks` kein `isPrivate` mitschickt.
+   */
+  defaultPrivate: integer("default_private", { mode: "boolean" }).notNull().default(true),
+  /** KI-Anbieter des gespeicherten Schlüssels ("gemini" | "deepseek"). */
+  aiProvider: text("ai_provider"),
+  /**
+   * Verschlüsselter KI-API-Schlüssel (AES-256-GCM, Schlüssel aus JWT_SECRET
+   * abgeleitet). Wird nie im Klartext an den Client zurückgegeben.
+   */
+  aiKeyEncrypted: text("ai_key_encrypted"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
@@ -41,6 +53,17 @@ export const tasks = sqliteTable("tasks", {
   urgencyValue: integer("urgency_value"),
   isPrivate: integer("is_private", { mode: "boolean" }).notNull().default(false),
   isHabit: integer("is_habit", { mode: "boolean" }).notNull().default(false),
+  /**
+   * GTD-Status: "next" (Nächster Schritt), "waiting" (Warten auf),
+   * "someday" (Irgendwann) oder NULL. Ersetzt die früheren GTD-Kategorien.
+   * Ein „Projekt" ist keine Ausprägung dieses Feldes, sondern eine Aufgabe mit
+   * mindestens einer Unteraufgabe.
+   */
+  status: text("status"),
+  /** Fester Aufwand: "under_2_min" | "15_min" | NULL. */
+  duration: text("duration"),
+  /** Feste Energie: "low" | "high" | NULL. */
+  energy: text("energy"),
   recurrenceType: text("recurrence_type").notNull().default("none"),
   recurrenceRule: text("recurrence_rule"),
   parentId: text("parent_id"),
@@ -76,6 +99,38 @@ export const taskCategories = sqliteTable(
       .references(() => categories.id),
   },
   (table) => [primaryKey({ columns: [table.taskId, table.categoryId] })]
+);
+
+/**
+ * GTD-Kontexte (Telefon, Computer, Online, Zuhause, Besorgungen, Uni …).
+ * Wie Kategorien gehören sie genau einem Nutzer; in der Anzeige werden
+ * gleichnamige Kontexte verschiedener Nutzer gruppiert.
+ */
+export const contexts = sqliteTable(
+  "contexts",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    color: text("color").notNull(),
+    createdById: text("created_by_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("idx_contexts_owner").on(table.createdById)]
+);
+
+export const taskContexts = sqliteTable(
+  "task_contexts",
+  {
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id),
+    contextId: text("context_id")
+      .notNull()
+      .references(() => contexts.id),
+  },
+  (table) => [primaryKey({ columns: [table.taskId, table.contextId] })]
 );
 
 export const taskEvents = sqliteTable("task_events", {

@@ -6,7 +6,7 @@ import { getDbState, SCHEMA_VERSION } from "../src/db/version.js";
 import { createBackup, runMigration, ensureSchemaVersion } from "../src/db/migrations.js";
 import { scrypt, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { users } from "../src/db/schema.js";
+import { users, tasks, categories, taskCategories } from "../src/db/schema.js";
 import { v7 as uuid } from "uuid";
 import type { FastifyInstance } from "fastify";
 
@@ -187,6 +187,16 @@ describe("Migration – runMigration", () => {
       getRawDb().run(`DROP TABLE IF EXISTS ${table}`);
     }
     getRawDb().run("ALTER TABLE users DROP COLUMN transcription_language");
+    // 0019 (Nutzer-Kategorien/Kontexte/Aufgabefelder) ebenfalls zurückbauen,
+    // damit die Migration beim erneuten Lauf nicht auf doppelte Spalten läuft.
+    getRawDb().run("DROP TABLE IF EXISTS task_contexts");
+    getRawDb().run("DROP TABLE IF EXISTS contexts");
+    for (const column of ["default_private", "ai_provider", "ai_key_encrypted"]) {
+      getRawDb().run(`ALTER TABLE users DROP COLUMN ${column}`);
+    }
+    for (const column of ["status", "duration", "energy"]) {
+      getRawDb().run(`ALTER TABLE tasks DROP COLUMN ${column}`);
+    }
     let state = getDbState(db, getRawDb());
     expect(state.state).toBe("MIGRATION_NEEDED");
 
@@ -211,6 +221,149 @@ describe("Migration – runMigration", () => {
     expect(String(t1Slug).length).toBeGreaterThan(5);
     const indexes = getRawDb().exec("PRAGMA index_list(tasks)")[0].values.map((row) => row[1] as string);
     expect(indexes).toContain("idx_tasks_slug_unique");
+    closeDb();
+  });
+});
+
+describe("Migration – 0019 Nutzer-Organisation", () => {
+  async function prepareLegacyV16Database() {
+    await initDb();
+    const db = getDb();
+    migrate(db, { migrationsFolder: "./src/db/migrations" });
+
+    const salt = randomBytes(16).toString("hex");
+    const pw = await hashPassword("legacy123456", salt);
+    const uid = uuid();
+
+    db.insert(users).values({
+      id: uid, username: "legacy19", email: "legacy19@test.com",
+      passwordHash: pw, displayName: "Legacy", isAdmin: false, createdAt: new Date(),
+    }).run();
+
+    const insertTask = (row: {
+      id: string; title: string; description?: string | null;
+      isPrivate?: boolean; parentId?: string | null;
+    }) => {
+      db.insert(tasks).values({
+        id: row.id,
+        title: row.title,
+        description: row.description ?? null,
+        isPrivate: row.isPrivate ?? false,
+        recurrenceType: "none",
+        parentId: row.parentId ?? null,
+        createdById: uid,
+        createdAt: new Date(),
+      }).run();
+    };
+
+    insertTask({ id: "t_phone", title: "@Telefon: Anrufen", description: "Rückruf 2 min" });
+    insertTask({ id: "t_energy", title: "Sport", description: "Training energie:hoch" });
+    insertTask({ id: "t_duration", title: "Kurz", description: "Kram 15 min" });
+    insertTask({ id: "t_project", title: "Projekt", isPrivate: true });
+    insertTask({ id: "t_child", title: "Schritt", isPrivate: false, parentId: "t_project" });
+    insertTask({ id: "t_status", title: "Warten", isPrivate: true });
+
+    db.insert(categories).values([
+      { id: "cat_next", name: "Nächste Schritte", color: "#e06c00", createdById: uid, createdAt: new Date() },
+      { id: "cat_project", name: "Projekte", color: "#d4a017", createdById: uid, createdAt: new Date() },
+    ]).run();
+    db.insert(taskCategories).values([
+      { taskId: "t_status", categoryId: "cat_next" },
+      { taskId: "t_project", categoryId: "cat_project" },
+    ]).run();
+
+    // 0019 zurückbauen und als ausstehend markieren.
+    getRawDb().run("DROP TABLE IF EXISTS task_contexts");
+    getRawDb().run("DROP TABLE IF EXISTS contexts");
+    for (const column of ["default_private", "ai_provider", "ai_key_encrypted"]) {
+      getRawDb().run(`ALTER TABLE users DROP COLUMN ${column}`);
+    }
+    for (const column of ["status", "duration", "energy"]) {
+      getRawDb().run(`ALTER TABLE tasks DROP COLUMN ${column}`);
+    }
+    getRawDb().run("UPDATE app_meta SET value = '16' WHERE key = 'schema_version'");
+    getRawDb().run("DELETE FROM __drizzle_migrations WHERE created_at = ?", [1794000000000]);
+
+    return uid;
+  }
+
+  it("legt Standard-Kontexte für bestehende Nutzer an", async () => {
+    const uid = await prepareLegacyV16Database();
+    runMigration();
+
+    const rows = getRawDb().exec("SELECT name FROM contexts WHERE created_by_id = ?", [uid])[0].values
+      .map((row) => row[0] as string)
+      .sort();
+    expect(rows).toEqual(["Besorgungen", "Computer", "Online", "Telefon", "Uni", "Zuhause"].sort());
+
+    const version = getRawDb().exec("SELECT value FROM app_meta WHERE key = 'schema_version'")[0].values[0][0];
+    expect(version).toBe("17");
+    closeDb();
+  });
+
+  it("überführt @Kontext-Präfixe in Kontexte und entfernt sie aus dem Titel", async () => {
+    const uid = await prepareLegacyV16Database();
+    runMigration();
+
+    const title = getRawDb().exec("SELECT title FROM tasks WHERE id = 't_phone'")[0].values[0][0];
+    expect(title).toBe("Anrufen");
+
+    const linked = getRawDb().exec(
+      `SELECT c.name FROM task_contexts tc JOIN contexts c ON c.id = tc.context_id
+       WHERE tc.task_id = 't_phone' AND c.created_by_id = ?`,
+      [uid]
+    )[0]?.values;
+    expect(linked).toHaveLength(1);
+    expect(linked?.[0][0]).toBe("Telefon");
+    closeDb();
+  });
+
+  it("überführt Energie- und Dauer-Tags in eigene Felder", async () => {
+    await prepareLegacyV16Database();
+    runMigration();
+
+    const energy = getRawDb().exec("SELECT energy, description FROM tasks WHERE id = 't_energy'")[0].values[0];
+    expect(energy[0]).toBe("high");
+    expect(energy[1]).toBe("Training");
+
+    const duration = getRawDb().exec("SELECT duration, description FROM tasks WHERE id = 't_duration'")[0].values[0];
+    expect(duration[0]).toBe("15_min");
+    expect(duration[1]).toBe("Kram");
+
+    const phone = getRawDb().exec("SELECT duration, description FROM tasks WHERE id = 't_phone'")[0].values[0];
+    expect(phone[0]).toBe("under_2_min");
+    expect(phone[1]).toBe("Rückruf");
+    closeDb();
+  });
+
+  it("überführt GTD-Kategorien in den Status und löst sie auf", async () => {
+    await prepareLegacyV16Database();
+    runMigration();
+
+    const status = getRawDb().exec("SELECT status FROM tasks WHERE id = 't_status'")[0].values[0][0];
+    expect(status).toBe("next");
+
+    const remainingCategories = getRawDb().exec(
+      "SELECT COUNT(*) FROM categories WHERE lower(name) IN ('projekte', 'nächste schritte')"
+    )[0].values[0][0] as number;
+    expect(remainingCategories).toBe(0);
+
+    const links = getRawDb().exec(
+      "SELECT COUNT(*) FROM task_categories WHERE category_id IN ('cat_next', 'cat_project')"
+    )[0].values[0][0] as number;
+    expect(links).toBe(0);
+    closeDb();
+  });
+
+  it("normalisiert die Privatheit von Unteraufgaben auf die Wurzel", async () => {
+    await prepareLegacyV16Database();
+    runMigration();
+
+    const child = getRawDb().exec("SELECT is_private FROM tasks WHERE id = 't_child'")[0].values[0][0];
+    expect(child).toBe(1);
+
+    const defaultPrivate = getRawDb().exec("SELECT default_private FROM users")[0].values[0][0];
+    expect(defaultPrivate).toBe(1);
     closeDb();
   });
 });
