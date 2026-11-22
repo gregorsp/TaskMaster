@@ -6,7 +6,7 @@
 - The Fastify server doubles as the SPA host in production: it serves the built React app from `server/public/` (copied from `web/dist/` during Docker build) and falls back to `index.html` for client-side routing.
 - DB is SQLite via `sql.js` (WASM, no native modules). Drizzle ORM for schema + queries. Migrations are in `server/src/db/migrations/`.
 - Nightly server-side transcription (optional, `TRANSCRIBE_SERVER=true`) runs the same Parakeet model in a `worker_threads` worker via `onnxruntime-node`; the only native dependency. Everything else stays toolchain-free.
-- Current schema version: `SCHEMA_VERSION = 17` (defined in `server/src/db/version.ts`). There are 20 migration files (`0000` through `0019`).
+- Current schema version: `SCHEMA_VERSION = 18` (defined in `server/src/db/version.ts`). There are 21 migration files (`0000` through `0020`). Migrations from `0017` on are hand-written (no drizzle snapshot) — add the journal entry by hand and keep `when` increasing.
 
 ### Server startup flow
 
@@ -75,6 +75,9 @@ All business logic lives under `server/src/modules/`, organized by domain:
 | Tasks | `modules/tasks/` | `/api/tasks` | `tasks.routes.ts`, `tasks.service.ts`, `tasks.schema.ts`, `completion.service.ts` |
 | Categories | `modules/categories/` | `/api/categories` | `categories.routes.ts`, `categories.service.ts`, `colors.ts` |
 | Contexts | `modules/contexts/` | `/api/contexts` | `contexts.routes.ts`, `contexts.service.ts` (CRUD + `seedDefaultContexts`, `DEFAULT_CONTEXTS`) |
+| Goals | `modules/goals/` | `/api/goals` | `goals.routes.ts`, `goals.service.ts` (own goals + linked visible tasks with `nextStep`, progress counts) |
+| Time blocks | `modules/timeblocks/` | `/api/time-blocks` | `timeblocks.routes.ts`, `timeblocks.service.ts` (weekly blocks; `POST` takes `weekdays[]`) |
+| Mind maps | `modules/mindmaps/` | `/api/mindmaps` | `mindmaps.routes.ts`, `mindmaps.service.ts` (brainstorming boards, nodes/edges stored as opaque JSON) |
 | Users | `modules/users/` | `/api/users` | `users.routes.ts`, `users.service.ts` |
 | Calendar | `modules/calendar/` | `/api/calendar` | `calendar.routes.ts`, `recurrence.service.ts` |
 | Planning | `modules/planning/` | `/api/planning` | `planning.routes.ts`, `planning.service.ts` |
@@ -112,12 +115,12 @@ Each module follows a consistent pattern:
 
 ### Schema overview (`server/src/db/schema.ts`)
 
-20 Drizzle tables:
+23 Drizzle tables:
 
 | Table | Purpose |
 |---|---|
 | `users` | User accounts: id, username, email, passwordHash, displayName, isAdmin, profilePicture, capacity, confirmHabitCompletion, transcriptionLanguage, **defaultPrivate** (new tasks private by default, default true), **aiProvider** / **aiKeyEncrypted** (encrypted per-user AI key), createdAt |
-| `tasks` | Tasks with 28 columns including: title, description, dueAt, baseDate, lastCompletedAt, isCompleted, completedAt, isImportant, isUrgent, pomodoros, urgencyMode, urgencyValue, isPrivate, isHabit, **status** (`next`/`waiting`/`someday`), **duration** (`under_2_min`/`15_min`), **energy** (`low`/`high`), recurrenceType, recurrenceRule, parentId, plannedDate |
+| `tasks` | Tasks with 28 columns including: title, description, dueAt, baseDate, lastCompletedAt, isCompleted, completedAt, isImportant, isUrgent, pomodoros, urgencyMode, urgencyValue, isPrivate, isHabit, **status** (`next`/`waiting`/`someday`; reference material is no status — the clarify wizard turns it into a note), **duration** (`under_2_min`/`15_min`/`30_min`/`60_min`/`long`), **energy** (`low`/`medium`/`high`) — value lists live only in `tasks.schema.ts` (`TASK_STATUSES`/`TASK_DURATIONS`/`TASK_ENERGIES`; ascending order matters for `maxDuration`/`maxEnergy`), German labels only in `web/src/components/tasks/gtd.ts`, recurrenceType, recurrenceRule, parentId, plannedDate |
 | `task_assignees` | Join table: taskId ↔ userId (composite PK) |
 | `task_categories` | Join table: taskId ↔ categoryId (composite PK) |
 | `categories` | Per-user task categories: id, name, color, createdById, createdAt |
@@ -135,6 +138,9 @@ Each module follows a consistent pattern:
 | `journal_answers` | Exactly one answer per question and day: questionId, answerDate, text |
 | `meditation_sessions` | Sessions: startedAt, endedAt, plannedDurationSec, actualDurationSec, note, concentration (1–5) |
 | `meditation_comments` | Comments on a session: sessionId, userId, text, createdAt |
+| `goals` | GTD goals (horizon above projects): userId, title, description, targetDate, achievedAt; tasks link via `tasks.goal_id` |
+| `time_blocks` | Weekly time blocks: userId, weekday (`mon`…`sun`), startMinute/endMinute (local time), title, optional contextId/energy |
+| `mindmap_boards` | Brainstorming boards: userId, title, nodes (JSON `{ nodes, extraEdges }`) |
 | `app_meta` | Key-value store for app metadata (currently only `schema_version`) |
 
 ### Migration workflow
@@ -213,6 +219,21 @@ When changing `server/src/db/schema.ts`:
 - A task **cannot be deleted** if it has open subtasks (returns 409 with `code: "HAS_OPEN_SUBTASKS"`).
 - `GET /api/tasks/:id/subtasks` returns direct children. `GET /api/tasks/:id/siblings` returns tasks sharing the same parent.
 
+### GTD
+
+- **Inbox** (`uncategorized=true`): open top-level tasks of mine (created by or assigned to the user) without category, status, goal or subtasks. Projects, subtasks and goal-linked tasks count as organized; other users' public tasks never appear.
+- **Project** = task with subtasks; its steps are the subtasks in creation order. **Next step automation** (`advanceNextStep` in `tasks.service.ts`, the single place for this rule): a new subtask without status becomes `next` if the project has none; completing, deleting or moving a `next` step (or setting it to `waiting`/`someday`/…) promotes the oldest open subtask without status. `waiting`/`someday` are never promoted. `POST /complete` returns `nextStep`; projects carry `nextStep` (current step or `null`).
+- **Stalled** = open project whose `nextStep` is `null`.
+- **Pomodoros vs. duration**: planning capacity uses `estimatedPomodoros()` (`tasks.schema.ts`): explicit `pomodoros` win, otherwise `DURATION_POMODOROS` derived from the GTD duration — no second estimate needed.
+- `GET /api/tasks/review` → `{ inboxCount, idleGoals, somedayCount, stalledProjects, waiting }` (visible tasks only; `idleGoals` = own open goals without an open linked task).
+- **Startup reconcile**: `reconcileNextSteps()` runs once at boot (not in maintenance mode) so projects from before the automation get their `next` step. Idempotent.
+- **Goals**: only the goal owner may link a task (`INVALID_GOAL` otherwise); an unchanged `goalId` on update is not re-validated, so co-editors can save shared tasks.
+- **Time blocks** (`/gtd/blocks`): `TodayBlocks` (also on the daily view) shows the running block; „Passende Schritte“ links to `/gtd?tab=next&contextId=…&maxEnergy=…&maxDuration=…`. `TaskListPane` applies `tab`/`maxDuration`/`maxEnergy` URL params once and then removes them.
+- **Capture**: `QuickCapture` is the one capture field (header dialog in `AppShell` + inbox tab).
+- **Mind maps**: `BrainstormingPage` stores boards on the server (one-time import of the old `localStorage` key `taskmaster_gtd_mindmaps_v1`). Nodes remember `gtdTaskId`; only nodes whose own task is completed/deleted are pruned, and deleting a node deletes only its linked tasks (never by title match).
+- `maxDuration` / `maxEnergy` are "up to" filters over the ascending value lists; they only hide tasks known not to fit — tasks without a value stay visible. `urgent=true` filters on the computed urgency, not the stored `is_urgent` column.
+- New status/duration/energy values need no migration (plain text columns) — add them to `tasks.schema.ts`, `tasksApi.ts` types and `gtd.ts` labels.
+
 ### Task links
 
 - Bidirectional directional links between any two tasks (stored in `task_links`).
@@ -269,7 +290,11 @@ When changing `server/src/db/schema.ts`:
 - `web/src/components/tasks/` — most complex component area:
   - `TaskForm.tsx` — create/edit task dialog with recurrence, assignment, categories, urgency settings.
   - `TaskCard.tsx` / `TaskListView.tsx` — task display components.
-  - `TaskListPane.tsx` — shared list surface (filters, pagination, planning warnings, new-task button). Dashboard renders it plain; the GTD page additionally enables the GTD tabs (Alle / Nächster Schritt / Warten auf / Irgendwann / Projekte / Eingangskorb) and the Weekly Review.
+  - `TaskListPane.tsx` — shared list surface (filters, pagination, planning warnings, new-task button). Dashboard renders it plain; the GTD page additionally enables the GTD tabs (Alle / Eingangskorb / Nächster Schritt / Projekte / Warten auf / Irgendwann), the quick-capture field + "Eingangskorb klären" in the inbox tab, and the Weekly Review.
+  - `GtdFields.tsx` — status/duration/energy/context inputs, shared by `TaskForm` and the clarify wizard.
+  - `InboxClarifyDialog.tsx` — David Allen clarify wizard (actionable? no → trash / someday / reference = new text note via `notesApi`, then the task is deleted (note rolled back if the delete is forbidden); yes → do now <2 min / delegate to "Warten auf" / project with first next step / next step).
+  - `WeeklyReviewDialog.tsx` — interactive review backed by `GET /api/tasks/review`: clear inbox, add next steps to stalled projects inline, tick off or follow up "Warten auf", review someday.
+  - `TaskFilterBar.tsx` — Engage filters (`showEngage`, off on the planning page): available time (`maxDuration`), energy (`maxEnergy`), priority (important / computed urgent), plus a plain context dropdown (deliberately not prominent).
   - `TaskTree/` — recursive tree component for parent/child task hierarchy.
   - `TaskGraphDialog.tsx` — interactive graph visualization of task links.
   - `TaskRelationsSidebar.tsx` — shows linked tasks in a side panel.
@@ -287,13 +312,15 @@ When changing `server/src/db/schema.ts`:
   - `PlanningPage` — weekly planning grid.
   - `CategoriesPage` — category management (own categories).
   - `ContextsPage` — GTD context management (own contexts).
+  - `GoalsPage` (`/gtd/goals`) — goals with linked projects, progress, next step input (`NextStepInput`).
+  - `TimeBlocksPage` (`/gtd/blocks`) — weekly time blocks + „Jetzt“ card (`components/timeblocks/TodayBlocks.tsx`).
   - `SettingsPage` — general/KI/behavior settings (default-private, encrypted AI key, habit confirmation, transcription language, auto-transcribe).
   - `AdminPage` — user management (admin only).
   - `ProfilePage` — avatar, master data, capacity, password.
   - `AudioPage` — audio processing overview: queue, live progress + ETA, recent/failed jobs, retry, stats block.
   - `StatsPage` — three sections (tasks, meditation, audio) with a shared range selector, per-section comparisons and admin per-user tables.
   - `MigrationPage` — shown in maintenance mode.
-- Sidebar navigation has two tiers: the working pages (`AppShell.tsx` `navItems`: Aufgaben, Tagesansicht, Notizen, Meditation, Kalender, Planung, Matrix, Kategorien, Kontexte, Brainstorming, GTD) and a **"Verwaltung"** group inside the avatar menu (Profil, Einstellungen, Audio, Statistik, Admin). Admin-only entries are filtered by `user?.isAdmin`.
+- Sidebar navigation has two tiers: the working pages (`AppShell.tsx` `navItems`: Aufgaben, Tagesansicht, Notizen, Meditation, Kalender, Planung, Matrix, Kategorien, Kontexte, Brainstorming, GTD with nested `children` Ziele + Zeitblöcke), a capture button in the header, and a **"Verwaltung"** group inside the avatar menu (Profil, Einstellungen, Audio, Statistik, Admin). Admin-only entries are filtered by `user?.isAdmin`.
 
 ## Environment and config
 
@@ -337,7 +364,7 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 - **Framework**: Vitest (`server/package.json` → `"test": "vitest run"`, `"test:watch": "vitest"`).
 - **Database**: In-memory SQLite (`DB_PATH` is `:memory:` when `NODE_ENV=test`).
 - **HTTP**: Tests use Fastify's `inject()` method to call routes without a running server. Each test file builds a fresh app instance via `buildApp()` and seeds the necessary data.
-- **Current coverage**: 237 tests across 18 test files.
+- **Current coverage**: 253 tests across 19 test files.
 - New modules have their own files: `notes.test.ts` (11), `journal.test.ts` (5), `meditation.test.ts` (3), `stats.test.ts` (13), `transcription-server.test.ts` (20), `audio-overview.test.ts` (24).
 
 ### Test files
@@ -346,11 +373,12 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 |---|---|---|
 | `test/tasks.test.ts` | 53 | Task CRUD, filtering, pagination, visibility, subtasks, links, occurrences, urgency |
 | `test/privacy.test.ts` | 12 | Default-private, subtask inheritance/cascade, link/subtask/sibling filtering, creator-only writes, occurrence scoping, `parentId` validation, no admin bypass, habit invisibility |
-| `test/organization.test.ts` | 13 | Per-user categories + name grouping, contexts CRUD/seeding, status/duration/energy filters, inbox, project derivation, encrypted AI key |
-| `test/migration.test.ts` | 24 | Migration from old schema versions, 0019 data conversion (contexts, title prefixes, energy tags, GTD categories, privacy normalization), backup/restore |
+| `test/organization.test.ts` | 20 | Per-user categories + name grouping, contexts CRUD/seeding, status/duration/energy filters, inbox (own/assigned only, projects/subtasks excluded), project derivation, maxDuration/maxEnergy, computed urgent filter, weekly review, next-step automation, encrypted AI key |
+| `test/migration.test.ts` | 25 | Migration from old schema versions, 0020 tables, 0019 data conversion (contexts, title prefixes, energy tags, GTD categories, privacy normalization), backup/restore |
 | `test/habits.test.ts` | 15 | Habit creation, completion, occurrence tracking, streaks |
-| `test/planning.test.ts` | 12 | Planning grid, draft/confirm, capacity |
+| `test/planning.test.ts` | 13 | Planning grid, draft/confirm, capacity, pomodoro estimate from duration |
 | `test/capacity.test.ts` | 9 | User capacity CRUD, validation |
+| `test/gtd-horizons.test.ts` | 7 | Goals (CRUD, linking, ownership, inbox exclusion, idle goals in review), time blocks (multi-day, validation, ownership), mind maps (CRUD, isolation), startup next-step reconcile |
 | `test/http-flow.test.ts` | 6 | HTTP status codes, error shapes, auth flow |
 | `test/recurrence.test.ts` | 6 | RRULE expansion, completion recurrence calculation |
 | `test/auth.test.ts` | 4 | Registration, login, token refresh, logout |

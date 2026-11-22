@@ -219,6 +219,25 @@ describe("Status, Dauer und Energie", () => {
     expect(ids).not.toContain(sorted.id);
   });
 
+  it("enthält nur eigene bzw. zugewiesene Einträge, keine öffentlichen Aufgaben anderer", async () => {
+    const foreignPublic = await createTask(otherToken, { title: "Öffentlich von anderen", isPrivate: false });
+    const res = await app.inject({
+      method: "GET", url: "/api/tasks?uncategorized=true&pageSize=100", headers: headers(ownerToken),
+    });
+    expect(res.json().items.map((t: { id: string }) => t.id)).not.toContain(foreignPublic.id);
+  });
+
+  it("Projekte und Unteraufgaben gelten als organisiert (nicht im Eingangskorb)", async () => {
+    const project = await createTask(ownerToken, { title: "Projekt aus dem Eingang", isPrivate: true });
+    const step = await createTask(ownerToken, { title: "Erster Schritt", isPrivate: true, parentId: project.id });
+    const res = await app.inject({
+      method: "GET", url: "/api/tasks?uncategorized=true&pageSize=100", headers: headers(ownerToken),
+    });
+    const ids = res.json().items.map((t: { id: string }) => t.id);
+    expect(ids).not.toContain(project.id);
+    expect(ids).not.toContain(step.id);
+  });
+
   it("Projekte sind Aufgaben mit Unteraufgaben", async () => {
     const project = await createTask(ownerToken, { title: "Projekt", isPrivate: true });
     await createTask(ownerToken, { title: "Schritt", isPrivate: true, parentId: project.id });
@@ -231,6 +250,111 @@ describe("Status, Dauer und Energie", () => {
 
     const detail = await app.inject({ method: "GET", url: `/api/tasks/${project.id}`, headers: headers(ownerToken) });
     expect(detail.json().isProject).toBe(true);
+  });
+});
+
+describe("GTD: Klären, Erledigen, Reflektieren", () => {
+  async function listIds(token: string, query: string) {
+    const res = await app.inject({ method: "GET", url: `/api/tasks?pageSize=100&${query}`, headers: headers(token) });
+    expect(res.statusCode).toBe(200);
+    return res.json().items.map((t: { id: string }) => t.id) as string[];
+  }
+
+  it("filtert nach verfügbarer Zeit und Energie als Obergrenze", async () => {
+    const quick = await createTask(ownerToken, { title: "Zeit kurz", isPrivate: true, duration: "under_2_min", energy: "low" });
+    const half = await createTask(ownerToken, { title: "Zeit mittel", isPrivate: true, duration: "30_min", energy: "medium" });
+    const long = await createTask(ownerToken, { title: "Zeit lang", isPrivate: true, duration: "long", energy: "high" });
+    const unknown = await createTask(ownerToken, { title: "Zeit unbekannt", isPrivate: true });
+
+    const byTime = await listIds(ownerToken, "search=Zeit&maxDuration=30_min");
+    expect(byTime).toEqual(expect.arrayContaining([quick.id, half.id]));
+    expect(byTime).not.toContain(long.id);
+    expect(byTime).toContain(unknown.id); // ohne Angabe bleibt sichtbar
+
+    const byEnergy = await listIds(ownerToken, "search=Zeit&maxEnergy=medium");
+    expect(byEnergy).toEqual(expect.arrayContaining([quick.id, half.id]));
+    expect(byEnergy).not.toContain(long.id);
+
+    const invalid = await app.inject({
+      method: "POST", url: "/api/tasks", headers: headers(ownerToken), payload: { title: "x", duration: "3_tage" },
+    });
+    expect(invalid.statusCode).toBe(400);
+  });
+
+  it("filtert „dringend“ nach der berechneten Dringlichkeit", async () => {
+    const always = await createTask(ownerToken, { title: "Prio immer", isPrivate: true, urgencyMode: "always" });
+    const never = await createTask(ownerToken, { title: "Prio nie", isPrivate: true, urgencyMode: "never" });
+    const urgent = await listIds(ownerToken, "search=Prio&urgent=true");
+    expect(urgent).toContain(always.id);
+    expect(urgent).not.toContain(never.id);
+  });
+
+  it("Weekly Review: festgefahrene Projekte, Warten auf, Eingangskorb – nur Sichtbares", async () => {
+    const before = (await app.inject({ method: "GET", url: "/api/tasks/review", headers: headers(ownerToken) })).json();
+
+    const onlyWaiting = await createTask(ownerToken, { title: "Review A", isPrivate: true });
+    const waitingStep = await createTask(ownerToken, { title: "Angebot von Bob", isPrivate: true, parentId: onlyWaiting.id, status: "waiting" });
+    const healthy = await createTask(ownerToken, { title: "Review B", isPrivate: true });
+    await createTask(ownerToken, { title: "Anrufen", isPrivate: true, parentId: healthy.id, status: "next" });
+    const finished = await createTask(ownerToken, { title: "Review C", isPrivate: true });
+    const doneStep = await createTask(ownerToken, { title: "Erledigt", isPrivate: true, parentId: finished.id });
+    await app.inject({ method: "POST", url: `/api/tasks/${doneStep.id}/complete`, headers: headers(ownerToken), payload: {} });
+    await createTask(ownerToken, { title: "Gedanke für den Eingangskorb", isPrivate: true });
+
+    const foreign = await createTask(otherToken, { title: "Fremdes Projekt", isPrivate: true, status: "waiting" });
+    await createTask(otherToken, { title: "Fremder Schritt", isPrivate: true, parentId: foreign.id, status: "someday" });
+
+    const res = await app.inject({ method: "GET", url: "/api/tasks/review", headers: headers(ownerToken) });
+    expect(res.statusCode).toBe(200);
+    const review = res.json();
+    const stalled = review.stalledProjects.map((t: { id: string }) => t.id);
+    const waiting = review.waiting.map((t: { id: string }) => t.id);
+
+    expect(stalled).toEqual(expect.arrayContaining([onlyWaiting.id, finished.id]));
+    expect(stalled).not.toContain(healthy.id);
+    expect(stalled).not.toContain(foreign.id);
+    expect(waiting).toContain(waitingStep.id);
+    expect(waiting).not.toContain(foreign.id);
+    expect(review.inboxCount).toBeGreaterThan(before.inboxCount);
+    expect(review.stalledProjects[0].contexts).toBeDefined();
+  });
+});
+
+describe("Projekte: Nächster Schritt rückt automatisch nach", () => {
+  async function get(id: string) {
+    return (await app.inject({ method: "GET", url: `/api/tasks/${id}`, headers: headers(ownerToken) })).json();
+  }
+
+  it("erster Schritt wird Nächster Schritt, nach dem Erledigen rückt der nächste nach", async () => {
+    const project = await createTask(ownerToken, { title: "Umzug", isPrivate: true });
+    const s1 = await createTask(ownerToken, { title: "Kartons besorgen", isPrivate: true, parentId: project.id });
+    const s2 = await createTask(ownerToken, { title: "Packen", isPrivate: true, parentId: project.id });
+
+    expect((await get(s1.id)).status).toBe("next");
+    expect((await get(s2.id)).status).toBeNull();
+    expect((await get(project.id)).nextStep).toEqual({ id: s1.id, title: "Kartons besorgen" });
+
+    const done = await app.inject({
+      method: "POST", url: `/api/tasks/${s1.id}/complete`, headers: headers(ownerToken), payload: {},
+    });
+    expect(done.json().nextStep).toEqual({ id: s2.id, title: "Packen" });
+    expect((await get(s2.id)).status).toBe("next");
+    expect((await get(project.id)).nextStep.id).toBe(s2.id);
+  });
+
+  it("„Warten auf“ wird übersprungen; Statuswechsel und Löschen ziehen nach", async () => {
+    const project = await createTask(ownerToken, { title: "Steuer", isPrivate: true });
+    const s1 = await createTask(ownerToken, { title: "Belege sortieren", isPrivate: true, parentId: project.id });
+    const waiting = await createTask(ownerToken, { title: "Bescheinigung Bank", isPrivate: true, parentId: project.id, status: "waiting" });
+    const s3 = await createTask(ownerToken, { title: "Formular ausfüllen", isPrivate: true, parentId: project.id });
+    const s4 = await createTask(ownerToken, { title: "Abschicken", isPrivate: true, parentId: project.id });
+
+    await app.inject({ method: "PUT", url: `/api/tasks/${s1.id}`, headers: headers(ownerToken), payload: { status: "someday" } });
+    expect((await get(waiting.id)).status).toBe("waiting");
+    expect((await get(s3.id)).status).toBe("next");
+
+    await app.inject({ method: "DELETE", url: `/api/tasks/${s3.id}`, headers: headers(ownerToken) });
+    expect((await get(s4.id)).status).toBe("next");
   });
 });
 

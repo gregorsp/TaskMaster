@@ -7,7 +7,7 @@ import {
   listTasks, getTask, createTask, updateTask, deleteTask,
   getSubtasks, getSiblings, getTaskLinks, addTaskLink, removeTaskLink,
   getTaskOccurrences, createTaskOccurrence, deleteTaskOccurrence, getUpcomingOccurrences,
-  findTaskIdBySlug, ensureTaskSlug,
+  findTaskIdBySlug, ensureTaskSlug, getWeeklyReview,
 } from "./tasks.service.js";
 import { completeTask, reopenTask, getTaskEvents, addTaskComment } from "./completion.service.js";
 import { getCurrentUserAiKey } from "../auth/auth.service.js";
@@ -58,6 +58,11 @@ export async function tasksRoutes(app: FastifyInstance) {
   app.get("/", async (request) => {
     const p = request.user as { id: string; isAdmin: boolean };
     return listTasks(p.id, p.isAdmin, request.query as Record<string, unknown>);
+  });
+
+  app.get("/review", async (request) => {
+    const p = request.user as { id: string };
+    return getWeeklyReview(p.id);
   });
 
   app.get("/by-slug/:slug", async (request, reply) => {

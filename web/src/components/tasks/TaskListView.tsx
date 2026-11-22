@@ -38,6 +38,16 @@ function renderPomodoroChip(task: Task) {
   );
 }
 
+/** Projekte zeigen ihren aktuellen Nächsten Schritt direkt in der Liste. */
+function renderNextStep(task: Task) {
+  if (!task.isProject) return null;
+  return (
+    <Typography variant="caption" color={task.nextStep ? "text.secondary" : "warning.main"} sx={{ display: "block", overflowWrap: "anywhere" }}>
+      {task.nextStep ? `→ ${task.nextStep.title}` : "→ kein Nächster Schritt"}
+    </Typography>
+  );
+}
+
 function renderDueDate(task: Task) {
   const overdue = task.dueAt && new Date(task.dueAt) < new Date() && !task.isCompleted;
   return (
@@ -119,6 +129,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
                     </IconButton>
                   </Stack>
                 </Stack>
+                {renderNextStep(task)}
                 {(task.isImportant || task.isUrgent || task.dueAt) && (
                   <Stack direction="row" flexWrap="wrap" alignItems="center" gap={0.5} sx={{ mt: 0.75 }}>
                     {renderPriorityChip(task)}
@@ -160,6 +171,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
                         {renderPriorityChip(task)}
                         {renderPomodoroChip(task)}
                       </Stack>
+                      {renderNextStep(task)}
                     </TableCell>
                     <TableCell>
                       {renderDueDate(task)}

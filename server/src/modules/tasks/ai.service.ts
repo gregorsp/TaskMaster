@@ -1,4 +1,9 @@
 import { config } from "../../config.js";
+import { DEFAULT_CONTEXTS } from "../contexts/contexts.service.js";
+import {
+  TASK_DURATIONS, TASK_ENERGIES, TASK_STATUSES,
+  type TaskDuration, type TaskEnergy, type TaskStatus,
+} from "./tasks.schema.js";
 
 /**
  * KI-Helfer. Der Schlüssel kommt aus der verschlüsselten Nutzer-Einstellung
@@ -9,9 +14,9 @@ import { config } from "../../config.js";
 export interface AiTaskSuggestion {
   description: string;
   context: string | null;
-  duration: "under_2_min" | "15_min" | null;
-  energy: "low" | "high" | null;
-  status: "next" | "waiting" | "someday" | null;
+  duration: TaskDuration | null;
+  energy: TaskEnergy | null;
+  status: TaskStatus | null;
 }
 
 type Provider = { kind: "gemini"; key: string } | { kind: "deepseek"; key: string };
@@ -70,10 +75,8 @@ async function complete(prompt: string, apiKey: string | undefined, temperature:
     : callDeepSeek(prompt, provider.key, temperature);
 }
 
-const CONTEXT_NAMES = ["Telefon", "Computer", "Online", "Zuhause", "Besorgungen", "Uni"];
-const DURATIONS = ["under_2_min", "15_min"] as const;
-const ENERGIES = ["low", "high"] as const;
-const STATUSES = ["next", "waiting", "someday"] as const;
+const CONTEXT_NAMES = DEFAULT_CONTEXTS.map((c) => c.name);
+const quoted = (values: readonly string[]) => values.map((v) => `"${v}"`).join(", ");
 
 function pick<T extends string>(value: unknown, allowed: readonly T[]): T | null {
   return typeof value === "string" && (allowed as readonly string[]).includes(value) ? (value as T) : null;
@@ -101,16 +104,16 @@ export async function generateGtdDescription(
     "Antworte AUSSCHLIESSLICH mit einem JSON-Objekt in genau dieser Form:",
     '{"description": "...", "context": "Telefon", "duration": "under_2_min", "energy": "low", "status": "next"}',
     "Erlaubte Werte:",
-    `- context: ${CONTEXT_NAMES.map((c) => `"${c}"`).join(", ")} oder null`,
-    '- duration: "under_2_min", "15_min" oder null',
-    '- energy: "low", "high" oder null',
+    `- context: ${quoted(CONTEXT_NAMES)} oder null`,
+    `- duration: ${quoted(TASK_DURATIONS)} oder null ("long" = über eine Stunde)`,
+    `- energy: ${quoted(TASK_ENERGIES)} oder null`,
     '- status: "next" (konkreter nächster Schritt), "waiting" (jemand anderes muss liefern), "someday" (vage Idee) oder null',
     "",
     "Regeln:",
     '- "description": Zielbild, nächster physischer Schritt und 2-4 Checklisten-Stichpunkte als kurzer Text, ohne Einleitung.',
-    '- "duration": nur setzen, wenn die Aufgabe in unter 2 Minuten oder in etwa 15 Minuten erledigt ist.',
-    '- "energy": nur setzen, wenn eindeutig viel oder wenig Energie nötig ist.',
-    '- "status": nur setzen, wenn einer der drei Fälle klar zutrifft.',
+    '- "duration": geschätzte Dauer, nur setzen, wenn sie sich halbwegs sicher abschätzen lässt.',
+    '- "energy": nur setzen, wenn der Energiebedarf eindeutig ist.',
+    '- "status": nur setzen, wenn einer der Fälle klar zutrifft.',
     "Keine Erklärungen außerhalb des JSON.",
   ].filter(Boolean).join("\n");
 
@@ -126,9 +129,9 @@ export async function generateGtdDescription(
   return {
     description,
     context,
-    duration: pick(parsed.duration, DURATIONS),
-    energy: pick(parsed.energy, ENERGIES),
-    status: pick(parsed.status, STATUSES),
+    duration: pick(parsed.duration, TASK_DURATIONS),
+    energy: pick(parsed.energy, TASK_ENERGIES),
+    status: pick(parsed.status, TASK_STATUSES),
   };
 }
 

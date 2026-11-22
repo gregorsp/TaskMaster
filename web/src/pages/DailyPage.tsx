@@ -15,6 +15,7 @@ import { useModalStack } from "../components/tasks/ModalStackProvider";
 import { useNotify } from "../context/NotifyContext";
 import { useAuth } from "../context/AuthContext";
 import { JournalSection } from "../components/journal/JournalSection";
+import { TodayBlocks } from "../components/timeblocks/TodayBlocks";
 
 function startOfToday(): Date {
   const now = new Date();
@@ -246,6 +247,8 @@ export function DailyPage() {
           {isToday ? "Heute" : weekdayLabel(selectedDate)}
         </Typography>
       </Stack>
+
+      {isToday && <TodayBlocks compact />}
 
       {loading && <CircularProgress size={24} />}
 

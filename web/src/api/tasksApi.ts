@@ -21,9 +21,12 @@ export interface TaskContextRef {
   createdById?: string;
 }
 
+// Werte spiegeln server/src/modules/tasks/tasks.schema.ts; Labels in components/tasks/gtd.ts.
 export type TaskStatus = "next" | "waiting" | "someday";
-export type TaskDuration = "under_2_min" | "15_min";
-export type TaskEnergy = "low" | "high";
+/** Aufsteigend: „verfügbare Zeit“ filtert über `maxDuration`. */
+export type TaskDuration = "under_2_min" | "15_min" | "30_min" | "60_min" | "long";
+/** Aufsteigend: „verfügbare Energie“ filtert über `maxEnergy`. */
+export type TaskEnergy = "low" | "medium" | "high";
 
 export interface Task {
   id: string;
@@ -52,12 +55,15 @@ export interface Task {
   recurrenceRule: string | null;
   parentId: string | null;
   plannedDate: string | null;
+  goalId: string | null;
   createdById: string;
   createdAt: string;
   assignees: TaskAssignee[];
   categories: TaskCategoryRef[];
   contexts: TaskContextRef[];
   isProject?: boolean;
+  /** Bei Projekten: der aktuelle Nächste Schritt (rückt beim Erledigen automatisch nach). */
+  nextStep?: { id: string; title: string } | null;
 }
 
 export type TaskWithRelations = Task;
@@ -94,6 +100,10 @@ export interface TaskFilters {
   status?: TaskStatus | "none";
   duration?: TaskDuration | "none";
   energy?: TaskEnergy | "none";
+  /** Höchstens so lange (Aufgaben ohne Dauer bleiben sichtbar). */
+  maxDuration?: TaskDuration;
+  /** Höchstens so viel Energie (Aufgaben ohne Angabe bleiben sichtbar). */
+  maxEnergy?: TaskEnergy;
   isProject?: boolean;
   search?: string;
   hidePlanned?: boolean;
@@ -123,6 +133,7 @@ export interface CreateTaskInput {
   contextIds?: string[];
   parentId?: string | null;
   plannedDate?: string | null;
+  goalId?: string | null;
   forceDueDate?: boolean;
   resolveDueDateConflicts?: boolean;
 }
@@ -169,6 +180,7 @@ export interface UpdateTaskInput {
   contextIds?: string[];
   parentId?: string | null;
   plannedDate?: string | null;
+  goalId?: string | null;
   forceUpdateRecurrence?: boolean;
   forceDueDate?: boolean;
   resolveDueDateConflicts?: boolean;
@@ -182,6 +194,8 @@ export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResp
   if (filters.status) params.set("status", filters.status);
   if (filters.duration) params.set("duration", filters.duration);
   if (filters.energy) params.set("energy", filters.energy);
+  if (filters.maxDuration) params.set("maxDuration", filters.maxDuration);
+  if (filters.maxEnergy) params.set("maxEnergy", filters.maxEnergy);
   if (filters.isProject !== undefined) params.set("isProject", String(filters.isProject));
   if (filters.uncategorized) params.set("uncategorized", "true");
   if (filters.assigneeId) params.set("assigneeId", filters.assigneeId);
@@ -198,6 +212,22 @@ export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResp
   if (filters.pageSize) params.set("pageSize", String(filters.pageSize));
   const qs = params.toString();
   const { data } = await client.get<TaskListResponse>(`/tasks${qs ? `?${qs}` : ""}`);
+  return data;
+}
+
+export interface WeeklyReview {
+  inboxCount: number;
+  somedayCount: number;
+  /** Offene Ziele ohne offene, verknüpfte Aufgabe. */
+  idleGoals: { id: string; title: string }[];
+  /** Offene Projekte ohne offenen Nächsten Schritt. */
+  stalledProjects: Task[];
+  /** „Warten auf“-Einträge, älteste zuerst. */
+  waiting: Task[];
+}
+
+export async function getWeeklyReview(): Promise<WeeklyReview> {
+  const { data } = await client.get<WeeklyReview>("/tasks/review");
   return data;
 }
 
@@ -232,8 +262,16 @@ export async function deleteTask(id: string): Promise<void> {
   await client.delete(`/tasks/${id}`);
 }
 
-export async function completeTask(id: string, nextDueAt?: string, comment?: string, force?: boolean, cascade?: boolean, occurrenceDate?: string, recurringCompletions?: Record<string, string>): Promise<{ completed: boolean; nextDueAt: string | null; parentId: string | null }> {
-  const { data } = await client.post<{ completed: boolean; nextDueAt: string | null; parentId: string | null }>(`/tasks/${id}/complete`, { nextDueAt, comment, force, cascade, occurrenceDate, recurringCompletions });
+export interface CompleteResult {
+  completed: boolean;
+  nextDueAt: string | null;
+  parentId: string | null;
+  /** Automatisch nachgerückter Nächster Schritt des Projekts. */
+  nextStep?: { id: string; title: string } | null;
+}
+
+export async function completeTask(id: string, nextDueAt?: string, comment?: string, force?: boolean, cascade?: boolean, occurrenceDate?: string, recurringCompletions?: Record<string, string>): Promise<CompleteResult> {
+  const { data } = await client.post<CompleteResult>(`/tasks/${id}/complete`, { nextDueAt, comment, force, cascade, occurrenceDate, recurringCompletions });
   return data;
 }
 

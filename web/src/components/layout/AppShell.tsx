@@ -19,6 +19,12 @@ import {
   MenuItem,
   Avatar,
   Divider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Tooltip,
 } from "@mui/material";
 import {
   Menu as MenuIcon,
@@ -40,11 +46,15 @@ import {
   SelfImprovement as MeditationIcon,
   DarkMode as DarkModeIcon,
   LightMode as LightModeIcon,
+  Flag as GoalIcon,
+  Schedule as BlocksIcon,
+  MoveToInbox as CaptureIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../../context/AuthContext";
 import { useThemeMode } from "../../context/ThemeContext";
 import { TranscriptionIndicator } from "../transcription/TranscriptionIndicator";
 import { startTranscriptionRunner, stopTranscriptionRunner } from "../../asr/runner";
+import { QuickCapture } from "../tasks/QuickCapture";
 
 const DRAWER_WIDTH = 240;
 
@@ -63,6 +73,8 @@ interface NavItem {
   icon: React.ReactNode;
   badge?: number;
   adminOnly?: boolean;
+  /** Unterpunkte, eingerückt unter dem Eintrag (z. B. GTD → Ziele, Zeitblöcke). */
+  children?: NavItem[];
 }
 
 export function AppShell() {
@@ -74,6 +86,8 @@ export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const { mode, toggle: toggleTheme } = useThemeMode();
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [capturedCount, setCapturedCount] = useState(0);
 
   useEffect(() => {
     startTranscriptionRunner();
@@ -91,8 +105,36 @@ export function AppShell() {
     { path: "/categories", label: "Kategorien", icon: <LabelIcon /> },
     { path: "/contexts", label: "Kontexte", icon: <ContextIcon /> },
     { path: "/brainstorming", label: "Brainstorming", icon: <LightbulbIcon /> },
-    { path: "/gtd", label: "GTD", icon: <GtdIcon /> },
+    {
+      path: "/gtd", label: "GTD", icon: <GtdIcon />,
+      children: [
+        { path: "/gtd/goals", label: "Ziele", icon: <GoalIcon fontSize="small" /> },
+        { path: "/gtd/blocks", label: "Zeitblöcke", icon: <BlocksIcon fontSize="small" /> },
+      ],
+    },
   ];
+
+  const go = (path: string) => {
+    navigate(path);
+    if (isMobile) setDrawerOpen(false);
+  };
+
+  const renderNavItem = (item: NavItem, nested = false) => (
+    <ListItemButton
+      key={item.path}
+      sx={nested ? { pl: 4, py: 0.5 } : undefined}
+      selected={
+        item.path === "/"
+          ? location.pathname === "/" || location.pathname.startsWith("/t/")
+          : location.pathname === item.path
+      }
+      onClick={() => go(item.path)}
+    >
+      <ListItemIcon sx={nested ? { minWidth: 36 } : undefined}>{item.icon}</ListItemIcon>
+      <ListItemText primary={item.label} primaryTypographyProps={nested ? { variant: "body2" } : undefined} />
+      {item.badge ? <Badge badgeContent={item.badge} color="error" sx={{ mr: 1 }} /> : null}
+    </ListItemButton>
+  );
 
   const filteredNav = navItems.filter((item) => !item.adminOnly || user?.isAdmin);
 
@@ -105,26 +147,10 @@ export function AppShell() {
       </Toolbar>
       <Divider />
       <List>
-        {filteredNav.map((item) => (
-          <ListItemButton
-            key={item.path}
-            selected={
-              item.path === "/"
-                ? location.pathname === "/" || location.pathname.startsWith("/t/")
-                : location.pathname === item.path
-            }
-            onClick={() => {
-              navigate(item.path);
-              if (isMobile) setDrawerOpen(false);
-            }}
-          >
-            <ListItemIcon>{item.icon}</ListItemIcon>
-            <ListItemText primary={item.label} />
-            {item.badge ? (
-              <Badge badgeContent={item.badge} color="error" sx={{ mr: 1 }} />
-            ) : null}
-          </ListItemButton>
-        ))}
+        {filteredNav.flatMap((item) => [
+          renderNavItem(item),
+          ...(item.children ?? []).map((child) => renderNavItem(child, true)),
+        ])}
       </List>
     </Box>
   );
@@ -143,10 +169,15 @@ export function AppShell() {
           </Typography>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <TranscriptionIndicator />
+            <Tooltip title="Gedanken erfassen (Eingangskorb)">
+              <IconButton color="inherit" onClick={() => { setCapturedCount(0); setCaptureOpen(true); }}>
+                <CaptureIcon />
+              </IconButton>
+            </Tooltip>
             <IconButton color="inherit" onClick={toggleTheme} title={mode === "dark" ? "Helles Design" : "Dunkles Design"}>
               {mode === "dark" ? <LightModeIcon /> : <DarkModeIcon />}
             </IconButton>
-            <Typography variant="body2">{user?.displayName}</Typography>
+            <Typography variant="body2" sx={{ display: { xs: "none", sm: "block" } }}>{user?.displayName}</Typography>
             <IconButton color="inherit" onClick={(e) => setUserMenuAnchor(e.currentTarget)}>
               <Avatar
                 src={user?.profilePicture ?? undefined}
@@ -248,9 +279,31 @@ export function AppShell() {
           bgcolor: "background.default",
         }}
       >
-        <Box sx={{ p: 3 }}>
+        <Box sx={{ p: { xs: 2, sm: 3 } }}>
           <Outlet />
         </Box>
-      </Box>          </Box>
+      </Box>
+
+      <Dialog open={captureOpen} onClose={() => setCaptureOpen(false)} fullWidth maxWidth="sm"
+        sx={{ "& .MuiDialog-container": { alignItems: "flex-start" } }}>
+        <DialogTitle>Gedanken erfassen</DialogTitle>
+        <DialogContent>
+          <Box pt={1}>
+            <QuickCapture autoFocus onCaptured={() => setCapturedCount((n) => n + 1)} />
+          </Box>
+          <Typography variant="body2" color="text.secondary" mt={1.5}>
+            {capturedCount > 0
+              ? `${capturedCount} Gedanke(n) im Eingangskorb – geklärt wird später.`
+              : "Einfach tippen und Enter – mehrere hintereinander gehen auch."}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          {capturedCount > 0 && (
+            <Button onClick={() => { setCaptureOpen(false); navigate("/gtd?tab=inbox"); }}>Zum Eingangskorb</Button>
+          )}
+          <Button onClick={() => setCaptureOpen(false)}>Fertig</Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
   );
 }

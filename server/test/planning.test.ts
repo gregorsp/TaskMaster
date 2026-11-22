@@ -118,6 +118,26 @@ describe("plannedDate in tasks", () => {
   });
 });
 
+describe("Pomodoro-Schätzung aus der GTD-Dauer", () => {
+  it("nutzt die Dauer, wenn keine Pomodoros eingetragen sind – eingetragene haben Vorrang", async () => {
+    const today = new Date();
+    const plannedDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 12);
+    const estimated = await createTask({ title: "Dauer 1 Std", duration: "60_min", plannedDate: plannedDay.toISOString() });
+    const explicit = await createTask({ title: "Explizit", duration: "60_min", pomodoros: 5, plannedDate: plannedDay.toISOString() });
+
+    const from = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+    const to = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 6).toISOString();
+    const res = await app.inject({ method: "GET", url: `/api/planning?from=${from}&to=${to}`, headers: headers() });
+    const dayTasks = res.json().days.flatMap((d: { tasks: { id: string; pomodoros: number }[] }) => d.tasks);
+
+    expect(dayTasks.find((t: { id: string }) => t.id === estimated.id)?.pomodoros).toBe(2);
+    expect(dayTasks.find((t: { id: string }) => t.id === explicit.id)?.pomodoros).toBe(5);
+
+    await deleteTask(estimated.id);
+    await deleteTask(explicit.id);
+  });
+});
+
 describe("GET /api/planning", () => {
   it("returns tasks, days, and null draft", async () => {
     const today = new Date();

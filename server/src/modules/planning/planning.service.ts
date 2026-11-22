@@ -4,6 +4,7 @@ import { tasks, taskAssignees, appMeta, taskOccurrences, users, taskCategories, 
 import { visibilityFilter, isVisibleToUserSync } from "../../middleware/visibility.js";
 import { WEEKDAYS, parseCapacity } from "../../lib/capacity.js";
 import { enrichTask } from "../tasks/tasks.service.js";
+import { estimatedPomodoros } from "../tasks/tasks.schema.js";
 import { getProfilePictureUrl } from "../auth/profile.service.js";
 import type { Weekday } from "../../lib/capacity.js";
 
@@ -256,7 +257,7 @@ export function getPlanningData(viewerId: string, targetUserId: string | null, f
 
       if (effectiveDate && isoDate(effectiveDate) === dayDate) {
         const type = planned && isoDate(planned) === dayDate ? "planned" : "due";
-        const sp = task.pomodoros ?? 0;
+        const sp = estimatedPomodoros(task);
         usedSp += sp;
         dayTasks.push({ id: task.id, title: task.title, pomodoros: sp, type, occurrenceId: null, occurrenceDate: null });
       }
@@ -268,7 +269,7 @@ export function getPlanningData(viewerId: string, targetUserId: string | null, f
         const t = taskById.get(occ.taskId);
         if (t && !t.isCompleted) {
           const occDate = occ.occurrenceDate instanceof Date ? occ.occurrenceDate : new Date(occ.occurrenceDate as unknown as string);
-          const sp = t.pomodoros ?? 0;
+          const sp = estimatedPomodoros(t);
           usedSp += sp;
           dayTasks.push({
             id: t.id,
@@ -304,7 +305,7 @@ export function getPlanningData(viewerId: string, targetUserId: string | null, f
     if (!due || due > end) continue;
 
     const deadlineDate = isoDate(due);
-    const requiredSp = task.pomodoros ?? 0;
+    const requiredSp = estimatedPomodoros(task);
     if (requiredSp === 0) continue;
 
     let availableSp = 0;

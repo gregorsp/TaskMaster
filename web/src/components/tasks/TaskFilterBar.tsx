@@ -9,13 +9,20 @@ import { useMediaQuery } from "@mui/material";
 import type { Category } from "../../api/categoriesApi";
 import type { TaskContext } from "../../api/contextsApi";
 import type { UserPickerItem } from "../../api/usersApi";
+import type { TaskDuration, TaskEnergy, TaskStatus } from "../../api/tasksApi";
+import { DURATION_LABELS, ENERGY_LABELS, STATUS_LABELS, labelEntries } from "./gtd";
+
+export type PriorityFilter = "" | "important" | "urgent" | "both";
 
 export interface TaskFilterState {
   search: string;
   status: "all" | "open" | "done";
-  gtdStatus: "" | "next" | "waiting" | "someday";
-  duration: "" | "under_2_min" | "15_min";
-  energy: "" | "low" | "high";
+  gtdStatus: "" | TaskStatus;
+  /** Verfügbare Zeit: Aufgaben, die höchstens so lange dauern. */
+  maxDuration: "" | TaskDuration;
+  /** Verfügbare Energie: Aufgaben, die höchstens so viel Energie brauchen. */
+  maxEnergy: "" | TaskEnergy;
+  priority: PriorityFilter;
   categoryId: string;
   contextId: string;
   assigneeIds: string[];
@@ -32,8 +39,9 @@ export function createDefaultTaskFilterState(): TaskFilterState {
     search: "",
     status: "open",
     gtdStatus: "",
-    duration: "",
-    energy: "",
+    maxDuration: "",
+    maxEnergy: "",
+    priority: "",
     categoryId: "",
     contextId: "",
     assigneeIds: [],
@@ -55,6 +63,8 @@ interface TaskFilterBarProps {
   showSort?: boolean;
   showStatus?: boolean;
   showGtdStatus?: boolean;
+  /** GTD „Erledigen“-Filter: @Kontext, verfügbare Zeit, Energie, Priorität. */
+  showEngage?: boolean;
   showHabits?: boolean;
   showPlanned?: boolean;
   showCompletionMode?: boolean;
@@ -63,9 +73,10 @@ interface TaskFilterBarProps {
 
 export function TaskFilterBar({
   value, onChange, categories, contexts, users,
-  showSort = true, showStatus = true, showGtdStatus = true, showHabits = true, showPlanned = true,
+  showSort = true, showStatus = true, showGtdStatus = true, showEngage = true, showHabits = true, showPlanned = true,
   showCompletionMode = false, overdueCount,
 }: TaskFilterBarProps) {
+  showGtdStatus = showGtdStatus && showEngage;
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [open, setOpen] = useState(false);
@@ -76,10 +87,11 @@ export function TaskFilterBar({
     value.search.trim() !== "",
     showStatus && value.status !== "open",
     showGtdStatus && value.gtdStatus !== "",
-    value.duration !== "",
-    value.energy !== "",
+    showEngage && value.maxDuration !== "",
+    showEngage && value.maxEnergy !== "",
+    showEngage && value.priority !== "",
     value.categoryId !== "",
-    value.contextId !== "",
+    showEngage && value.contextId !== "",
     value.assigneeIds.length > 0,
     showHabits && value.habitFilter !== "all",
     value.isOverdue,
@@ -138,38 +150,52 @@ export function TaskFilterBar({
                 onChange={(e) => update({ gtdStatus: e.target.value as TaskFilterState["gtdStatus"] })}
               >
                 <MenuItem value="">Alle</MenuItem>
-                <MenuItem value="next">Nächster Schritt</MenuItem>
-                <MenuItem value="waiting">Warten auf</MenuItem>
-                <MenuItem value="someday">Irgendwann</MenuItem>
+                {labelEntries(STATUS_LABELS).map(([v, label]) => <MenuItem key={v} value={v}>{label}</MenuItem>)}
               </Select>
             </FormControl>
           )}
 
-          <FormControl size="small" sx={{ minWidth: 140 }}>
-            <InputLabel>Dauer</InputLabel>
-            <Select
-              value={value.duration}
-              label="Dauer"
-              onChange={(e) => update({ duration: e.target.value as TaskFilterState["duration"] })}
-            >
-              <MenuItem value="">Alle</MenuItem>
-              <MenuItem value="under_2_min">Unter 2 Min</MenuItem>
-              <MenuItem value="15_min">15 Min</MenuItem>
-            </Select>
-          </FormControl>
+          {showEngage && (
+            <>
+              <FormControl size="small" sx={{ minWidth: 160 }}>
+                <InputLabel>Verfügbare Zeit</InputLabel>
+                <Select
+                  value={value.maxDuration}
+                  label="Verfügbare Zeit"
+                  onChange={(e) => update({ maxDuration: e.target.value as TaskFilterState["maxDuration"] })}
+                >
+                  <MenuItem value="">Beliebig</MenuItem>
+                  {labelEntries(DURATION_LABELS).map(([v, label]) => <MenuItem key={v} value={v}>bis {label}</MenuItem>)}
+                </Select>
+              </FormControl>
 
-          <FormControl size="small" sx={{ minWidth: 140 }}>
-            <InputLabel>Energie</InputLabel>
-            <Select
-              value={value.energy}
-              label="Energie"
-              onChange={(e) => update({ energy: e.target.value as TaskFilterState["energy"] })}
-            >
-              <MenuItem value="">Alle</MenuItem>
-              <MenuItem value="low">Niedrig</MenuItem>
-              <MenuItem value="high">Hoch</MenuItem>
-            </Select>
-          </FormControl>
+              <FormControl size="small" sx={{ minWidth: 150 }}>
+                <InputLabel>Meine Energie</InputLabel>
+                <Select
+                  value={value.maxEnergy}
+                  label="Meine Energie"
+                  onChange={(e) => update({ maxEnergy: e.target.value as TaskFilterState["maxEnergy"] })}
+                >
+                  <MenuItem value="">Beliebig</MenuItem>
+                  {labelEntries(ENERGY_LABELS).map(([v, label]) => <MenuItem key={v} value={v}>{label}</MenuItem>)}
+                </Select>
+              </FormControl>
+
+              <FormControl size="small" sx={{ minWidth: 150 }}>
+                <InputLabel>Priorität</InputLabel>
+                <Select
+                  value={value.priority}
+                  label="Priorität"
+                  onChange={(e) => update({ priority: e.target.value as PriorityFilter })}
+                >
+                  <MenuItem value="">Alle</MenuItem>
+                  <MenuItem value="important">Wichtig</MenuItem>
+                  <MenuItem value="urgent">Dringend</MenuItem>
+                  <MenuItem value="both">Wichtig & dringend</MenuItem>
+                </Select>
+              </FormControl>
+            </>
+          )}
 
           <FormControl size="small" sx={{ minWidth: 150 }}>
             <InputLabel>Kategorie</InputLabel>
@@ -190,24 +216,26 @@ export function TaskFilterBar({
             </Select>
           </FormControl>
 
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Kontext</InputLabel>
-            <Select
-              value={value.contextId}
-              label="Kontext"
-              onChange={(e) => update({ contextId: e.target.value })}
-            >
-              <MenuItem value="">Alle</MenuItem>
-              {contexts.map((c) => (
-                <MenuItem key={c.id} value={c.id}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: c.color }} />
-                    {c.name}
-                  </Box>
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          {showEngage && (
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel>Kontext</InputLabel>
+              <Select
+                value={value.contextId}
+                label="Kontext"
+                onChange={(e) => update({ contextId: e.target.value })}
+              >
+                <MenuItem value="">Alle</MenuItem>
+                {contexts.map((c) => (
+                  <MenuItem key={c.id} value={c.id}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: c.color }} />
+                      {c.name}
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
 
           <FormControl size="small" sx={{ minWidth: 200, maxWidth: 320 }}>
             <InputLabel>Nutzer</InputLabel>

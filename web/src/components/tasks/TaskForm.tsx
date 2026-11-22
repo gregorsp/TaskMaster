@@ -5,7 +5,13 @@ import {
   RadioGroup, Radio, FormControl, FormLabel, Alert, DialogActions,
   Tooltip, IconButton,
 } from "@mui/material";
-import { createTask, updateTask, listTasks, generateTaskDescriptionAi, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations } from "../../api/tasksApi";
+import {
+  createTask, updateTask, listTasks, generateTaskDescriptionAi,
+  type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations,
+  type TaskStatus, type TaskDuration, type TaskEnergy,
+} from "../../api/tasksApi";
+import { GtdFields } from "./GtdFields";
+import { goalsApi, type Goal } from "../../api/horizonsApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listContexts, type TaskContext } from "../../api/contextsApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
@@ -103,12 +109,14 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
   const [selectedContexts, setSelectedContexts] = useState<TaskContext[]>([]);
   const [contextOptions, setContextOptions] = useState<TaskContext[]>([]);
-  const [status, setStatus] = useState<"next" | "waiting" | "someday" | null>(null);
-  const [duration, setDuration] = useState<"under_2_min" | "15_min" | null>(null);
-  const [energy, setEnergy] = useState<"low" | "high" | null>(null);
+  const [status, setStatus] = useState<TaskStatus | null>(null);
+  const [duration, setDuration] = useState<TaskDuration | null>(null);
+  const [energy, setEnergy] = useState<TaskEnergy | null>(null);
   const [selectedAssignees, setSelectedAssignees] = useState<UserPickerItem[]>([]);
   const [parentTask, setParentTask] = useState<TaskWithRelations | null>(null);
   const [parentOptions, setParentOptions] = useState<TaskWithRelations[]>([]);
+  const [goalId, setGoalId] = useState("");
+  const [goalOptions, setGoalOptions] = useState<Goal[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<UserPickerItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -125,6 +133,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
     if (open) {
       listCategories().then(setCategories).catch(() => []);
       listContexts().then(setContextOptions).catch(() => []);
+      goalsApi.list().then((all) => setGoalOptions(all.filter((g) => !g.achievedAt))).catch(() => []);
       listUsersPicker().then((all) => {
         setUsers(all);
         if (!task && currentUser) {
@@ -156,6 +165,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         setStatus(task.status ?? null);
         setDuration(task.duration ?? null);
         setEnergy(task.energy ?? null);
+        setGoalId(task.goalId ?? "");
         setSelectedAssignees(task.assignees || []);
         if (task.parentId) {
           import("../../api/tasksApi").then(({ getTask: gt }) => {
@@ -182,7 +192,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
       setIsImportant(false); setPomodoros(null); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
       setFreq("WEEKLY"); setInterval(1); setSelectedDays([]);
       setMonthDay(""); setUseNthWeekday(false); setSelectedCategories([]); setSelectedContexts([]);
-      setStatus(null); setDuration(null); setEnergy(null);
+      setStatus(null); setDuration(null); setEnergy(null); setGoalId("");
       setParentTask(null);
       const me = users.find((u) => u.id === currentUser?.id);
       setSelectedAssignees(me ? [me] : []);
@@ -256,6 +266,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           contextIds: isHabit ? [] : selectedContexts.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
           parentId: isHabit ? null : (parentTask?.id || null),
+          goalId: isHabit || parentTask ? null : (goalId || null),
           plannedDate: isHabit ? null : (plannedDate ? new Date(plannedDate).toISOString() : null),
           forceUpdateRecurrence: forceRecurrence,
           forceDueDate: forceDue,
@@ -279,6 +290,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           contextIds: isHabit ? [] : selectedContexts.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
           parentId: isHabit ? null : (parentTask?.id || null),
+          goalId: isHabit || parentTask ? null : (goalId || null),
           plannedDate: isHabit ? undefined : (plannedDate ? new Date(plannedDate).toISOString() : undefined),
           forceDueDate: forceDue,
           resolveDueDateConflicts: resolveDue,
@@ -374,58 +386,27 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
             
           </Stack>
           {recurrenceType !== "habit" && (
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <TextField
-                select size="small" label="Status"
-                value={status ?? ""}
-                onChange={(e) => setStatus((e.target.value || null) as "next" | "waiting" | "someday" | null)}
-                sx={{ minWidth: 170 }}
-              >
-                <MenuItem value="">Kein Status</MenuItem>
-                <MenuItem value="next">Nächster Schritt</MenuItem>
-                <MenuItem value="waiting">Warten auf</MenuItem>
-                <MenuItem value="someday">Irgendwann</MenuItem>
-              </TextField>
-              <TextField
-                select size="small" label="Dauer"
-                value={duration ?? ""}
-                onChange={(e) => setDuration((e.target.value || null) as "under_2_min" | "15_min" | null)}
-                sx={{ minWidth: 150 }}
-              >
-                <MenuItem value="">Keine Angabe</MenuItem>
-                <MenuItem value="under_2_min">Unter 2 Min</MenuItem>
-                <MenuItem value="15_min">15 Min</MenuItem>
-              </TextField>
-              <TextField
-                select size="small" label="Energie"
-                value={energy ?? ""}
-                onChange={(e) => setEnergy((e.target.value || null) as "low" | "high" | null)}
-                sx={{ minWidth: 150 }}
-              >
-                <MenuItem value="">Keine Angabe</MenuItem>
-                <MenuItem value="low">Niedrig</MenuItem>
-                <MenuItem value="high">Hoch</MenuItem>
-              </TextField>
-            </Stack>
-          )}
-          {recurrenceType !== "habit" && (
-            <Autocomplete
-              multiple
-              options={contextOptions}
-              getOptionLabel={(c) => c.name}
-              value={selectedContexts}
-              onChange={(_, v) => setSelectedContexts(v)}
-              isOptionEqualToValue={(o, v) => o.id === v.id}
-              renderInput={(p) => <TextField {...p} label="Kontexte" placeholder="z. B. Telefon, Computer" />}
-              renderOption={(props, opt) => (
-                <li {...props} key={opt.id}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: opt.color }} />
-                    {opt.name}
-                  </Box>
-                </li>
-              )}
+            <GtdFields
+              value={{ status, duration, energy, contexts: selectedContexts }}
+              onChange={(patch) => {
+                if (patch.status !== undefined) setStatus(patch.status);
+                if (patch.duration !== undefined) setDuration(patch.duration);
+                if (patch.energy !== undefined) setEnergy(patch.energy);
+                if (patch.contexts !== undefined) setSelectedContexts(patch.contexts);
+              }}
+              contextOptions={contextOptions}
             />
+          )}
+          {recurrenceType !== "habit" && !parentTask && (goalOptions.length > 0 || goalId) && (
+            <TextField
+              select size="small" label="Ziel" value={goalId}
+              onChange={(e) => setGoalId(e.target.value)}
+              helperText="Wofür? Verknüpfte Aufgaben erscheinen unter GTD → Ziele."
+            >
+              <MenuItem value="">Kein Ziel</MenuItem>
+              {goalId && !goalOptions.some((g) => g.id === goalId) && <MenuItem value={goalId}>(fremdes oder erreichtes Ziel)</MenuItem>}
+              {goalOptions.map((g) => <MenuItem key={g.id} value={g.id}>{g.title}</MenuItem>)}
+            </TextField>
           )}
           <Stack direction="row" spacing={1} alignItems="flex-start">
             <TextField

@@ -13,6 +13,7 @@ import { getTask, completeTask, reopenTask, updateTask, deleteTask, getSubtasks,
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { TaskForm } from "./TaskForm";
+import { STATUS_LABELS, DURATION_LABELS, ENERGY_LABELS } from "./gtd";
 import { Markdown } from "../common/Markdown";
 import { TaskRelationsSidebar } from "./TaskRelationsSidebar";
 import { CompleteBlockedDialog } from "./CompleteBlockedDialog";
@@ -192,7 +193,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
   const handleComplete = async (nextDueAt?: string, occurrenceDate?: string) => {
     try {
       const result = await completeTask(taskId, nextDueAt, completeNote || undefined, undefined, undefined, occurrenceDate);
-      notify("Aufgabe erledigt");
+      notify(result.nextStep ? `Erledigt – weiter mit: ${result.nextStep.title}` : "Aufgabe erledigt");
       setCompleteDialog(false);
       setRecurringCompleteOpen(false);
       setHabitCompleteOpen(false);
@@ -428,15 +429,19 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
               ))}
               {task.status && (
                 <Chip size="small" color="secondary" variant="outlined"
-                  label={task.status === "next" ? "Nächster Schritt" : task.status === "waiting" ? "Warten auf" : "Irgendwann"} />
+                  label={STATUS_LABELS[task.status]} />
               )}
               {task.duration && (
-                <Chip size="small" variant="outlined" label={task.duration === "under_2_min" ? "unter 2 Min" : "15 Min"} />
+                <Chip size="small" variant="outlined" label={DURATION_LABELS[task.duration]} />
               )}
               {task.energy && (
-                <Chip size="small" variant="outlined" label={task.energy === "high" ? "hohe Energie" : "niedrige Energie"} />
+                <Chip size="small" variant="outlined" label={`Energie ${ENERGY_LABELS[task.energy]}`} />
               )}
               {task.isProject && <Chip size="small" color="info" variant="outlined" label="Projekt" />}
+              {task.isProject && (
+                <Chip size="small" color={task.nextStep ? "success" : "warning"} variant="outlined"
+                  label={task.nextStep ? `Nächster Schritt: ${task.nextStep.title}` : "Kein Nächster Schritt"} />
+              )}
             </Stack>
 
             {task.description && <Box mb={3}><Markdown color="text.secondary" onToggleTask={handleToggleDescription}>{task.description}</Markdown></Box>}

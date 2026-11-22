@@ -17,6 +17,8 @@ import { ContextsPage } from "./pages/ContextsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { BrainstormingPage } from "./pages/BrainstormingPage";
 import { GtdGuidePage } from "./pages/GtdGuidePage";
+import { GoalsPage } from "./pages/GoalsPage";
+import { TimeBlocksPage } from "./pages/TimeBlocksPage";
 import { AdminPage } from "./pages/AdminPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { AudioPage } from "./pages/AudioPage";
@@ -82,6 +84,8 @@ export default function App() {
           <Route path="contexts" element={<ContextsPage />} />
           <Route path="brainstorming" element={<BrainstormingPage />} />
           <Route path="gtd" element={<GtdGuidePage />} />
+          <Route path="gtd/goals" element={<GoalsPage />} />
+          <Route path="gtd/blocks" element={<TimeBlocksPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="audio" element={<AudioPage />} />

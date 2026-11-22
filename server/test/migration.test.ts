@@ -66,6 +66,16 @@ describe("Migration – Version State Machine", () => {
     closeDb();
   });
 
+  it("0020: goals, time_blocks, mindmap_boards und tasks.goal_id existieren", async () => {
+    await initDb();
+    migrate(getDb(), { migrationsFolder: "./src/db/migrations" });
+    const tables = getRawDb().exec("SELECT name FROM sqlite_master WHERE type = 'table'")[0].values.map((r) => r[0]);
+    expect(tables).toEqual(expect.arrayContaining(["goals", "time_blocks", "mindmap_boards"]));
+    const taskCols = getRawDb().exec("PRAGMA table_info(tasks)")[0].values.map((c) => c[1] as string);
+    expect(taskCols).toContain("goal_id");
+    closeDb();
+  });
+
   it("UP_TO_DATE: after applying all migrations", async () => {
     await initDb();
     migrate(getDb(), { migrationsFolder: "./src/db/migrations" });
@@ -197,6 +207,9 @@ describe("Migration – runMigration", () => {
     for (const column of ["status", "duration", "energy"]) {
       getRawDb().run(`ALTER TABLE tasks DROP COLUMN ${column}`);
     }
+    // 0020 (Ziele, Zeitblöcke, Mindmaps) ebenso.
+    for (const table of ["goals", "time_blocks", "mindmap_boards"]) getRawDb().run(`DROP TABLE IF EXISTS ${table}`);
+    getRawDb().run("ALTER TABLE tasks DROP COLUMN goal_id");
     let state = getDbState(db, getRawDb());
     expect(state.state).toBe("MIGRATION_NEEDED");
 
@@ -281,8 +294,13 @@ describe("Migration – 0019 Nutzer-Organisation", () => {
     for (const column of ["status", "duration", "energy"]) {
       getRawDb().run(`ALTER TABLE tasks DROP COLUMN ${column}`);
     }
+    // 0020 baut auf 0019 auf und wird mit zurückgebaut.
+    for (const table of ["goals", "time_blocks", "mindmap_boards"]) getRawDb().run(`DROP TABLE IF EXISTS ${table}`);
+    getRawDb().run("ALTER TABLE tasks DROP COLUMN goal_id");
     getRawDb().run("UPDATE app_meta SET value = '16' WHERE key = 'schema_version'");
-    getRawDb().run("DELETE FROM __drizzle_migrations WHERE created_at = ?", [1794000000000]);
+    for (const when of [1794000000000, 1794100000000]) {
+      getRawDb().run("DELETE FROM __drizzle_migrations WHERE created_at = ?", [when]);
+    }
 
     return uid;
   }
@@ -297,7 +315,7 @@ describe("Migration – 0019 Nutzer-Organisation", () => {
     expect(rows).toEqual(["Besorgungen", "Computer", "Online", "Telefon", "Uni", "Zuhause"].sort());
 
     const version = getRawDb().exec("SELECT value FROM app_meta WHERE key = 'schema_version'")[0].values[0][0];
-    expect(version).toBe("17");
+    expect(version).toBe(String(SCHEMA_VERSION));
     closeDb();
   });
 

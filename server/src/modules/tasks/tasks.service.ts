@@ -1,10 +1,10 @@
-import { eq, and, like, or, inArray, ne, SQL, sql as drizzleSql, isNotNull, isNull } from "drizzle-orm";
+import { eq, and, like, or, inArray, ne, SQL, type Column, sql as drizzleSql, isNotNull, isNull } from "drizzle-orm";
 import { v7 as uuid } from "uuid";
 import { randomBytes } from "node:crypto";
 import { getDb } from "../../db/client.js";
 import {
   tasks, taskAssignees, taskCategories, taskEvents, taskLinks, taskOccurrences,
-  users, categories, contexts, taskContexts,
+  users, categories, contexts, taskContexts, goals,
 } from "../../db/schema.js";
 import { visibilityFilter, isVisibleToUserSync } from "../../middleware/visibility.js";
 import { categoryIdsWithSameName } from "../categories/categories.service.js";
@@ -12,11 +12,10 @@ import { contextIdsWithSameName } from "../contexts/contexts.service.js";
 import { parsePageQuery, paginate } from "../../lib/paging.js";
 import { getEffectiveDueAt, isTaskOverdue, computeIsUrgent, getOccurrences } from "../calendar/recurrence.service.js";
 import { getProfilePictureUrl } from "../auth/profile.service.js";
-import type { CreateTaskInput, UpdateTaskInput } from "./tasks.schema.js";
-
-export const TASK_STATUSES = ["next", "waiting", "someday"] as const;
-export const TASK_DURATIONS = ["under_2_min", "15_min"] as const;
-export const TASK_ENERGIES = ["low", "high"] as const;
+import {
+  TASK_STATUSES, TASK_DURATIONS, TASK_ENERGIES,
+  type CreateTaskInput, type UpdateTaskInput,
+} from "./tasks.schema.js";
 
 export function enrichTask(task: typeof tasks.$inferSelect) {
   return {
@@ -166,20 +165,123 @@ function projectTaskIds(): Set<string> {
   return new Set(rows.map((row) => row.parentId!).filter(Boolean));
 }
 
+type StepRow = { id: string; title: string; parentId: string | null; status: string | null; createdAt: Date };
+
+/** Offene, nicht-Habit-Unteraufgaben der Projekte, älteste zuerst (Anlage-Reihenfolge = Schritt-Reihenfolge). */
+function openSteps(projectIds: string[]): StepRow[] {
+  if (projectIds.length === 0) return [];
+  return getDb()
+    .select({ id: tasks.id, title: tasks.title, parentId: tasks.parentId, status: tasks.status, createdAt: tasks.createdAt })
+    .from(tasks)
+    .where(and(inArray(tasks.parentId, projectIds), eq(tasks.isCompleted, false), eq(tasks.isHabit, false)))
+    .all()
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
+/** Der aktuelle Nächste Schritt: erster mit Status `next`, sonst erster ohne Status. */
+function pickNextStep(steps: StepRow[]): StepRow | undefined {
+  return steps.find((s) => s.status === "next") ?? steps.find((s) => s.status === null);
+}
+
+/**
+ * Hält ein Projekt am Laufen: Hat es keinen offenen Schritt mit Status `next`,
+ * rückt der älteste offene Schritt ohne Status nach. `waiting`/`someday`
+ * bleiben unangetastet. Liefert den nachgerückten Schritt.
+ */
+export function advanceNextStep(projectId: string | null): { id: string; title: string } | null {
+  if (!projectId) return null;
+  const steps = openSteps([projectId]);
+  if (steps.some((s) => s.status === "next")) return null;
+  const candidate = steps.find((s) => s.status === null);
+  if (!candidate) return null;
+  getDb().update(tasks).set({ status: "next" }).where(eq(tasks.id, candidate.id)).run();
+  return { id: candidate.id, title: candidate.title };
+}
+
 function withRelations<T extends { id: string }>(items: T[]) {
   const ids = items.map((i) => i.id);
   const assignees = assigneesByTaskId(ids);
   const cats = categoriesByTaskId(ids);
   const ctxs = contextsByTaskId(ids);
   const projects = projectTaskIds();
-  return items.map((item) => ({
-    ...item,
-    assignees: assignees.get(item.id) || [],
-    categories: cats.get(item.id) || [],
-    contexts: ctxs.get(item.id) || [],
-    isProject: projects.has(item.id),
-  }));
+  const projectIdsHere = ids.filter((id) => projects.has(id));
+  const stepsByProject = new Map<string, StepRow[]>();
+  for (const step of openSteps(projectIdsHere)) {
+    const list = stepsByProject.get(step.parentId!) || [];
+    list.push(step);
+    stepsByProject.set(step.parentId!, list);
+  }
+  return items.map((item) => {
+    const next = projects.has(item.id) ? pickNextStep(stepsByProject.get(item.id) || []) : undefined;
+    return {
+      ...item,
+      assignees: assignees.get(item.id) || [],
+      categories: cats.get(item.id) || [],
+      contexts: ctxs.get(item.id) || [],
+      isProject: projects.has(item.id),
+      nextStep: next ? { id: next.id, title: next.title } : null,
+    };
+  });
 }
+
+/** Für den Nutzer sichtbare Aufgaben (Sichtbarkeit braucht den Join auf die Zuweisungen). */
+function selectVisibleTasks(userId: string, ...extra: (SQL | undefined)[]) {
+  return getDb().select().from(tasks)
+    .leftJoin(taskAssignees, eq(tasks.id, taskAssignees.taskId))
+    .where(and(visibilityFilter(userId), ...extra))
+    .groupBy(tasks.id)
+    .all()
+    .map((r) => r.tasks);
+}
+
+/** Sichtbare Aufgaben, angereichert wie in der Liste (für andere Module, z. B. Ziele). */
+export function listVisibleTasks(userId: string, ...extra: (SQL | undefined)[]) {
+  return withRelations(selectVisibleTasks(userId, ...extra).map(enrichTask));
+}
+
+/** Ein Ziel darf nur sein Besitzer an Aufgaben hängen. */
+function assertOwnGoal(goalId: string | null | undefined, userId: string) {
+  if (!goalId) return;
+  const goal = getDb().select({ userId: goals.userId }).from(goals).where(eq(goals.id, goalId)).get();
+  if (!goal || goal.userId !== userId) {
+    throw Object.assign(new Error("Goal not found"), { statusCode: 400, code: "INVALID_GOAL" });
+  }
+}
+
+/**
+ * Einmaliger Abgleich (beim Serverstart): jedes offene Projekt ohne Schritt mit
+ * Status `next` bekommt seinen Nächsten Schritt – für Projekte aus der Zeit vor
+ * der Automatik. Idempotent.
+ */
+export function reconcileNextSteps(): number {
+  const open = getDb().select({ id: tasks.id }).from(tasks).where(eq(tasks.isCompleted, false)).all();
+  const projectIds = projectTaskIds();
+  let promoted = 0;
+  for (const { id } of open) {
+    if (projectIds.has(id) && advanceNextStep(id)) promoted++;
+  }
+  return promoted;
+}
+
+/** Exakter Filter auf eine GTD-Spalte; `none` = nicht gesetzt, unbekannte Werte werden ignoriert. */
+function exactFilter(column: Column, value: unknown, allowed: readonly string[]): SQL | undefined {
+  if (value === undefined || value === "") return undefined;
+  const v = String(value);
+  if (v === "none") return isNull(column);
+  return allowed.includes(v) ? eq(column, v) : undefined;
+}
+
+/**
+ * „Höchstens“-Filter über eine aufsteigend sortierte Werteliste
+ * (verfügbare Zeit / verfügbare Energie). Ausgeblendet wird nur, was
+ * nachweislich nicht passt – Aufgaben ohne Angabe bleiben sichtbar.
+ */
+function upToFilter(column: Column, value: unknown, ordered: readonly string[]): SQL | undefined {
+  const idx = value === undefined ? -1 : ordered.indexOf(String(value));
+  return idx < 0 ? undefined : (or(isNull(column), inArray(column, ordered.slice(0, idx + 1))) as SQL);
+}
+
+const isTrue = (value: unknown) => value === true || value === "true";
 
 export function listTasks(
   userId: string,
@@ -189,42 +291,20 @@ export function listTasks(
   const db = getDb();
   const paging = parsePageQuery(query);
 
-  const conditions: SQL[] = [visibilityFilter(userId)];
+  const conditions: (SQL | undefined)[] = [];
 
-  const isCompleted = query.isCompleted !== undefined
-    ? (query.isCompleted === "true" || query.isCompleted === true)
-    : undefined;
-  if (isCompleted !== undefined) conditions.push(eq(tasks.isCompleted, isCompleted));
+  if (query.isCompleted !== undefined) conditions.push(eq(tasks.isCompleted, isTrue(query.isCompleted)));
+  if (isTrue(query.important)) conditions.push(eq(tasks.isImportant, true));
+  if (query.isHabit !== undefined) conditions.push(eq(tasks.isHabit, isTrue(query.isHabit)));
+  if (isTrue(query.hidePlanned)) conditions.push(isNull(tasks.plannedDate));
 
-  if (query.important !== undefined && (query.important === "true" || query.important === true))
-    conditions.push(eq(tasks.isImportant, true));
-  if (query.urgent !== undefined && (query.urgent === "true" || query.urgent === true))
-    conditions.push(eq(tasks.isUrgent, true));
-
-  if (query.isHabit !== undefined) {
-    const isHabit = query.isHabit === "true" || query.isHabit === true;
-    conditions.push(eq(tasks.isHabit, isHabit));
-  }
-
-  if (query.hidePlanned === "true" || query.hidePlanned === true) {
-    conditions.push(isNull(tasks.plannedDate));
-  }
-
-  if (query.status !== undefined) {
-    const status = String(query.status);
-    if (status === "none") conditions.push(isNull(tasks.status));
-    else if ((TASK_STATUSES as readonly string[]).includes(status)) conditions.push(eq(tasks.status, status));
-  }
-  if (query.duration !== undefined) {
-    const duration = String(query.duration);
-    if (duration === "none") conditions.push(isNull(tasks.duration));
-    else if ((TASK_DURATIONS as readonly string[]).includes(duration)) conditions.push(eq(tasks.duration, duration));
-  }
-  if (query.energy !== undefined) {
-    const energy = String(query.energy);
-    if (energy === "none") conditions.push(isNull(tasks.energy));
-    else if ((TASK_ENERGIES as readonly string[]).includes(energy)) conditions.push(eq(tasks.energy, energy));
-  }
+  conditions.push(
+    exactFilter(tasks.status, query.status, TASK_STATUSES),
+    exactFilter(tasks.duration, query.duration, TASK_DURATIONS),
+    exactFilter(tasks.energy, query.energy, TASK_ENERGIES),
+    upToFilter(tasks.duration, query.maxDuration, TASK_DURATIONS),
+    upToFilter(tasks.energy, query.maxEnergy, TASK_ENERGIES),
+  );
 
   if (query.search) {
     for (const token of String(query.search).trim().split(/\s+/).filter(Boolean)) {
@@ -239,16 +319,25 @@ export function listTasks(
     conditions.push(inArray(tasks.id, projectIds));
   }
 
-  if (query.uncategorized === "true" || query.uncategorized === true) {
+  // Eingangskorb: ungeklärte Einträge = oberste Ebene, kein Projekt, keine Kategorie, kein Status, kein Ziel.
+  // Unteraufgaben und Projekte gelten als bereits organisiert. Nur eigene bzw. mir zugewiesene
+  // Einträge (der Ersteller ist immer zugewiesen) – öffentliche Aufgaben anderer gehören nicht hinein.
+  if (isTrue(query.uncategorized)) {
     const withCategory = new Set(
       db.select({ taskId: taskCategories.taskId }).from(taskCategories).all().map((r) => r.taskId)
     );
-    const ids = db.select({ id: tasks.id, status: tasks.status }).from(tasks).all()
-      .filter((row) => !withCategory.has(row.id) && !row.status)
+    const mine = new Set(
+      db.select({ taskId: taskAssignees.taskId }).from(taskAssignees).where(eq(taskAssignees.userId, userId)).all().map((r) => r.taskId)
+    );
+    const projects = projectTaskIds();
+    const ids = db.select({ id: tasks.id, status: tasks.status, parentId: tasks.parentId, goalId: tasks.goalId }).from(tasks).all()
+      .filter((row) => mine.has(row.id) && !withCategory.has(row.id) && !row.status && !row.parentId && !row.goalId && !projects.has(row.id))
       .map((row) => row.id);
     if (ids.length === 0) return paginate([], 0, paging);
     conditions.push(inArray(tasks.id, ids));
   }
+
+  if (query.goalId) conditions.push(eq(tasks.goalId, String(query.goalId)));
 
   if (query.categoryId) {
     const sameNameIds = categoryIdsWithSameName(String(query.categoryId));
@@ -306,20 +395,12 @@ export function listTasks(
     }
   }
 
-  const whereClause = and(...conditions);
+  let enriched = selectVisibleTasks(userId, ...conditions).map(enrichTask);
 
-  const rawItems = db.select().from(tasks)
-    .leftJoin(taskAssignees, eq(tasks.id, taskAssignees.taskId))
-    .where(whereClause)
-    .groupBy(tasks.id)
-    .all()
-    .map((r) => r.tasks);
-
-  let enriched = rawItems.map(enrichTask);
-
-  if (query.isOverdue === "true" || query.isOverdue === true) {
-    enriched = enriched.filter((t) => t.isOverdue);
-  }
+  // Überfällig und dringend werden erst beim Anreichern berechnet
+  // (die Spalte `is_urgent` ist nicht maßgeblich).
+  if (isTrue(query.isOverdue)) enriched = enriched.filter((t) => t.isOverdue);
+  if (isTrue(query.urgent)) enriched = enriched.filter((t) => t.isUrgent);
 
   let sorted = enriched;
   const sort = (query.sort as string) || "createdAt";
@@ -343,6 +424,40 @@ export function listTasks(
   const items = sorted.slice(start, start + paging.pageSize);
 
   return paginate(withRelations(items), total, paging);
+}
+
+/**
+ * Auswertung für den GTD Weekly Review (nur sichtbare, offene Aufgaben):
+ * - `inboxCount`: ungeklärte Einträge im Eingangskorb (gleiche Definition wie die Liste).
+ * - `stalledProjects`: Projekte ohne offenen Nächsten Schritt. Als Nächster Schritt
+ *   zählt jede offene Unteraufgabe mit Status `next` oder ohne Status.
+ * - `waiting`: alle „Warten auf“-Einträge, älteste zuerst (zum Nachfassen).
+ * - `somedayCount`: Umfang der Irgendwann/Vielleicht-Liste.
+ */
+export function getWeeklyReview(userId: string) {
+  const inboxCount = listTasks(userId, false, { isCompleted: false, uncategorized: true, pageSize: 1 }).total;
+
+  const open = selectVisibleTasks(userId, eq(tasks.isCompleted, false));
+  const projectIds = projectTaskIds();
+  const byCreated = (a: { createdAt: Date }, b: { createdAt: Date }) =>
+    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+
+  const projects = open.filter((t) => projectIds.has(t.id)).sort(byCreated);
+  const waiting = open.filter((t) => t.status === "waiting").sort(byCreated);
+
+  // Ziele ohne offene, verknüpfte Aufgabe – dort passiert gerade nichts.
+  const activeGoalIds = new Set(open.map((t) => t.goalId).filter(Boolean));
+  const idleGoals = getDb().select({ id: goals.id, title: goals.title }).from(goals)
+    .where(and(eq(goals.userId, userId), isNull(goals.achievedAt))).all()
+    .filter((g) => !activeGoalIds.has(g.id));
+
+  return {
+    inboxCount,
+    idleGoals,
+    somedayCount: open.filter((t) => t.status === "someday").length,
+    stalledProjects: withRelations(projects.map(enrichTask)).filter((p) => !p.nextStep),
+    waiting: withRelations(waiting.map(enrichTask)),
+  };
 }
 
 export async function getTask(id: string, userId: string, _isAdmin: boolean) {
@@ -524,6 +639,8 @@ export function createTask(input: CreateTaskInput, createdById: string): (typeof
   // sonst gilt die Nutzer-Voreinstellung (Standard: privat).
   const isPrivate = isHabit ? true : parent ? parent.isPrivate : (input.isPrivate ?? defaultPrivate);
 
+  if (!isHabit) assertOwnGoal(input.goalId, createdById);
+
   const task = {
     id: uuid(),
     slug: generateUniqueTaskSlug(),
@@ -542,13 +659,17 @@ export function createTask(input: CreateTaskInput, createdById: string): (typeof
     urgencyValue: isHabit ? null : (input.urgencyValue ?? 3),
     isPrivate,
     isHabit,
-    status: isHabit ? null : (input.status ?? null),
+    // Ein neuer Schritt ohne Status wird zum Nächsten Schritt, wenn das Projekt noch keinen hat.
+    status: isHabit
+      ? null
+      : (input.status ?? (input.parentId && !openSteps([input.parentId]).some((s) => s.status === "next") ? "next" : null)),
     duration: isHabit ? null : (input.duration ?? null),
     energy: isHabit ? null : (input.energy ?? null),
     recurrenceType: isHabit ? "none" : (input.recurrenceType ?? "none"),
     recurrenceRule: isHabit ? null : (input.recurrenceRule || null),
     parentId: isHabit ? null : (input.parentId || null),
     plannedDate: isHabit ? null : (input.plannedDate ? new Date(input.plannedDate) : null),
+    goalId: isHabit ? null : (input.goalId ?? null),
     createdById,
     createdAt: new Date(),
   };
@@ -622,6 +743,7 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
     updates.status = null;
     updates.duration = null;
     updates.energy = null;
+    updates.goalId = null;
     updates.plannedDate = null;
     updates.dueAt = null;
     updates.baseDate = null;
@@ -671,6 +793,11 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
   }
 
   if (input.plannedDate !== undefined && !isHabit) updates.plannedDate = input.plannedDate ? new Date(input.plannedDate) : null;
+  // Nur eine geänderte Verknüpfung prüfen – Mitbearbeiter dürfen das Ziel des Erstellers stehen lassen.
+  if (input.goalId !== undefined && !isHabit && input.goalId !== existing.goalId) {
+    assertOwnGoal(input.goalId, userId);
+    updates.goalId = input.goalId;
+  }
 
   if (input.dueAt !== undefined && !isHabit) {
     if (input.recurrenceType === "rrule" || existing.recurrenceType === "rrule") {
@@ -761,6 +888,13 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
     }
   }
 
+  // Nächsten Schritt nachziehen, wenn dieser Schritt kein `next` mehr ist oder das Projekt wechselt.
+  const after = db.select({ parentId: tasks.parentId, status: tasks.status }).from(tasks).where(eq(tasks.id, id)).get();
+  if (after && existing.parentId && (after.parentId !== existing.parentId || (existing.status === "next" && after.status !== "next"))) {
+    advanceNextStep(existing.parentId);
+  }
+  if (after?.parentId && after.parentId !== existing.parentId) advanceNextStep(after.parentId);
+
   return getTask(id, userId, isAdmin);
 }
 
@@ -783,6 +917,7 @@ export async function deleteTask(id: string, userId: string): Promise<boolean | 
   db.delete(taskEvents).where(eq(taskEvents.taskId, id)).run();
   db.delete(taskLinks).where(or(eq(taskLinks.taskIdA, id), eq(taskLinks.taskIdB, id))).run();
   db.delete(tasks).where(eq(tasks.id, id)).run();
+  advanceNextStep(existing.parentId);
   return true;
 }
 

@@ -517,6 +517,7 @@ export function PlanningPage() {
                   contexts={[]}
                   users={users}
                   showStatus={false}
+                  showEngage={false}
                   showHabits={false}
                   showSort={false}
                   showCompletionMode
