@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "postbuild": "node scripts/copy-to-server.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
