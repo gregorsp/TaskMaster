@@ -8,7 +8,7 @@ import {
   Timer as TimerIcon, PlayArrow as PlayIcon, Pause as PauseIcon, Stop as StopIcon,
   SkipNext as SkipIcon, CheckCircle as DoneIcon,
 } from "@mui/icons-material";
-import { completeTask, listTasks } from "../api/tasksApi";
+import { completeTask, listTasks, updateTask } from "../api/tasksApi";
 import { useNotify } from "../context/NotifyContext";
 import { PHASE_LABELS, formatClock, usePomodoro, type PomodoroTask } from "./PomodoroContext";
 
@@ -22,13 +22,32 @@ function PomodoroDialog({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     listTasks({ isCompleted: false, status: "next", pageSize: 100, sort: "dueAt", order: "asc" })
-      .then((res) => setOptions(res.items.map((t) => ({ id: t.id, title: t.title }))))
+      .then((res) => setOptions(res.items.map((t) => ({ id: t.id, title: t.title, workMinutes: t.pomodoroMinutes }))))
       .catch(() => {});
   }, []);
 
   const isBreak = p.phase !== "work";
   const progress = p.totalMs ? 100 - (p.remainingMs / p.totalMs) * 100 : 0;
   const choices = p.task && !options.some((o) => o.id === p.task!.id) ? [p.task, ...options] : options;
+
+  /** Eigene Fokus-Länge der gewählten Aufgabe ändern – gespeichert an der Aufgabe, gilt ab dem nächsten Fokus. */
+  const [minutesDraft, setMinutesDraft] = useState("");
+  useEffect(() => { setMinutesDraft(p.task?.workMinutes ? String(p.task.workMinutes) : ""); }, [p.task?.id, p.task?.workMinutes]);
+  const saveTaskMinutes = async () => {
+    if (!p.task) return;
+    const n = minutesDraft.trim() === "" ? null : Math.round(Number(minutesDraft));
+    if (n !== null && !(n >= 1 && n <= 180)) { notify("Bitte 1–180 Minuten angeben", "error"); return; }
+    if (n === (p.task.workMinutes ?? null)) return;
+    try {
+      await updateTask(p.task.id, { pomodoroMinutes: n });
+      const updated = { ...p.task, workMinutes: n };
+      p.setTask(updated);
+      setOptions((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+      notify(n ? `„${p.task.title}“: ${n} Minuten pro Pomodoro` : `„${p.task.title}“ nutzt wieder deinen Standard`);
+    } catch {
+      notify("Länge konnte nicht gespeichert werden", "error");
+    }
+  };
 
   const finishTask = async () => {
     if (!p.task) return;
@@ -77,6 +96,18 @@ function PomodoroDialog({ onClose }: { onClose: () => void }) {
             noOptionsText="Keine offenen Nächsten Schritte"
           />
 
+          {p.task && (
+            <TextField
+              size="small" type="number" fullWidth label="Minuten pro Pomodoro für diese Aufgabe"
+              value={minutesDraft} placeholder={`Standard: ${p.settings.workMinutes}`}
+              onChange={(e) => setMinutesDraft(e.target.value)}
+              onBlur={() => void saveTaskMinutes()}
+              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+              inputProps={{ min: 1, max: 180, inputMode: "numeric", enterKeyHint: "done" }}
+              helperText={p.running && p.phase === "work" ? "Gilt ab dem nächsten Fokus" : "Leer = dein Standard"}
+            />
+          )}
+
           <Stack direction="row" spacing={1} flexWrap="wrap" justifyContent="center" useFlexGap>
             {!p.active && (
               <Button variant="contained" color="secondary" size="large" startIcon={<PlayIcon />} onClick={() => p.start()}>Start</Button>
@@ -97,7 +128,7 @@ function PomodoroDialog({ onClose }: { onClose: () => void }) {
 
           <Typography variant="body2" color="text.secondary" textAlign="center">
             Heute: {p.completedToday} Pomodoro{p.completedToday === 1 ? "" : "s"} ·
-            {" "}{p.settings.workMinutes}/{p.settings.shortBreakMinutes}/{p.settings.longBreakMinutes} Min ·{" "}
+            {" "}{p.task?.workMinutes ?? p.settings.workMinutes}/{p.settings.shortBreakMinutes}/{p.settings.longBreakMinutes} Min ·{" "}
             <Link component={RouterLink} to="/settings" onClick={onClose}>anpassen</Link>
           </Typography>
         </Stack>

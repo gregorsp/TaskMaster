@@ -70,6 +70,22 @@ describe("Pomodoro-Einstellungen", () => {
   });
 });
 
+describe("Pomodoro-Länge pro Aufgabe", () => {
+  it("speichert, ändert und löscht die eigene Fokus-Länge einer Aufgabe", async () => {
+    const task = await createTask(ownerToken, { title: "Bachelorarbeit schreiben", pomodoroMinutes: 50 });
+    expect((await call(ownerToken, "GET", `/api/tasks/${task.id}`)).json().pomodoroMinutes).toBe(50);
+
+    await call(ownerToken, "PUT", `/api/tasks/${task.id}`, { pomodoroMinutes: 15 });
+    expect((await call(ownerToken, "GET", `/api/tasks/${task.id}`)).json().pomodoroMinutes).toBe(15);
+
+    await call(ownerToken, "PUT", `/api/tasks/${task.id}`, { pomodoroMinutes: null });
+    expect((await call(ownerToken, "GET", `/api/tasks/${task.id}`)).json().pomodoroMinutes).toBeNull();
+
+    const invalid = await call(ownerToken, "PUT", `/api/tasks/${task.id}`, { pomodoroMinutes: 0 });
+    expect(invalid.statusCode).toBe(400);
+  });
+});
+
 describe("Mindmaps", () => {
   it("speichert Boards serverseitig und nur für den Besitzer", async () => {
     const nodes = [{ id: "root", text: "Urlaub", x: 1, y: 2, color: "#1976d2", parentId: null }];

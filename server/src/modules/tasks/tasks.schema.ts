@@ -23,6 +23,7 @@ export const createTaskSchema = z.object({
   dueAt: z.string().nullable().optional(),
   isImportant: z.boolean().default(false),
   pomodoros: z.number().int().min(1).max(999).nullable().optional(),
+  pomodoroMinutes: z.number().int().min(1).max(180).nullable().optional(),
   /**
    * Fehlt das Feld, wendet der Server die Nutzer-Voreinstellung an
    * (`users.default_private`, Standard: privat). Unteraufgaben erben die
@@ -52,6 +53,7 @@ export const updateTaskSchema = z.object({
   dueAt: z.string().nullable().optional(),
   isImportant: z.boolean().optional(),
   pomodoros: z.number().int().min(1).max(999).nullable().optional(),
+  pomodoroMinutes: z.number().int().min(1).max(180).nullable().optional(),
   isPrivate: z.boolean().optional(),
   isHabit: z.boolean().optional(),
   status: taskStatusSchema.nullable().optional(),

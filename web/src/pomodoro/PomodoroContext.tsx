@@ -15,6 +15,8 @@ export const PHASE_LABELS: Record<PomodoroPhase, string> = {
 export interface PomodoroTask {
   id: string;
   title: string;
+  /** Eigene Fokus-Länge dieser Aufgabe (Minuten); leer = persönlicher Standard. */
+  workMinutes?: number | null;
 }
 
 /** Gespeicherter Zustand – nur auf diesem Gerät (localStorage), übersteht Neuladen. */
@@ -22,8 +24,10 @@ interface StoredState {
   phase: PomodoroPhase;
   /** Endzeitpunkt (ms) solange der Timer läuft, sonst null. */
   endsAt: number | null;
-  /** Restzeit (ms) im pausierten/bereiten Zustand. */
+  /** Restzeit (ms) im pausierten Zustand. */
   remainingMs: number;
+  /** Mitten in einer Phase angehalten. Sonst ruht der Timer und zeigt die volle Länge. */
+  paused?: boolean;
   task: PomodoroTask | null;
   /** Abgeschlossene Fokus-Einheiten seit der letzten langen Pause. */
   streak: number;
@@ -54,8 +58,10 @@ const todayKey = () => new Date().toISOString().slice(0, 10);
 
 const PomodoroContext = createContext<PomodoroApi | null>(null);
 
-function phaseMs(phase: PomodoroPhase, s: PomodoroSettings) {
-  const minutes = phase === "work" ? s.workMinutes : phase === "shortBreak" ? s.shortBreakMinutes : s.longBreakMinutes;
+/** Länge einer Phase; die Fokus-Länge kann die gewählte Aufgabe vorgeben. */
+function phaseMs(phase: PomodoroPhase, s: PomodoroSettings, task?: PomodoroTask | null) {
+  const minutes = phase === "work" ? (task?.workMinutes ?? s.workMinutes)
+    : phase === "shortBreak" ? s.shortBreakMinutes : s.longBreakMinutes;
   return minutes * 60_000;
 }
 
@@ -64,7 +70,7 @@ function readStored(settings: PomodoroSettings): StoredState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw) as StoredState;
   } catch { /* ignorieren */ }
-  return { phase: "work", endsAt: null, remainingMs: phaseMs("work", settings), task: null, streak: 0, today: { date: todayKey(), count: 0 } };
+  return { phase: "work", endsAt: null, remainingMs: phaseMs("work", settings), paused: false, task: null, streak: 0, today: { date: todayKey(), count: 0 } };
 }
 
 export function formatClock(ms: number) {
@@ -93,9 +99,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }, [state]);
 
   const running = state.endsAt !== null;
-  const remainingMs = running ? Math.max(0, state.endsAt! - now) : state.remainingMs;
-  const totalMs = phaseMs(state.phase, settings);
-  const active = running || state.remainingMs < totalMs;
+  const totalMs = phaseMs(state.phase, settings, state.task);
+  const remainingMs = running ? Math.max(0, state.endsAt! - now) : state.paused ? state.remainingMs : totalMs;
+  const active = running || Boolean(state.paused);
   const completedToday = state.today.date === todayKey() ? state.today.count : 0;
 
   const stateRef = useRef(state);
@@ -119,7 +125,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       const phase: PomodoroPhase = longBreak ? "longBreak" : "shortBreak";
       const count = (prev.today.date === todayKey() ? prev.today.count : 0) + 1;
       next = {
-        ...prev, phase, streak: longBreak ? 0 : streak,
+        ...prev, phase, streak: longBreak ? 0 : streak, paused: false,
         endsAt: Date.now() + phaseMs(phase, s), remainingMs: phaseMs(phase, s),
         today: { date: todayKey(), count },
       };
@@ -127,7 +133,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       const text = `${longBreak ? "Lange" : "Kurze"} Pause: ${minutes} ${minutes === 1 ? "Minute" : "Minuten"}.`;
       message = { snack: `Pomodoro geschafft! ${text}`, title: "Pomodoro geschafft", body: text };
     } else {
-      next = { ...prev, phase: "work", endsAt: null, remainingMs: phaseMs("work", s) };
+      next = { ...prev, phase: "work", endsAt: null, paused: false };
       message = {
         snack: "Pause vorbei – bereit für den nächsten Pomodoro?",
         title: "Pause vorbei",
@@ -166,34 +172,29 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     unlockAudio();
     if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission().catch(() => {});
     const s = settingsRef.current;
-    setState((prev) => ({
-      ...prev, phase: "work", endsAt: Date.now() + phaseMs("work", s), remainingMs: phaseMs("work", s),
-      task: task === undefined ? prev.task : task,
-    }));
+    setState((prev) => {
+      const nextTask = task === undefined ? prev.task : task;
+      return { ...prev, phase: "work", paused: false, endsAt: Date.now() + phaseMs("work", s, nextTask), task: nextTask };
+    });
     setNow(Date.now());
   }, []);
 
   const pause = useCallback(() => {
-    setState((prev) => (prev.endsAt === null ? prev : { ...prev, endsAt: null, remainingMs: Math.max(0, prev.endsAt - Date.now()) }));
+    setState((prev) => (prev.endsAt === null ? prev : { ...prev, endsAt: null, paused: true, remainingMs: Math.max(0, prev.endsAt - Date.now()) }));
   }, []);
 
   const resume = useCallback(() => {
     unlockAudio();
-    setState((prev) => (prev.endsAt !== null ? prev : { ...prev, endsAt: Date.now() + prev.remainingMs }));
+    setState((prev) => (prev.endsAt !== null || !prev.paused ? prev : { ...prev, paused: false, endsAt: Date.now() + prev.remainingMs }));
     setNow(Date.now());
   }, []);
 
   const stop = useCallback(() => {
-    setState((prev) => ({ ...prev, phase: "work", endsAt: null, remainingMs: phaseMs("work", settingsRef.current), streak: 0 }));
+    setState((prev) => ({ ...prev, phase: "work", endsAt: null, paused: false, streak: 0 }));
   }, []);
 
   const skip = useCallback(() => finishPhase(false), [finishPhase]);
   const setTask = useCallback((task: PomodoroTask | null) => setState((prev) => ({ ...prev, task })), []);
-
-  // Geänderte Einstellungen gelten sofort für einen nicht laufenden Timer.
-  useEffect(() => {
-    setState((prev) => (prev.endsAt === null && prev.phase === "work" ? { ...prev, remainingMs: phaseMs("work", settings) } : prev));
-  }, [settings.workMinutes]);
 
   const value = useMemo<PomodoroApi>(() => ({
     settings, phase: state.phase, running, active, remainingMs, totalMs, task: state.task, completedToday,

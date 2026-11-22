@@ -43,6 +43,8 @@ export interface Task {
   isImportant: boolean;
   isUrgent: boolean;
   pomodoros: number | null;
+  /** Eigene Fokus-Länge pro Pomodoro (Minuten); null = persönlicher Standard. */
+  pomodoroMinutes: number | null;
   urgencyMode: "never" | "always" | "before_days" | "before_percent";
   urgencyValue: number | null;
   isPrivate: boolean;
@@ -113,6 +115,7 @@ export interface CreateTaskInput {
   dueAt?: string;
   isImportant?: boolean;
   pomodoros?: number | null;
+  pomodoroMinutes?: number | null;
   isPrivate?: boolean;
   isHabit?: boolean;
   status?: TaskStatus | null;
@@ -159,6 +162,7 @@ export interface UpdateTaskInput {
   isImportant?: boolean;
   isUrgent?: boolean;
   pomodoros?: number | null;
+  pomodoroMinutes?: number | null;
   isPrivate?: boolean;
   isHabit?: boolean;
   status?: TaskStatus | null;

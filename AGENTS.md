@@ -6,7 +6,7 @@
 - The Fastify server doubles as the SPA host in production: it serves the built React app from `server/public/` (copied from `web/dist/` during Docker build) and falls back to `index.html` for client-side routing.
 - DB is SQLite via `sql.js` (WASM, no native modules). Drizzle ORM for schema + queries. Migrations are in `server/src/db/migrations/`.
 - Nightly server-side transcription (optional, `TRANSCRIBE_SERVER=true`) runs the same Parakeet model in a `worker_threads` worker via `onnxruntime-node`; the only native dependency. Everything else stays toolchain-free.
-- Current schema version: `SCHEMA_VERSION = 19` (defined in `server/src/db/version.ts`). There are 22 migration files (`0000` through `0021`). Migrations from `0017` on are hand-written (no drizzle snapshot) — add the journal entry by hand and keep `when` increasing. (`0020` briefly added goals/time blocks; `0021` removes them again and adds `users.pomodoro_settings`.)
+- Current schema version: `SCHEMA_VERSION = 20` (defined in `server/src/db/version.ts`). There are 23 migration files (`0000` through `0022`). Migrations from `0017` on are hand-written (no drizzle snapshot) — add the journal entry by hand and keep `when` increasing. (`0020` briefly added goals/time blocks; `0021` removes them again and adds `users.pomodoro_settings`.)
 
 ### Server startup flow
 
@@ -118,7 +118,7 @@ Each module follows a consistent pattern:
 | Table | Purpose |
 |---|---|
 | `users` | User accounts: id, username, email, passwordHash, displayName, isAdmin, profilePicture, capacity, **pomodoroSettings** (JSON: work/short/long minutes, long break every N, sound — see `lib/pomodoro.ts`), confirmHabitCompletion, transcriptionLanguage, **defaultPrivate** (new tasks private by default, default true), **aiProvider** / **aiKeyEncrypted** (encrypted per-user AI key), createdAt |
-| `tasks` | Tasks with 28 columns including: title, description, dueAt, baseDate, lastCompletedAt, isCompleted, completedAt, isImportant, isUrgent, pomodoros, urgencyMode, urgencyValue, isPrivate, isHabit, **status** (`next`/`waiting`/`someday`; reference material is no status — the clarify wizard turns it into a note), **duration** (`under_2_min`/`15_min`) and **energy** (`low`/`high`) — kept for existing data, no longer in the UI. Value lists live only in `tasks.schema.ts` (`TASK_STATUSES`/`TASK_DURATIONS`/`TASK_ENERGIES`), German status labels only in `web/src/components/tasks/gtd.ts`, recurrenceType, recurrenceRule, parentId, plannedDate |
+| `tasks` | Tasks with 28 columns including: title, description, dueAt, baseDate, lastCompletedAt, isCompleted, completedAt, isImportant, isUrgent, pomodoros, **pomodoroMinutes** (per-task focus length, NULL = user default), urgencyMode, urgencyValue, isPrivate, isHabit, **status** (`next`/`waiting`/`someday`; reference material is no status — the clarify wizard turns it into a note), **duration** (`under_2_min`/`15_min`) and **energy** (`low`/`high`) — kept for existing data, no longer in the UI. Value lists live only in `tasks.schema.ts` (`TASK_STATUSES`/`TASK_DURATIONS`/`TASK_ENERGIES`), German status labels only in `web/src/components/tasks/gtd.ts`, recurrenceType, recurrenceRule, parentId, plannedDate |
 | `task_assignees` | Join table: taskId ↔ userId (composite PK) |
 | `task_categories` | Join table: taskId ↔ categoryId (composite PK) |
 | `categories` | Per-user task categories: id, name, color, createdById, createdAt |
@@ -222,7 +222,7 @@ When changing `server/src/db/schema.ts`:
 - **Stalled** = open project whose `nextStep` is `null`.
 - `GET /api/tasks/review` → `{ inboxCount, somedayCount, stalledProjects, waiting }` (visible tasks only).
 - **Startup reconcile**: `reconcileNextSteps()` runs once at boot (not in maintenance mode) so projects from before the automation get their `next` step. Idempotent.
-- **Pomodoro timer** (`web/src/pomodoro/`): `PomodoroProvider` (global, state per device in `localStorage`, timing via end timestamp so throttled/background tabs stay correct), `PomodoroWidget` in the header shows remaining time + current task live (also in the tab title), dialog to pick a next step, pause/skip/stop and complete the task (switches to the project's next step). Chime via Web Audio (`chime.ts`, no audio file), vibration, optional browser notification. Lengths come from `user.pomodoroSettings` (`PUT /api/auth/me/pomodoro-settings`, edited on the settings page). On phones it only rings while the app is open.
+- **Pomodoro timer** (`web/src/pomodoro/`): `PomodoroProvider` (global, state per device in `localStorage`, timing via end timestamp so throttled/background tabs stay correct), `PomodoroWidget` in the header shows remaining time + current task live (also in the tab title), dialog to pick a next step, pause/skip/stop and complete the task (switches to the project's next step). Chime via Web Audio (`chime.ts`, no audio file), vibration, optional browser notification. Lengths come from `user.pomodoroSettings` (`PUT /api/auth/me/pomodoro-settings`, edited on the settings page); a task can override the focus length via `tasks.pomodoro_minutes` (task form or directly in the timer dialog). Timer states: running (`endsAt`), paused (`paused` + `remainingMs`) or idle (full length computed from task/settings). Planning capacity still counts pomodoros, regardless of their length. On phones it only rings while the app is open.
 - **Capture**: `QuickCapture` is the one capture field (header dialog in `AppShell` + inbox tab).
 - **Mind maps**: `BrainstormingPage` stores boards on the server (one-time import of the old `localStorage` key `taskmaster_gtd_mindmaps_v1`). Nodes remember `gtdTaskId`; only nodes whose own task is completed/deleted are pruned, and deleting a node deletes only its linked tasks (never by title match).
 - `urgent=true` filters on the computed urgency, not the stored `is_urgent` column.
@@ -356,7 +356,7 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 - **Framework**: Vitest (`server/package.json` → `"test": "vitest run"`, `"test:watch": "vitest"`).
 - **Database**: In-memory SQLite (`DB_PATH` is `:memory:` when `NODE_ENV=test`).
 - **HTTP**: Tests use Fastify's `inject()` method to call routes without a running server. Each test file builds a fresh app instance via `buildApp()` and seeds the necessary data.
-- **Current coverage**: 248 tests across 19 test files.
+- **Current coverage**: 249 tests across 19 test files.
 - New modules have their own files: `notes.test.ts` (11), `journal.test.ts` (5), `meditation.test.ts` (3), `stats.test.ts` (13), `transcription-server.test.ts` (20), `audio-overview.test.ts` (24).
 
 ### Test files
@@ -370,7 +370,7 @@ The `.env` file is git-ignored; use `.env.example` as a template.
 | `test/habits.test.ts` | 15 | Habit creation, completion, occurrence tracking, streaks |
 | `test/planning.test.ts` | 12 | Planning grid, draft/confirm, capacity |
 | `test/capacity.test.ts` | 9 | User capacity CRUD, validation |
-| `test/gtd.test.ts` | 4 | Pomodoro settings (defaults, per user, validation), mind maps (CRUD, isolation), startup next-step reconcile |
+| `test/gtd.test.ts` | 5 | Pomodoro settings (defaults, per user, validation), per-task pomodoro length, mind maps (CRUD, isolation), startup next-step reconcile |
 | `test/http-flow.test.ts` | 6 | HTTP status codes, error shapes, auth flow |
 | `test/recurrence.test.ts` | 6 | RRULE expansion, completion recurrence calculation |
 | `test/auth.test.ts` | 4 | Registration, login, token refresh, logout |

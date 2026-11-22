@@ -33,7 +33,7 @@ function renderPriorityChip(task: Task) {
 function renderPomodoroChip(task: Task, workMinutes: number) {
   if (task.pomodoros == null || task.pomodoros <= 0) return null;
   return (
-    <Tooltip title={`${task.pomodoros} Pomodoro${task.pomodoros > 1 ? "s" : ""} ≈ ${task.pomodoros * workMinutes} Minuten`}>
+    <Tooltip title={`${task.pomodoros} Pomodoro${task.pomodoros > 1 ? "s" : ""} ≈ ${task.pomodoros * (task.pomodoroMinutes ?? workMinutes)} Minuten`}>
       <Chip size="small" label={`${task.pomodoros} Pomo`} color="secondary" />
     </Tooltip>
   );

@@ -77,6 +77,7 @@ describe("Migration – Version State Machine", () => {
     expect(taskCols).not.toContain("goal_id");
     const userCols = getRawDb().exec("PRAGMA table_info(users)")[0].values.map((c) => c[1] as string);
     expect(userCols).toContain("pomodoro_settings");
+    expect(taskCols).toContain("pomodoro_minutes");
     closeDb();
   });
 
@@ -214,6 +215,7 @@ describe("Migration – runMigration", () => {
     // 0020/0021 (Mindmaps, Pomodoro-Einstellungen) ebenso.
     getRawDb().run("DROP TABLE IF EXISTS mindmap_boards");
     getRawDb().run("ALTER TABLE users DROP COLUMN pomodoro_settings");
+    getRawDb().run("ALTER TABLE tasks DROP COLUMN pomodoro_minutes");
     let state = getDbState(db, getRawDb());
     expect(state.state).toBe("MIGRATION_NEEDED");
 
@@ -301,8 +303,9 @@ describe("Migration – 0019 Nutzer-Organisation", () => {
     // 0020/0021 bauen auf 0019 auf und werden mit zurückgebaut.
     getRawDb().run("DROP TABLE IF EXISTS mindmap_boards");
     getRawDb().run("ALTER TABLE users DROP COLUMN pomodoro_settings");
+    getRawDb().run("ALTER TABLE tasks DROP COLUMN pomodoro_minutes");
     getRawDb().run("UPDATE app_meta SET value = '16' WHERE key = 'schema_version'");
-    for (const when of [1794000000000, 1794100000000, 1794200000000]) {
+    for (const when of [1794000000000, 1794100000000, 1794200000000, 1794300000000]) {
       getRawDb().run("DELETE FROM __drizzle_migrations WHERE created_at = ?", [when]);
     }
 

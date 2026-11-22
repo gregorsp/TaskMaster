@@ -516,7 +516,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
                   <Button
                     variant="outlined" size="small" color="secondary" startIcon={<TimerIcon />}
                     onClick={() => {
-                      pomodoro.start({ id: task.id, title: task.title });
+                      pomodoro.start({ id: task.id, title: task.title, workMinutes: task.pomodoroMinutes });
                       notify(`Pomodoro gestartet: ${task.title}`);
                     }}
                   >

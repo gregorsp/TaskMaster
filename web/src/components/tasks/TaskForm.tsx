@@ -11,6 +11,14 @@ import {
   type TaskStatus,
 } from "../../api/tasksApi";
 import { GtdFields } from "./GtdFields";
+import { usePomodoro } from "../../pomodoro/PomodoroContext";
+
+/** Leeres Feld → null, sonst gerundet und auf [min, max] begrenzt. */
+function clampOrNull(value: string, min: number, max: number): number | null {
+  if (value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : null;
+}
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listContexts, type TaskContext } from "../../api/contextsApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
@@ -94,6 +102,8 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const [isPrivate, setIsPrivate] = useState(false);
   const [isImportant, setIsImportant] = useState(false);
   const [pomodoros, setPomodoros] = useState<number | null>(null);
+  const [pomodoroMinutes, setPomodoroMinutes] = useState<number | null>(null);
+  const defaultWorkMinutes = usePomodoro().settings.workMinutes;
   const [urgencyMode, setUrgencyMode] = useState<"never" | "always" | "before_days" | "before_percent">("before_days");
   const [urgencyValue, setUrgencyValue] = useState<number>(3);
   const [recurrenceType, setRecurrenceType] = useState<"none" | "rrule" | "on_completion" | "habit">("none");
@@ -151,6 +161,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         setIsPrivate(task.isPrivate ?? false);
         setIsImportant(task.isImportant ?? false);
         setPomodoros(task.pomodoros ?? null);
+        setPomodoroMinutes(task.pomodoroMinutes ?? null);
         setUrgencyMode(task.urgencyMode || "before_days");
         setUrgencyValue(task.urgencyValue ?? 3);
         setRecurrenceType(task.isHabit ? "habit" : (task.recurrenceType || "none"));
@@ -180,7 +191,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
     } else if (open && !task) {
       setTitle(""); setDescription(""); setDueDate(""); setPlannedDate("");
       setIsPrivate(currentUser?.defaultPrivate ?? true);
-      setIsImportant(false); setPomodoros(null); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
+      setIsImportant(false); setPomodoros(null); setPomodoroMinutes(null); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
       setFreq("WEEKLY"); setInterval(1); setSelectedDays([]);
       setMonthDay(""); setUseNthWeekday(false); setSelectedCategories([]); setSelectedContexts([]);
       setStatus(null);
@@ -246,7 +257,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           title: title.trim(),
           description: description.trim() || null,
           dueAt: !isHabit && dueDate ? new Date(dueDate).toISOString() : null,
-          isImportant, isPrivate, pomodoros, urgencyMode, urgencyValue,
+          isImportant, isPrivate, pomodoros, pomodoroMinutes, urgencyMode, urgencyValue,
           isHabit,
           status: isHabit ? null : status,
           recurrenceType: isHabit ? "none" : recurrenceType,
@@ -267,7 +278,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           title: title.trim(),
           description: description.trim() || undefined,
           dueAt: !isHabit && dueDate ? new Date(dueDate).toISOString() : undefined,
-          isImportant, isPrivate, pomodoros, urgencyMode, urgencyValue,
+          isImportant, isPrivate, pomodoros, pomodoroMinutes, urgencyMode, urgencyValue,
           isHabit,
           status: isHabit ? null : status,
           recurrenceType: isHabit ? "none" : recurrenceType,
@@ -415,24 +426,28 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
             />
           </Stack>
 
-          <TextField
-            label="Pomodoros"
-            type="number"
-            value={pomodoros ?? ""}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === "") {
-                setPomodoros(null);
-                return;
-              }
-              const n = Number(v);
-              setPomodoros(Number.isFinite(n) ? Math.max(1, Math.min(999, Math.round(n))) : null);
-            }}
-            inputProps={{ min: 1, max: 999 }}
-            placeholder="Keine Angabe"
-            helperText="1 Pomodoro ≈ 25 Minuten – leer lassen für keinen Schätzwert"
-            fullWidth
-          />
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <TextField
+              label="Pomodoros"
+              type="number"
+              value={pomodoros ?? ""}
+              onChange={(e) => setPomodoros(clampOrNull(e.target.value, 1, 999))}
+              inputProps={{ min: 1, max: 999, inputMode: "numeric" }}
+              placeholder="Keine Angabe"
+              helperText="Geschätzte Anzahl – leer lassen für keinen Schätzwert"
+              fullWidth
+            />
+            <TextField
+              label="Minuten pro Pomodoro"
+              type="number"
+              value={pomodoroMinutes ?? ""}
+              onChange={(e) => setPomodoroMinutes(clampOrNull(e.target.value, 1, 180))}
+              inputProps={{ min: 1, max: 180, inputMode: "numeric" }}
+              placeholder={`Standard: ${defaultWorkMinutes}`}
+              helperText={`Nur für diese Aufgabe – leer = dein Standard (${defaultWorkMinutes} Min)`}
+              fullWidth
+            />
+          </Stack>
 
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography variant="body2" sx={{ minWidth: 90 }}>Dringend:</Typography>
