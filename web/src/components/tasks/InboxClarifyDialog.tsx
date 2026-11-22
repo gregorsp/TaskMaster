@@ -26,7 +26,7 @@ const QUESTIONS: Record<Step, string> = {
   how: "Was ist der nächste physische Schritt?",
   next: "Nächster Schritt – braucht es einen bestimmten Ort oder ein Werkzeug? (optional)",
   waiting: "Delegieren: Auf wen oder was wartest du?",
-  project: "Mehr als ein Schritt – also ein Projekt. Was ist der erste Schritt?",
+  project: "Mehr als ein Schritt – also ein Projekt. Welche Schritte fallen dir ein?",
 };
 
 interface Props {
@@ -49,7 +49,9 @@ export function InboxClarifyDialog({ open, onClose, onChanged }: Props) {
   const [title, setTitle] = useState("");
   const [gtd, setGtd] = useState<GtdValues>(EMPTY_GTD);
   const [waitingFor, setWaitingFor] = useState("");
-  const [firstStep, setFirstStep] = useState("");
+  /** Projekt-Schritte, einer pro Zeile – in dieser Reihenfolge angelegt. */
+  const [stepsText, setStepsText] = useState("");
+  const steps = stepsText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 
   const current = queue[0];
 
@@ -69,7 +71,7 @@ export function InboxClarifyDialog({ open, onClose, onChanged }: Props) {
     setTitle(current?.title ?? "");
     setGtd(EMPTY_GTD);
     setWaitingFor("");
-    setFirstStep("");
+    setStepsText("");
   }, [current?.id]);
 
   /** Führt die Entscheidung aus und geht zum nächsten Eintrag. */
@@ -204,11 +206,14 @@ export function InboxClarifyDialog({ open, onClose, onChanged }: Props) {
             {step === "project" && (
               <>
                 <Typography variant="body2" color="text.secondary">
-                  Der Eintrag oben wird zum Projekt (gewünschtes Ergebnis). Lege den ersten Nächsten Schritt an:
+                  Der Eintrag oben wird zum Projekt (gewünschtes Ergebnis). Schreib die Schritte der Reihe nach auf –
+                  einen pro Zeile. Der erste wird zum Nächsten Schritt, die anderen rücken nach dem Erledigen nach.
                 </Typography>
                 <TextField
-                  label="Erster Nächster Schritt" value={firstStep} autoFocus fullWidth
-                  onChange={(e) => setFirstStep(e.target.value)}
+                  label="Schritte (einer pro Zeile)" value={stepsText} autoFocus fullWidth multiline minRows={3}
+                  placeholder={"z. B.\nAngebote vergleichen\nTermin vereinbaren"}
+                  helperText={steps.length > 0 ? `${steps.length} Schritt(e)` : " "}
+                  onChange={(e) => setStepsText(e.target.value)}
                 />
                 <GtdFields value={gtd} onChange={(p) => setGtd((v) => ({ ...v, ...p }))} contextOptions={contextOptions} hideStatus />
               </>
@@ -242,11 +247,15 @@ export function InboxClarifyDialog({ open, onClose, onChanged }: Props) {
           </Button>
         )}
         {current && step === "project" && (
-          <Button variant="contained" disabled={busy || !firstStep.trim()}
+          <Button variant="contained" disabled={busy || steps.length === 0}
             onClick={() => decide(async () => {
               if (cleanTitle !== current.title) await updateTask(current.id, { title: cleanTitle });
-              await createTask({ title: firstStep.trim(), parentId: current.id, status: "next", ...gtdPatch() });
-            }, "Projekt mit erstem Nächsten Schritt angelegt")}>
+              // Nacheinander anlegen, damit die Reihenfolge stimmt; den Status setzt der Server
+              // (erster Schritt = Nächster Schritt). Kontexte gelten nur für den ersten Schritt.
+              for (const [i, title] of steps.entries()) {
+                await createTask({ title, parentId: current.id, ...(i === 0 ? gtdPatch() : {}) });
+              }
+            }, `Projekt mit ${steps.length} Schritt(en) angelegt`)}>
             Projekt anlegen
           </Button>
         )}

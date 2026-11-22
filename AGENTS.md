@@ -286,7 +286,7 @@ When changing `server/src/db/schema.ts`:
   - `TaskCard.tsx` / `TaskListView.tsx` — task display components.
   - `TaskListPane.tsx` — shared list surface (filters, pagination, planning warnings, new-task button). Dashboard renders it plain; the GTD page additionally enables the GTD tabs (Alle / Eingangskorb / Nächster Schritt / Projekte / Warten auf / Irgendwann), the quick-capture field + "Eingangskorb klären" in the inbox tab, and the Weekly Review.
   - `GtdFields.tsx` — status + context inputs, shared by `TaskForm` and the clarify wizard.
-  - `InboxClarifyDialog.tsx` — David Allen clarify wizard (actionable? no → trash / someday / reference = new text note via `notesApi`, then the task is deleted (note rolled back if the delete is forbidden); yes → do now <2 min / delegate to "Warten auf" / project with first next step / next step).
+  - `InboxClarifyDialog.tsx` — David Allen clarify wizard (actionable? no → trash / someday / reference = new text note via `notesApi`, then the task is deleted (note rolled back if the delete is forbidden); yes → do now <2 min / delegate to "Warten auf" / project with several steps, one per line, created in order / next step).
   - `WeeklyReviewDialog.tsx` — interactive review backed by `GET /api/tasks/review`: clear inbox, add next steps to stalled projects inline, tick off or follow up "Warten auf", review someday.
   - `TaskFilterBar.tsx` — Engage filters (`showEngage`, off on the planning page): priority (important / computed urgent) plus a plain context dropdown (deliberately not prominent).
   - `TaskTree/` — recursive tree component for parent/child task hierarchy.
