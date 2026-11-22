@@ -308,7 +308,7 @@ When changing `server/src/db/schema.ts`:
   - `ContextsPage` — GTD context management (own contexts).
   - `SettingsPage` — general/KI/behavior settings (default-private, encrypted AI key, habit confirmation, transcription language, auto-transcribe, pomodoro lengths + sound).
   - `AdminPage` — user management (admin only).
-  - `ProfilePage` — avatar, master data, capacity, password.
+  - `ProfilePage` — avatar, master data, capacity (daily pomodoro budget with focus hours from `pomodoroSettings.workMinutes`), password.
   - `AudioPage` — audio processing overview: queue, live progress + ETA, recent/failed jobs, retry, stats block.
   - `StatsPage` — three sections (tasks, meditation, audio) with a shared range selector, per-section comparisons and admin per-user tables.
   - `MigrationPage` — shown in maintenance mode.

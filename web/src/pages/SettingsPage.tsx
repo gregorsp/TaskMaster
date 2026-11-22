@@ -29,6 +29,8 @@ function PomodoroSettingsSection() {
 
   const valid = POMODORO_FIELDS.every((f) => Number.isInteger(draft[f.key]) && draft[f.key] >= f.min && draft[f.key] <= f.max);
   const dirty = JSON.stringify(draft) !== JSON.stringify(user.pomodoroSettings);
+  const weeklyPomodoros = Object.values(user.capacity ?? {}).reduce((sum, v) => sum + v, 0);
+  const weeklyMinutes = weeklyPomodoros * (valid ? draft.workMinutes : user.pomodoroSettings.workMinutes);
 
   const save = async () => {
     try {
@@ -61,6 +63,13 @@ function PomodoroSettingsSection() {
         <Box sx={{ flex: 1 }} />
         <Button variant="contained" onClick={save} disabled={!valid || !dirty}>Speichern</Button>
       </Stack>
+      <Typography variant="body2" mt={1}>
+        Tagesbudget:{" "}
+        {weeklyPomodoros > 0
+          ? `${weeklyPomodoros} Pomodoros / Woche ≈ ${Math.floor(weeklyMinutes / 60)}:${String(weeklyMinutes % 60).padStart(2, "0")} h Fokuszeit`
+          : "noch nicht festgelegt"}
+        {" · "}<Link component={RouterLink} to="/profile">im Profil anpassen</Link>
+      </Typography>
       <Typography variant="body2" color="text.secondary" mt={1}>
         Den Timer startest du in jeder Aufgabe („Pomodoro starten“) oder oben über das Uhr-Symbol.
         Auf dem Handy klingelt er nur, solange TaskMaster geöffnet ist.

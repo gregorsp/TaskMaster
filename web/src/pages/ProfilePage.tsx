@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Link as RouterLink } from "react-router-dom";
 import {
   Box, Typography, TextField, Button, Stack, Avatar, Paper, Divider, Slider,
-  FormControlLabel, Switch, FormControl, InputLabel, Select, MenuItem,
+  FormControlLabel, Switch, FormControl, InputLabel, Select, MenuItem, Link,
 } from "@mui/material";
 import { PhotoCamera as PhotoCameraIcon, Delete as DeleteIcon, Edit as EditIcon } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
@@ -23,6 +23,11 @@ const WEEKDAYS = [
 ];
 
 const DEFAULT_CAPACITY: Record<string, number> = { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0 };
+
+/** Minuten → „2:30 h“. */
+function formatHours(minutes: number) {
+  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")} h`;
+}
 
 function trackColor(v: number) {
   if (v <= 0) return "grey.300";
@@ -104,6 +109,8 @@ export function ProfilePage() {
   };
 
   const totalPomodoros = Object.values(capacity).reduce((sum, v) => sum + v, 0);
+  /** Persönliche Pomodoro-Länge (Einstellungen) – rechnet das Budget in Fokuszeit um. */
+  const workMinutes = user?.pomodoroSettings?.workMinutes ?? 25;
 
   const handleSaveCapacity = async () => {
     setSavingCapacity(true);
@@ -287,7 +294,8 @@ export function ProfilePage() {
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="h6" mb={1}>Tagesbudget (Pomodoros pro Tag)</Typography>
         <Typography variant="caption" color="text.secondary" display="block" mb={1}>
-          1 Pomodoro ≈ 25 Minuten. Wird für Auslastungs-Warnungen im Kalender verwendet.
+          1 Pomodoro = {workMinutes} Minuten Fokus (änderbar in den{" "}
+          <Link component={RouterLink} to="/settings">Einstellungen</Link>). Wird für die Planung und Auslastungs-Warnungen verwendet.
         </Typography>
 
         <Stack direction="row" justifyContent="center" spacing={1.5} sx={{ overflowX: "auto", py: 2 }}>
@@ -336,6 +344,9 @@ export function ProfilePage() {
                   sx={{ width: 56 }}
                 />
                 <Typography variant="caption" fontWeight={600}>{d.label}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                  {v > 0 ? formatHours(v * workMinutes) : "–"}
+                </Typography>
               </Stack>
             );
           })}
@@ -343,7 +354,7 @@ export function ProfilePage() {
 
         <Box sx={{ textAlign: "center", my: 1 }}>
           <Typography variant="body2" fontWeight={600}>
-            Gesamt: {totalPomodoros} Pomodoro{totalPomodoros === 1 ? "" : "s"} / Woche
+            Gesamt: {totalPomodoros} Pomodoro{totalPomodoros === 1 ? "" : "s"} / Woche ≈ {formatHours(totalPomodoros * workMinutes)} Fokuszeit
           </Typography>
         </Box>
 
