@@ -340,8 +340,12 @@ export function ProfilePage() {
                   onChange={(e) =>
                     handleCapacityChange(d.key, e.target.value === "" ? 0 : Math.max(0, Math.min(99, Number(e.target.value) || 0)))
                   }
-                  inputProps={{ min: 0, max: 99 }}
-                  sx={{ width: 56 }}
+                  inputProps={{ min: 0, max: 99, inputMode: "numeric" }}
+                  sx={{
+                    width: 64,
+                    "& input": { textAlign: "center", px: 0.5, MozAppearance: "textfield" },
+                    "& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button": { WebkitAppearance: "none", m: 0 },
+                  }}
                 />
                 <Typography variant="caption" fontWeight={600}>{d.label}</Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
