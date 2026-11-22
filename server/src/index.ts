@@ -9,6 +9,7 @@ import { getDbState, SCHEMA_VERSION } from "./db/version.js";
 import { runMigration } from "./db/migrations.js";
 import { startTranscriptionScheduler, stopTranscriptionScheduler } from "./modules/transcription/server/scheduler.js";
 import { seedDefaultContexts } from "./modules/contexts/contexts.service.js";
+import { reconcileNextSteps } from "./modules/tasks/tasks.service.js";
 
 const KEYLEN = 64;
 
@@ -77,6 +78,12 @@ async function main() {
   startAutoSave();
 
   const migrationMode = state.state === "MIGRATION_NEEDED" && !config.autoMigrate;
+
+  // Projekte aus der Zeit vor der Schritt-Automatik bekommen ihren Nächsten Schritt.
+  if (!migrationMode) {
+    const promoted = reconcileNextSteps();
+    if (promoted > 0) console.log(`Nächste Schritte nachgezogen: ${promoted}`);
+  }
 
   /**
    * Nach einer erfolgreichen Migration steht die Routentabelle des laufenden

@@ -1,5 +1,19 @@
 import client, { setAccessToken } from "./client";
 
+/** Persönliche Pomodoro-Einstellungen (Server liefert immer vollständige Werte). */
+export interface PomodoroSettings {
+  workMinutes: number;
+  shortBreakMinutes: number;
+  longBreakMinutes: number;
+  /** Nach so vielen Pomodoros folgt die lange Pause. */
+  longBreakEvery: number;
+  sound: boolean;
+}
+
+export const DEFAULT_POMODORO_SETTINGS: PomodoroSettings = {
+  workMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, longBreakEvery: 4, sound: true,
+};
+
 export interface User {
   id: string;
   username: string;
@@ -8,6 +22,7 @@ export interface User {
   isAdmin: boolean;
   profilePicture: string | null;
   capacity: Record<string, number> | null;
+  pomodoroSettings: PomodoroSettings;
   confirmHabitCompletion: boolean;
   transcriptionLanguage: string;
   defaultPrivate: boolean;
@@ -98,6 +113,11 @@ export async function updateTranscriptionLanguage(
   const { data } = await client.put<{ user: User }>("/auth/me/transcription-language", {
     transcriptionLanguage,
   });
+  return data.user;
+}
+
+export async function updatePomodoroSettings(settings: PomodoroSettings): Promise<User> {
+  const { data } = await client.put<{ user: User }>("/auth/me/pomodoro-settings", settings);
   return data.user;
 }
 

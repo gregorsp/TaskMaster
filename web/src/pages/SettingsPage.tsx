@@ -8,8 +8,75 @@ import { useAuth } from "../context/AuthContext";
 import { useNotify } from "../context/NotifyContext";
 import {
   updateDefaultPrivate, updateHabitConfirm, updateTranscriptionLanguage,
-  saveAiKey, clearAiKey,
+  saveAiKey, clearAiKey, updatePomodoroSettings, type PomodoroSettings,
 } from "../api/authApi";
+import { playChime, unlockAudio } from "../pomodoro/chime";
+
+const POMODORO_FIELDS: { key: Exclude<keyof PomodoroSettings, "sound">; label: string; min: number; max: number }[] = [
+  { key: "workMinutes", label: "Fokus (Min)", min: 1, max: 180 },
+  { key: "shortBreakMinutes", label: "Kurze Pause (Min)", min: 1, max: 60 },
+  { key: "longBreakMinutes", label: "Lange Pause (Min)", min: 1, max: 120 },
+  { key: "longBreakEvery", label: "Lange Pause nach … Pomodoros", min: 2, max: 12 },
+];
+
+/** Pomodoro-Längen und Ton – gelten für Timer und Planungs-Hinweise. */
+function PomodoroSettingsSection() {
+  const { user, login } = useAuth();
+  const notify = useNotify();
+  const [draft, setDraft] = useState<PomodoroSettings | null>(user?.pomodoroSettings ?? null);
+  useEffect(() => { if (user) setDraft(user.pomodoroSettings); }, [user?.pomodoroSettings]);
+  if (!user || !draft) return null;
+
+  const valid = POMODORO_FIELDS.every((f) => Number.isInteger(draft[f.key]) && draft[f.key] >= f.min && draft[f.key] <= f.max);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(user.pomodoroSettings);
+  const weeklyPomodoros = Object.values(user.capacity ?? {}).reduce((sum, v) => sum + v, 0);
+  const weeklyMinutes = weeklyPomodoros * (valid ? draft.workMinutes : user.pomodoroSettings.workMinutes);
+
+  const save = async () => {
+    try {
+      login(await updatePomodoroSettings(draft));
+      notify("Pomodoro-Einstellungen gespeichert");
+    } catch {
+      notify("Einstellungen konnten nicht gespeichert werden", "error");
+    }
+  };
+
+  return (
+    <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
+      <Typography variant="h6" gutterBottom>Pomodoro</Typography>
+      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, 1fr)" }, mb: 2 }}>
+        {POMODORO_FIELDS.map((f) => (
+          <TextField
+            key={f.key} size="small" type="number" label={f.label} value={draft[f.key]}
+            inputProps={{ min: f.min, max: f.max, inputMode: "numeric" }}
+            onChange={(e) => setDraft({ ...draft, [f.key]: Number(e.target.value) })}
+            error={!(draft[f.key] >= f.min && draft[f.key] <= f.max)}
+          />
+        ))}
+      </Box>
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        <FormControlLabel
+          control={<Switch checked={draft.sound} onChange={(e) => setDraft({ ...draft, sound: e.target.checked })} />}
+          label="Klingelton am Ende"
+        />
+        <Button size="small" onClick={() => { unlockAudio(); playChime(); }}>Ton testen</Button>
+        <Box sx={{ flex: 1 }} />
+        <Button variant="contained" onClick={save} disabled={!valid || !dirty}>Speichern</Button>
+      </Stack>
+      <Typography variant="body2" mt={1}>
+        Tagesbudget:{" "}
+        {weeklyPomodoros > 0
+          ? `${weeklyPomodoros} Pomodoros / Woche ≈ ${Math.floor(weeklyMinutes / 60)}:${String(weeklyMinutes % 60).padStart(2, "0")} h Fokuszeit`
+          : "noch nicht festgelegt"}
+        {" · "}<Link component={RouterLink} to="/profile">im Profil anpassen</Link>
+      </Typography>
+      <Typography variant="body2" color="text.secondary" mt={1}>
+        Den Timer startest du in jeder Aufgabe („Pomodoro starten“) oder oben über das Uhr-Symbol.
+        Auf dem Handy klingelt er nur, solange TaskMaster geöffnet ist.
+      </Typography>
+    </Paper>
+  );
+}
 
 const LEGACY_KEYS = [
   "taskmaster_ai_api_key",
@@ -165,6 +232,8 @@ export function SettingsPage() {
           </Stack>
         </Stack>
       </Paper>
+
+      <PomodoroSettingsSection />
 
       <Paper sx={{ p: 3 }} variant="outlined">
         <Typography variant="h6" gutterBottom>Verhalten</Typography>

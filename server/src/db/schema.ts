@@ -9,6 +9,8 @@ export const users = sqliteTable("users", {
   isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
   profilePicture: text("profile_picture"),
   capacity: text("capacity"),
+  /** Pomodoro-Längen, Pausen und Ton als JSON (siehe lib/pomodoro.ts); NULL = Standard. */
+  pomodoroSettings: text("pomodoro_settings"),
   confirmHabitCompletion: integer("confirm_habit_completion", { mode: "boolean" }).notNull().default(true),
   transcriptionLanguage: text("transcription_language").notNull().default("de"),
   /**
@@ -49,6 +51,8 @@ export const tasks = sqliteTable("tasks", {
   isImportant: integer("is_important", { mode: "boolean" }).notNull().default(false),
   isUrgent: integer("is_urgent", { mode: "boolean" }).notNull().default(false),
   pomodoros: integer("pomodoros"),
+  /** Eigene Fokus-Länge pro Pomodoro für diese Aufgabe (Minuten); NULL = persönlicher Standard. */
+  pomodoroMinutes: integer("pomodoro_minutes"),
   urgencyMode: text("urgency_mode").notNull().default("before_days"),
   urgencyValue: integer("urgency_value"),
   isPrivate: integer("is_private", { mode: "boolean" }).notNull().default(false),
@@ -60,9 +64,9 @@ export const tasks = sqliteTable("tasks", {
    * mindestens einer Unteraufgabe.
    */
   status: text("status"),
-  /** Fester Aufwand: "under_2_min" | "15_min" | NULL. */
+  /** Geschätzte Dauer, Werte siehe `TASK_DURATIONS` in tasks.schema.ts (oder NULL). */
   duration: text("duration"),
-  /** Feste Energie: "low" | "high" | NULL. */
+  /** Energiebedarf, Werte siehe `TASK_ENERGIES` in tasks.schema.ts (oder NULL). */
   energy: text("energy"),
   recurrenceType: text("recurrence_type").notNull().default("none"),
   recurrenceRule: text("recurrence_rule"),
@@ -360,6 +364,20 @@ export const meditationComments = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [index("idx_meditation_comments_session").on(table.sessionId, table.createdAt)]
+);
+
+/** Brainstorming-Mindmaps (vorher nur im localStorage des Browsers). `nodes` = JSON. */
+export const mindmapBoards = sqliteTable(
+  "mindmap_boards",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id),
+    title: text("title").notNull(),
+    nodes: text("nodes").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("idx_mindmap_boards_user").on(table.userId)]
 );
 
 export const appMeta = sqliteTable("app_meta", {

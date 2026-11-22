@@ -6,6 +6,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { NotifyProvider } from "./context/NotifyContext";
 import { ThemeContextProvider } from "./context/ThemeContext";
 import { ModalStackProvider } from "./components/tasks/ModalStackProvider";
+import { PomodoroProvider } from "./pomodoro/PomodoroContext";
 import { ModalStackRenderer } from "./components/tasks/ModalStackRenderer";
 import { LoadingProvider } from "./context/LoadingContext";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -41,10 +42,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <NotifyProvider>
               <ErrorBoundary>
                 <LoadingProvider>
-                  <ModalStackProvider>
-                    <App />
-                    <ModalStackRenderer />
-                  </ModalStackProvider>
+                  <PomodoroProvider>
+                    <ModalStackProvider>
+                      <App />
+                      <ModalStackRenderer />
+                    </ModalStackProvider>
+                  </PomodoroProvider>
                 </LoadingProvider>
               </ErrorBoundary>
             </NotifyProvider>

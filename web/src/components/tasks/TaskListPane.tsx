@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Box, Typography,
-  Stack, Button, Pagination, Alert, Collapse,
+  Stack, Button, Pagination, Alert, Paper,
 } from "@mui/material";
-import { Add as AddIcon, FilterList as ReviewIcon } from "@mui/icons-material";
-import { listTasks, getSubtasks, type Task } from "../../api/tasksApi";
+import { Add as AddIcon, FilterList as ReviewIcon, Checklist as ClarifyIcon } from "@mui/icons-material";
+import { listTasks, type Task, type TaskStatus } from "../../api/tasksApi";
 import { fetchPlanning } from "../../api/planningApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listContexts, type TaskContext } from "../../api/contextsApi";
@@ -14,22 +14,30 @@ import { TaskListView } from "./TaskListView";
 import { TaskForm } from "./TaskForm";
 import { TaskFilterBar, createDefaultTaskFilterState, type TaskFilterState } from "./TaskFilterBar";
 import { useNotify } from "../../context/NotifyContext";
+import { STATUS_LABELS } from "./gtd";
+import { QuickCapture } from "./QuickCapture";
+import { InboxClarifyDialog } from "./InboxClarifyDialog";
+import { WeeklyReviewDialog } from "./WeeklyReviewDialog";
 
-type GtdTab = "" | "next" | "waiting" | "someday" | "project" | "inbox";
+type GtdTab = "" | "inbox" | "project" | TaskStatus;
+
+const isStatusTab = (tab: GtdTab): tab is TaskStatus => tab in STATUS_LABELS;
+const isGtdTab = (value: string): value is GtdTab =>
+  value === "" || value === "inbox" || value === "project" || value in STATUS_LABELS;
 
 const GTD_TABS: { key: GtdTab; label: string }[] = [
   { key: "", label: "Alle Aufgaben" },
-  { key: "next", label: "Nächster Schritt" },
-  { key: "waiting", label: "Warten auf" },
-  { key: "someday", label: "Irgendwann" },
-  { key: "project", label: "Projekte" },
   { key: "inbox", label: "Eingangskorb" },
+  { key: "next", label: STATUS_LABELS.next },
+  { key: "project", label: "Projekte" },
+  { key: "waiting", label: STATUS_LABELS.waiting },
+  { key: "someday", label: STATUS_LABELS.someday },
 ];
 
 interface TaskListPaneProps {
   /** Überschrift über der Liste. */
   title?: string;
-  /** Zeigt die GTD-Unterknöpfe (Alle / Nächster Schritt / Warten auf / Irgendwann / Projekte / Eingangskorb). */
+  /** Zeigt die GTD-Listen samt Schnellerfassung und Klär-Assistent im Eingangskorb. */
   showGtdTabs?: boolean;
   /** Zeigt den Weekly-Review-Knopf samt Auswertung. */
   showWeeklyReview?: boolean;
@@ -67,35 +75,28 @@ export function TaskListPane({ title = "Aufgaben", showGtdTabs = false, showWeek
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [dismissedWarnings, setDismissedWarnings] = useState<Set<number>>(new Set());
   const [tab, setTab] = useState<GtdTab>("");
-  const [reviewReport, setReviewReport] = useState<{ inboxCount: number; stalledProjects: string[] } | null>(null);
-  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [clarifyOpen, setClarifyOpen] = useState(false);
   const [tabsOpen, setTabsOpen] = useState(false);
 
   const notify = useNotify();
+  /** Nur die Antwort der jeweils letzten Anfrage zählt (ältere, langsame Antworten werden verworfen). */
+  const latestRequest = useRef(0);
 
-  const runWeeklyReview = async () => {
-    setReviewLoading(true);
-    try {
-      const fetchAllPages = async (params: Record<string, unknown>): Promise<Task[]> => {
-        const all: Task[] = [];
-        for (let pNum = 1; ; pNum++) {
-          const res = await listTasks({ ...params, page: pNum, pageSize: 100 });
-          all.push(...res.items);
-          if (pNum >= res.totalPages || res.items.length === 0) break;
-        }
-        return all;
-      };
-      const inboxItems = await fetchAllPages({ isCompleted: false, uncategorized: true });
-      const projects = await fetchAllPages({ isCompleted: false, isProject: true });
-      const stalledProjects: string[] = [];
-      for (const proj of projects) {
-        const subs = await getSubtasks(proj.id);
-        const subItems = Array.isArray(subs) ? subs : (subs.subtasks || []);
-        if (!subItems.some((s) => !s.isCompleted)) stalledProjects.push(proj.title);
-      }
-      setReviewReport({ inboxCount: inboxItems.length, stalledProjects });
-    } finally { setReviewLoading(false); }
-  };
+  const selectTab = (next: GtdTab) => { setTab(next); setPage(1); };
+
+  /**
+   * Tab per Link vorwählen (z. B. „Zum Eingangskorb“ aus der Schnellerfassung:
+   * ?tab=inbox). Der Parameter wird danach aus der URL entfernt.
+   */
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam === null) return;
+    if (showGtdTabs && isGtdTab(tabParam)) selectTab(tabParam);
+    const rest = new URLSearchParams(searchParams);
+    rest.delete("tab");
+    setSearchParams(rest, { replace: true });
+  }, [searchParams]);
 
   const handleFilterChange = useCallback((next: TaskFilterState) => {
     setFilters(next);
@@ -111,17 +112,17 @@ export function TaskListPane({ title = "Aufgaben", showGtdTabs = false, showWeek
   }, []);
 
   const fetchTasks = useCallback(async () => {
+    const requestId = ++latestRequest.current;
     try {
-      const tabStatus = tab === "next" || tab === "waiting" || tab === "someday" ? tab : undefined;
       const res = await listTasks({
         page, pageSize: 20,
         search: filters.search ? filters.search.trim() : undefined,
         isCompleted: filters.status === "all" ? undefined : filters.status === "done",
         categoryId: filters.categoryId || undefined,
         contextId: filters.contextId || undefined,
-        status: tabStatus ?? (filters.gtdStatus || undefined),
-        duration: filters.duration || undefined,
-        energy: filters.energy || undefined,
+        status: isStatusTab(tab) ? tab : (filters.gtdStatus || undefined),
+        important: filters.priority === "important" || filters.priority === "both" || undefined,
+        urgent: filters.priority === "urgent" || filters.priority === "both" || undefined,
         isProject: tab === "project" ? true : undefined,
         uncategorized: tab === "inbox" ? true : undefined,
         isOverdue: filters.isOverdue || undefined,
@@ -130,8 +131,9 @@ export function TaskListPane({ title = "Aufgaben", showGtdTabs = false, showWeek
         hidePlanned: filters.hidePlanned || undefined,
         sort: filters.sort, order: filters.sortOrder,
       });
+      if (requestId !== latestRequest.current) return;
       setTasks(res.items); setTotal(res.total); setTotalPages(res.totalPages);
-    } catch { notify("Fehler beim Laden der Aufgaben", "error"); }
+    } catch { if (requestId === latestRequest.current) notify("Fehler beim Laden der Aufgaben", "error"); }
   }, [page, filters, tab, notify]);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
@@ -211,29 +213,33 @@ export function TaskListPane({ title = "Aufgaben", showGtdTabs = false, showWeek
                 size="small"
                 variant={tab === entry.key ? "contained" : "outlined"}
                 color={entry.key === "inbox" ? "warning" : "primary"}
-                onClick={() => { setTab(entry.key); setPage(1); }}
+                onClick={() => selectTab(entry.key)}
               >
                 {entry.label}
               </Button>
             ))}
             {showWeeklyReview && (
-              <Button size="small" variant="outlined" color="secondary" onClick={runWeeklyReview} disabled={reviewLoading} sx={{ ml: "auto" }}>
-                {reviewLoading ? "Prüft..." : "Weekly Review"}
+              <Button size="small" variant="outlined" color="secondary" onClick={() => setReviewOpen(true)} sx={{ ml: "auto" }}>
+                Weekly Review
               </Button>
             )}
           </Stack>
         </Box>
       )}
 
-      {showWeeklyReview && reviewReport && (
-        <Collapse in>
-          <Alert severity={reviewReport.stalledProjects.length === 0 && reviewReport.inboxCount === 0 ? "success" : "info"} onClose={() => setReviewReport(null)} sx={{ mb: 2 }}>
-            <strong>GTD Weekly Review:</strong> {reviewReport.inboxCount} ungeklärte Aufgabe(n) im Eingangskorb.{" "}
-            {reviewReport.stalledProjects.length === 0
-              ? "Alle Projekte haben mindestens einen offenen Nächsten Schritt!"
-              : `Projekte ohne Nächsten Schritt: ${reviewReport.stalledProjects.join(", ")}`}
-          </Alert>
-        </Collapse>
+      {showGtdTabs && tab === "inbox" && (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
+            <QuickCapture autoFocus onCaptured={() => fetchTasks()} />
+            <Button
+              variant="contained" color="warning" startIcon={<ClarifyIcon />}
+              onClick={() => setClarifyOpen(true)} disabled={total === 0}
+              sx={{ whiteSpace: "nowrap", flexShrink: 0 }}
+            >
+              Eingangskorb klären{total > 0 ? ` (${total})` : ""}
+            </Button>
+          </Stack>
+        </Paper>
       )}
 
       <TaskFilterBar
@@ -262,6 +268,19 @@ export function TaskListPane({ title = "Aufgaben", showGtdTabs = false, showWeek
         <Stack direction="row" justifyContent="center" mt={2}>
           <Pagination count={totalPages} page={page} onChange={(_, p) => setPage(p)} />
         </Stack>
+      )}
+
+      {clarifyOpen && (
+        <InboxClarifyDialog open={clarifyOpen} onClose={() => setClarifyOpen(false)} onChanged={fetchTasks} />
+      )}
+      {reviewOpen && (
+        <WeeklyReviewDialog
+          open={reviewOpen}
+          onClose={() => setReviewOpen(false)}
+          onChanged={fetchTasks}
+          onClarifyInbox={() => { setReviewOpen(false); selectTab("inbox"); setClarifyOpen(true); }}
+          onShowSomeday={() => { setReviewOpen(false); selectTab("someday"); }}
+        />
       )}
 
       {taskFormOpen && <TaskForm open={taskFormOpen} onClose={() => setTaskFormOpen(false)} onCreated={() => { setTaskFormOpen(false); fetchTasks(); }} />}

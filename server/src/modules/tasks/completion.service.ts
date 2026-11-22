@@ -4,7 +4,7 @@ import { getDb } from "../../db/client.js";
 import { tasks, taskEvents, taskOccurrences, users } from "../../db/schema.js";
 import { getNextOccurrence } from "../calendar/recurrence.service.js";
 import { getProfilePictureUrl } from "../auth/profile.service.js";
-import { getOpenSubtaskCount, collectDescendantIds } from "./tasks.service.js";
+import { getOpenSubtaskCount, collectDescendantIds, advanceNextStep } from "./tasks.service.js";
 
 /**
  * Parsiert ein Datum aus dem Request als Kalenderdatum. Akzeptiert sowohl
@@ -202,7 +202,9 @@ export async function completeTask(
     completedById,
     lastCompletedAt: now,
   }).where(eq(tasks.id, taskId)).run();
-  return { completed: true, nextDueAt: null, parentId };
+  // Projekt am Laufen halten: der nächste Schritt rückt automatisch nach.
+  const nextStep = advanceNextStep(parentId);
+  return { completed: true, nextDueAt: null, parentId, nextStep };
 }
 
 export function reopenTask(taskId: string, occurrenceDate?: string) {

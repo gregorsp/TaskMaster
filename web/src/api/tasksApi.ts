@@ -21,7 +21,9 @@ export interface TaskContextRef {
   createdById?: string;
 }
 
+// Werte spiegeln server/src/modules/tasks/tasks.schema.ts; Labels in components/tasks/gtd.ts.
 export type TaskStatus = "next" | "waiting" | "someday";
+/** Dauer und Energie werden nicht mehr in der Oberfläche gepflegt, kommen aber weiter vom Server. */
 export type TaskDuration = "under_2_min" | "15_min";
 export type TaskEnergy = "low" | "high";
 
@@ -41,6 +43,8 @@ export interface Task {
   isImportant: boolean;
   isUrgent: boolean;
   pomodoros: number | null;
+  /** Eigene Fokus-Länge pro Pomodoro (Minuten); null = persönlicher Standard. */
+  pomodoroMinutes: number | null;
   urgencyMode: "never" | "always" | "before_days" | "before_percent";
   urgencyValue: number | null;
   isPrivate: boolean;
@@ -58,6 +62,8 @@ export interface Task {
   categories: TaskCategoryRef[];
   contexts: TaskContextRef[];
   isProject?: boolean;
+  /** Bei Projekten: der aktuelle Nächste Schritt (rückt beim Erledigen automatisch nach). */
+  nextStep?: { id: string; title: string } | null;
 }
 
 export type TaskWithRelations = Task;
@@ -109,6 +115,7 @@ export interface CreateTaskInput {
   dueAt?: string;
   isImportant?: boolean;
   pomodoros?: number | null;
+  pomodoroMinutes?: number | null;
   isPrivate?: boolean;
   isHabit?: boolean;
   status?: TaskStatus | null;
@@ -155,6 +162,7 @@ export interface UpdateTaskInput {
   isImportant?: boolean;
   isUrgent?: boolean;
   pomodoros?: number | null;
+  pomodoroMinutes?: number | null;
   isPrivate?: boolean;
   isHabit?: boolean;
   status?: TaskStatus | null;
@@ -201,6 +209,20 @@ export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResp
   return data;
 }
 
+export interface WeeklyReview {
+  inboxCount: number;
+  somedayCount: number;
+  /** Offene Projekte ohne offenen Nächsten Schritt. */
+  stalledProjects: Task[];
+  /** „Warten auf“-Einträge, älteste zuerst. */
+  waiting: Task[];
+}
+
+export async function getWeeklyReview(): Promise<WeeklyReview> {
+  const { data } = await client.get<WeeklyReview>("/tasks/review");
+  return data;
+}
+
 export async function getTask(id: string): Promise<TaskWithRelations> {
   const { data } = await client.get<TaskWithRelations>(`/tasks/${id}`);
   return data;
@@ -232,8 +254,16 @@ export async function deleteTask(id: string): Promise<void> {
   await client.delete(`/tasks/${id}`);
 }
 
-export async function completeTask(id: string, nextDueAt?: string, comment?: string, force?: boolean, cascade?: boolean, occurrenceDate?: string, recurringCompletions?: Record<string, string>): Promise<{ completed: boolean; nextDueAt: string | null; parentId: string | null }> {
-  const { data } = await client.post<{ completed: boolean; nextDueAt: string | null; parentId: string | null }>(`/tasks/${id}/complete`, { nextDueAt, comment, force, cascade, occurrenceDate, recurringCompletions });
+export interface CompleteResult {
+  completed: boolean;
+  nextDueAt: string | null;
+  parentId: string | null;
+  /** Automatisch nachgerückter Nächster Schritt des Projekts. */
+  nextStep?: { id: string; title: string } | null;
+}
+
+export async function completeTask(id: string, nextDueAt?: string, comment?: string, force?: boolean, cascade?: boolean, occurrenceDate?: string, recurringCompletions?: Record<string, string>): Promise<CompleteResult> {
+  const { data } = await client.post<CompleteResult>(`/tasks/${id}/complete`, { nextDueAt, comment, force, cascade, occurrenceDate, recurringCompletions });
   return data;
 }
 

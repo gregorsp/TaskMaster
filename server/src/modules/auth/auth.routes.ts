@@ -3,7 +3,7 @@ import { registerSchema, loginSchema } from "./auth.schema.js";
 import {
   registerUser, authenticateUser, getUserById, updateCurrentUser, changePassword,
   getCurrentUserCapacity, updateCurrentUserCapacity, updateCurrentUserHabitConfirm,
-  updateCurrentUserTranscriptionLanguage, updateCurrentUserDefaultPrivate,
+  updateCurrentUserTranscriptionLanguage, updateCurrentUserDefaultPrivate, updateCurrentUserPomodoroSettings,
   updateCurrentUserAiKey, clearCurrentUserAiKey,
 } from "./auth.service.js";
 import { encryptSecret } from "../../lib/secrets.js";
@@ -15,6 +15,7 @@ import { getDb } from "../../db/client.js";
 import { users } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
 import { capacitySchema } from "../../lib/capacity.js";
+import { pomodoroSettingsSchema } from "../../lib/pomodoro.js";
 
 const updateProfileSchema = z.object({
   displayName: z.string().min(1).max(100).optional(),
@@ -169,6 +170,11 @@ export async function authRoutes(app: FastifyInstance) {
       const e = err as { statusCode?: number; code?: string; message?: string };
       return reply.status(e.statusCode || 500).send({ error: { code: e.code || "UPDATE_FAILED", message: e.message } });
     }
+  });
+
+  app.put("/me/pomodoro-settings", { preHandler: authGuard }, async (request) => {
+    const { user: authUser } = request as { user: { id: string } };
+    return { user: updateCurrentUserPomodoroSettings(authUser.id, pomodoroSettingsSchema.parse(request.body)) };
   });
 
   app.put("/me/transcription-language", { preHandler: authGuard }, async (request, reply) => {

@@ -5,7 +5,20 @@ import {
   RadioGroup, Radio, FormControl, FormLabel, Alert, DialogActions,
   Tooltip, IconButton,
 } from "@mui/material";
-import { createTask, updateTask, listTasks, generateTaskDescriptionAi, type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations } from "../../api/tasksApi";
+import {
+  createTask, updateTask, listTasks, generateTaskDescriptionAi,
+  type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations,
+  type TaskStatus,
+} from "../../api/tasksApi";
+import { GtdFields } from "./GtdFields";
+import { usePomodoro } from "../../pomodoro/PomodoroContext";
+
+/** Leeres Feld → null, sonst gerundet und auf [min, max] begrenzt. */
+function clampOrNull(value: string, min: number, max: number): number | null {
+  if (value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : null;
+}
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listContexts, type TaskContext } from "../../api/contextsApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
@@ -89,6 +102,8 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const [isPrivate, setIsPrivate] = useState(false);
   const [isImportant, setIsImportant] = useState(false);
   const [pomodoros, setPomodoros] = useState<number | null>(null);
+  const [pomodoroMinutes, setPomodoroMinutes] = useState<number | null>(null);
+  const defaultWorkMinutes = usePomodoro().settings.workMinutes;
   const [urgencyMode, setUrgencyMode] = useState<"never" | "always" | "before_days" | "before_percent">("before_days");
   const [urgencyValue, setUrgencyValue] = useState<number>(3);
   const [recurrenceType, setRecurrenceType] = useState<"none" | "rrule" | "on_completion" | "habit">("none");
@@ -103,9 +118,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
   const [selectedContexts, setSelectedContexts] = useState<TaskContext[]>([]);
   const [contextOptions, setContextOptions] = useState<TaskContext[]>([]);
-  const [status, setStatus] = useState<"next" | "waiting" | "someday" | null>(null);
-  const [duration, setDuration] = useState<"under_2_min" | "15_min" | null>(null);
-  const [energy, setEnergy] = useState<"low" | "high" | null>(null);
+  const [status, setStatus] = useState<TaskStatus | null>(null);
   const [selectedAssignees, setSelectedAssignees] = useState<UserPickerItem[]>([]);
   const [parentTask, setParentTask] = useState<TaskWithRelations | null>(null);
   const [parentOptions, setParentOptions] = useState<TaskWithRelations[]>([]);
@@ -148,14 +161,13 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         setIsPrivate(task.isPrivate ?? false);
         setIsImportant(task.isImportant ?? false);
         setPomodoros(task.pomodoros ?? null);
+        setPomodoroMinutes(task.pomodoroMinutes ?? null);
         setUrgencyMode(task.urgencyMode || "before_days");
         setUrgencyValue(task.urgencyValue ?? 3);
         setRecurrenceType(task.isHabit ? "habit" : (task.recurrenceType || "none"));
         setSelectedCategories((task.categories || []) as Category[]);
         setSelectedContexts((task.contexts || []) as TaskContext[]);
         setStatus(task.status ?? null);
-        setDuration(task.duration ?? null);
-        setEnergy(task.energy ?? null);
         setSelectedAssignees(task.assignees || []);
         if (task.parentId) {
           import("../../api/tasksApi").then(({ getTask: gt }) => {
@@ -179,10 +191,10 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
     } else if (open && !task) {
       setTitle(""); setDescription(""); setDueDate(""); setPlannedDate("");
       setIsPrivate(currentUser?.defaultPrivate ?? true);
-      setIsImportant(false); setPomodoros(null); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
+      setIsImportant(false); setPomodoros(null); setPomodoroMinutes(null); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
       setFreq("WEEKLY"); setInterval(1); setSelectedDays([]);
       setMonthDay(""); setUseNthWeekday(false); setSelectedCategories([]); setSelectedContexts([]);
-      setStatus(null); setDuration(null); setEnergy(null);
+      setStatus(null);
       setParentTask(null);
       const me = users.find((u) => u.id === currentUser?.id);
       setSelectedAssignees(me ? [me] : []);
@@ -245,11 +257,9 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           title: title.trim(),
           description: description.trim() || null,
           dueAt: !isHabit && dueDate ? new Date(dueDate).toISOString() : null,
-          isImportant, isPrivate, pomodoros, urgencyMode, urgencyValue,
+          isImportant, isPrivate, pomodoros, pomodoroMinutes, urgencyMode, urgencyValue,
           isHabit,
           status: isHabit ? null : status,
-          duration: isHabit ? null : duration,
-          energy: isHabit ? null : energy,
           recurrenceType: isHabit ? "none" : recurrenceType,
           recurrenceRule: isHabit ? null : (ruleStr || null),
           categoryIds: selectedCategories.map((c) => c.id),
@@ -268,11 +278,9 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           title: title.trim(),
           description: description.trim() || undefined,
           dueAt: !isHabit && dueDate ? new Date(dueDate).toISOString() : undefined,
-          isImportant, isPrivate, pomodoros, urgencyMode, urgencyValue,
+          isImportant, isPrivate, pomodoros, pomodoroMinutes, urgencyMode, urgencyValue,
           isHabit,
           status: isHabit ? null : status,
-          duration: isHabit ? null : duration,
-          energy: isHabit ? null : energy,
           recurrenceType: isHabit ? "none" : recurrenceType,
           recurrenceRule: isHabit ? undefined : ruleStr,
           categoryIds: selectedCategories.map((c) => c.id),
@@ -338,8 +346,6 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
     try {
       const suggestion = await generateTaskDescriptionAi(title.trim(), description.trim() || undefined);
       setDescription(suggestion.description);
-      if (suggestion.duration) setDuration(suggestion.duration);
-      if (suggestion.energy) setEnergy(suggestion.energy);
       if (suggestion.status) setStatus(suggestion.status);
       if (suggestion.context) {
         const match = contextOptions.find((c) => c.name.toLowerCase() === suggestion.context!.toLowerCase());
@@ -374,57 +380,13 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
             
           </Stack>
           {recurrenceType !== "habit" && (
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <TextField
-                select size="small" label="Status"
-                value={status ?? ""}
-                onChange={(e) => setStatus((e.target.value || null) as "next" | "waiting" | "someday" | null)}
-                sx={{ minWidth: 170 }}
-              >
-                <MenuItem value="">Kein Status</MenuItem>
-                <MenuItem value="next">Nächster Schritt</MenuItem>
-                <MenuItem value="waiting">Warten auf</MenuItem>
-                <MenuItem value="someday">Irgendwann</MenuItem>
-              </TextField>
-              <TextField
-                select size="small" label="Dauer"
-                value={duration ?? ""}
-                onChange={(e) => setDuration((e.target.value || null) as "under_2_min" | "15_min" | null)}
-                sx={{ minWidth: 150 }}
-              >
-                <MenuItem value="">Keine Angabe</MenuItem>
-                <MenuItem value="under_2_min">Unter 2 Min</MenuItem>
-                <MenuItem value="15_min">15 Min</MenuItem>
-              </TextField>
-              <TextField
-                select size="small" label="Energie"
-                value={energy ?? ""}
-                onChange={(e) => setEnergy((e.target.value || null) as "low" | "high" | null)}
-                sx={{ minWidth: 150 }}
-              >
-                <MenuItem value="">Keine Angabe</MenuItem>
-                <MenuItem value="low">Niedrig</MenuItem>
-                <MenuItem value="high">Hoch</MenuItem>
-              </TextField>
-            </Stack>
-          )}
-          {recurrenceType !== "habit" && (
-            <Autocomplete
-              multiple
-              options={contextOptions}
-              getOptionLabel={(c) => c.name}
-              value={selectedContexts}
-              onChange={(_, v) => setSelectedContexts(v)}
-              isOptionEqualToValue={(o, v) => o.id === v.id}
-              renderInput={(p) => <TextField {...p} label="Kontexte" placeholder="z. B. Telefon, Computer" />}
-              renderOption={(props, opt) => (
-                <li {...props} key={opt.id}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: opt.color }} />
-                    {opt.name}
-                  </Box>
-                </li>
-              )}
+            <GtdFields
+              value={{ status, contexts: selectedContexts }}
+              onChange={(patch) => {
+                if (patch.status !== undefined) setStatus(patch.status);
+                if (patch.contexts !== undefined) setSelectedContexts(patch.contexts);
+              }}
+              contextOptions={contextOptions}
             />
           )}
           <Stack direction="row" spacing={1} alignItems="flex-start">
@@ -464,24 +426,28 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
             />
           </Stack>
 
-          <TextField
-            label="Pomodoros"
-            type="number"
-            value={pomodoros ?? ""}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === "") {
-                setPomodoros(null);
-                return;
-              }
-              const n = Number(v);
-              setPomodoros(Number.isFinite(n) ? Math.max(1, Math.min(999, Math.round(n))) : null);
-            }}
-            inputProps={{ min: 1, max: 999 }}
-            placeholder="Keine Angabe"
-            helperText="1 Pomodoro ≈ 25 Minuten – leer lassen für keinen Schätzwert"
-            fullWidth
-          />
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <TextField
+              label="Pomodoros"
+              type="number"
+              value={pomodoros ?? ""}
+              onChange={(e) => setPomodoros(clampOrNull(e.target.value, 1, 999))}
+              inputProps={{ min: 1, max: 999, inputMode: "numeric" }}
+              placeholder="Keine Angabe"
+              helperText="Geschätzte Anzahl – leer lassen für keinen Schätzwert"
+              fullWidth
+            />
+            <TextField
+              label="Minuten pro Pomodoro"
+              type="number"
+              value={pomodoroMinutes ?? ""}
+              onChange={(e) => setPomodoroMinutes(clampOrNull(e.target.value, 1, 180))}
+              inputProps={{ min: 1, max: 180, inputMode: "numeric" }}
+              placeholder={`Standard: ${defaultWorkMinutes}`}
+              helperText={`Nur für diese Aufgabe – leer = dein Standard (${defaultWorkMinutes} Min)`}
+              fullWidth
+            />
+          </Stack>
 
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography variant="body2" sx={{ minWidth: 90 }}>Dringend:</Typography>

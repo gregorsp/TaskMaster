@@ -1,8 +1,21 @@
 import { z } from "zod";
 
-export const taskStatusSchema = z.enum(["next", "waiting", "someday"]);
-export const taskDurationSchema = z.enum(["under_2_min", "15_min"]);
-export const taskEnergySchema = z.enum(["low", "high"]);
+/**
+ * Einzige Quelle für die GTD-Werte (Service, Zod und KI-Prompt lesen von hier).
+ * Referenzmaterial ist kein Status: der Klär-Assistent legt es als Notiz ab.
+ */
+export const TASK_STATUSES = ["next", "waiting", "someday"] as const;
+/** Dauer und Energie werden in der Oberfläche nicht mehr gepflegt, bleiben aber gespeichert und filterbar. */
+export const TASK_DURATIONS = ["under_2_min", "15_min"] as const;
+export const TASK_ENERGIES = ["low", "high"] as const;
+
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+export type TaskDuration = (typeof TASK_DURATIONS)[number];
+export type TaskEnergy = (typeof TASK_ENERGIES)[number];
+
+export const taskStatusSchema = z.enum(TASK_STATUSES);
+export const taskDurationSchema = z.enum(TASK_DURATIONS);
+export const taskEnergySchema = z.enum(TASK_ENERGIES);
 
 export const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
@@ -10,6 +23,7 @@ export const createTaskSchema = z.object({
   dueAt: z.string().nullable().optional(),
   isImportant: z.boolean().default(false),
   pomodoros: z.number().int().min(1).max(999).nullable().optional(),
+  pomodoroMinutes: z.number().int().min(1).max(180).nullable().optional(),
   /**
    * Fehlt das Feld, wendet der Server die Nutzer-Voreinstellung an
    * (`users.default_private`, Standard: privat). Unteraufgaben erben die
@@ -39,6 +53,7 @@ export const updateTaskSchema = z.object({
   dueAt: z.string().nullable().optional(),
   isImportant: z.boolean().optional(),
   pomodoros: z.number().int().min(1).max(999).nullable().optional(),
+  pomodoroMinutes: z.number().int().min(1).max(180).nullable().optional(),
   isPrivate: z.boolean().optional(),
   isHabit: z.boolean().optional(),
   status: taskStatusSchema.nullable().optional(),

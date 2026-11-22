@@ -7,12 +7,14 @@ import {
 import {
   Close as CloseIcon, Add as AddIcon, Today as TodayIcon,
   Lock as LockIcon, LockOpen as LockOpenIcon, Edit as EditIcon,
-  Link as LinkIcon, Send as SendIcon, Warning as WarningIcon,
+  Link as LinkIcon, Send as SendIcon, Warning as WarningIcon, Timer as TimerIcon,
 } from "@mui/icons-material";
 import { getTask, completeTask, reopenTask, updateTask, deleteTask, getSubtasks, getTaskOccurrences, ensureTaskShareLink, type TaskWithRelations, type Task } from "../../api/tasksApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
 import { TaskForm } from "./TaskForm";
+import { STATUS_LABELS } from "./gtd";
+import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { Markdown } from "../common/Markdown";
 import { TaskRelationsSidebar } from "./TaskRelationsSidebar";
 import { CompleteBlockedDialog } from "./CompleteBlockedDialog";
@@ -92,6 +94,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
   const [cascadeDialogOpen, setCascadeDialogOpen] = useState(false);
   const [completableParent, setCompletableParent] = useState<{ id: string; title: string } | null>(null);
   const notify = useNotify();
+  const pomodoro = usePomodoro();
   const { user } = useAuth();
   const { push, closeAll } = useModalStack();
 
@@ -192,7 +195,7 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
   const handleComplete = async (nextDueAt?: string, occurrenceDate?: string) => {
     try {
       const result = await completeTask(taskId, nextDueAt, completeNote || undefined, undefined, undefined, occurrenceDate);
-      notify("Aufgabe erledigt");
+      notify(result.nextStep ? `Erledigt – weiter mit: ${result.nextStep.title}` : "Aufgabe erledigt");
       setCompleteDialog(false);
       setRecurringCompleteOpen(false);
       setHabitCompleteOpen(false);
@@ -428,15 +431,13 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
               ))}
               {task.status && (
                 <Chip size="small" color="secondary" variant="outlined"
-                  label={task.status === "next" ? "Nächster Schritt" : task.status === "waiting" ? "Warten auf" : "Irgendwann"} />
-              )}
-              {task.duration && (
-                <Chip size="small" variant="outlined" label={task.duration === "under_2_min" ? "unter 2 Min" : "15 Min"} />
-              )}
-              {task.energy && (
-                <Chip size="small" variant="outlined" label={task.energy === "high" ? "hohe Energie" : "niedrige Energie"} />
+                  label={STATUS_LABELS[task.status]} />
               )}
               {task.isProject && <Chip size="small" color="info" variant="outlined" label="Projekt" />}
+              {task.isProject && (
+                <Chip size="small" color={task.nextStep ? "success" : "warning"} variant="outlined"
+                  label={task.nextStep ? `Nächster Schritt: ${task.nextStep.title}` : "Kein Nächster Schritt"} />
+              )}
             </Stack>
 
             {task.description && <Box mb={3}><Markdown color="text.secondary" onToggleTask={handleToggleDescription}>{task.description}</Markdown></Box>}
@@ -511,6 +512,17 @@ export function TaskCard({ taskId, open, onClose, onUpdated, onNavigate, isStack
               <Button color="error" size="small" onClick={() => setConfirmDelete(true)}>Löschen</Button>
 
               <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                {!task.isCompleted && !task.isHabit && (
+                  <Button
+                    variant="outlined" size="small" color="secondary" startIcon={<TimerIcon />}
+                    onClick={() => {
+                      pomodoro.start({ id: task.id, title: task.title, workMinutes: task.pomodoroMinutes });
+                      notify(`Pomodoro gestartet: ${task.title}`);
+                    }}
+                  >
+                    {pomodoro.task?.id === task.id && pomodoro.active ? "Pomodoro neu starten" : "Pomodoro starten"}
+                  </Button>
+                )}
                 {!task.isCompleted && !task.isHabit && (
                   <Button
                     variant="outlined"
