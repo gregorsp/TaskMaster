@@ -10,8 +10,6 @@ import { authRoutes } from "./modules/auth/auth.routes.js";
 import { tasksRoutes } from "./modules/tasks/tasks.routes.js";
 import { categoriesRoutes } from "./modules/categories/categories.routes.js";
 import { contextsRoutes } from "./modules/contexts/contexts.routes.js";
-import { goalsRoutes } from "./modules/goals/goals.routes.js";
-import { timeBlocksRoutes } from "./modules/timeblocks/timeblocks.routes.js";
 import { mindmapsRoutes } from "./modules/mindmaps/mindmaps.routes.js";
 import { usersRoutes } from "./modules/users/users.routes.js";
 import { calendarRoutes } from "./modules/calendar/calendar.routes.js";
@@ -113,8 +111,6 @@ export async function buildApp(opts?: { migrationMode?: boolean; onMigrationDone
     await app.register(tasksRoutes, { prefix: "/api/tasks" });
     await app.register(categoriesRoutes, { prefix: "/api/categories" });
     await app.register(contextsRoutes, { prefix: "/api/contexts" });
-    await app.register(goalsRoutes, { prefix: "/api/goals" });
-    await app.register(timeBlocksRoutes, { prefix: "/api/time-blocks" });
     await app.register(mindmapsRoutes, { prefix: "/api/mindmaps" });
     await app.register(usersRoutes, { prefix: "/api/users" });
     await app.register(calendarRoutes, { prefix: "/api/calendar" });
@@ -137,8 +133,14 @@ export async function buildApp(opts?: { migrationMode?: boolean; onMigrationDone
       wildcard: false,
     });
 
-    app.setNotFoundHandler((_request, reply) => {
-      reply.sendFile("index.html");
+    app.setNotFoundHandler((request, reply) => {
+      // Fehlende Build-Dateien und API-Pfade ehrlich mit 404 beantworten. Sonst
+      // landet index.html unter einem .js-Namen im Browser-Cache und die App
+      // bleibt weiß – z. B. nach einem neuen Build, bevor der Server neu startet.
+      if (request.url.startsWith("/assets/") || request.url.startsWith("/api/")) {
+        return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Not found" } });
+      }
+      return reply.sendFile("index.html");
     });
   }
 

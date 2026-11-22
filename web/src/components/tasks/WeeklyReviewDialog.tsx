@@ -41,7 +41,7 @@ function Section({ title, summary, action, children }: { title: string; summary?
 }
 
 /**
- * Interaktiver GTD Weekly Review: Eingangskorb, Projekte, Warten auf, Ziele,
+ * Interaktiver GTD Weekly Review: Eingangskorb, Projekte, Warten auf,
  * Irgendwann/Vielleicht und die Wochenplanung.
  */
 export function WeeklyReviewDialog({ open, onClose, onChanged, onClarifyInbox, onShowSomeday }: Props) {
@@ -136,28 +136,14 @@ export function WeeklyReviewDialog({ open, onClose, onChanged, onClarifyInbox, o
             </Section>
 
             <Section
-              title={`4. Ziele ohne Bewegung (${review.idleGoals.length})`}
-              summary={review.idleGoals.length === 0
-                ? "An jedem offenen Ziel hängt mindestens eine offene Aufgabe."
-                : "Zu diesen Zielen ist gerade nichts in Arbeit – Projekt anlegen, verschieben oder als erreicht markieren?"}
-              action={<Button variant="outlined" onClick={() => goTo("/gtd/goals")}>Zu den Zielen</Button>}
-            >
-              {review.idleGoals.length > 0 && (
-                <Stack direction="row" flexWrap="wrap" gap={1}>
-                  {review.idleGoals.map((g) => <Chip key={g.id} label={g.title} variant="outlined" color="warning" />)}
-                </Stack>
-              )}
-            </Section>
-
-            <Section
-              title={`5. ${STATUS_LABELS.someday} durchsehen`}
+              title={`4. ${STATUS_LABELS.someday} durchsehen`}
               summary={`${review.somedayCount} Eintrag/Einträge – ist etwas davon jetzt dran?`}
               action={review.somedayCount > 0 && <Button variant="outlined" onClick={onShowSomeday}>Liste öffnen</Button>}
             />
 
             <Section
-              title="6. Nächste Woche planen"
-              summary="Verteile deine Nächsten Schritte auf feste Tage – die Kapazität rechnet mit Pomodoros oder ersatzweise mit der geschätzten Dauer. Feste Zeitblöcke legst du unter GTD → Zeitblöcke an."
+              title="5. Nächste Woche planen"
+              summary="Verteile deine Nächsten Schritte mit ihren Pomodoros auf die Tage – die Planung zeigt, ob deine Kapazität reicht."
               action={<Button variant="outlined" onClick={() => goTo("/plan")}>Zur Planung</Button>}
             />
           </Stack>

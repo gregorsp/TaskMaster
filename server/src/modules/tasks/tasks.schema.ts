@@ -5,34 +5,13 @@ import { z } from "zod";
  * Referenzmaterial ist kein Status: der Klär-Assistent legt es als Notiz ab.
  */
 export const TASK_STATUSES = ["next", "waiting", "someday"] as const;
-/** Aufsteigend sortiert — `maxDuration` filtert über diese Reihenfolge. */
-export const TASK_DURATIONS = ["under_2_min", "15_min", "30_min", "60_min", "long"] as const;
-/** Aufsteigend sortiert — `maxEnergy` filtert über diese Reihenfolge. */
-export const TASK_ENERGIES = ["low", "medium", "high"] as const;
+/** Dauer und Energie werden in der Oberfläche nicht mehr gepflegt, bleiben aber gespeichert und filterbar. */
+export const TASK_DURATIONS = ["under_2_min", "15_min"] as const;
+export const TASK_ENERGIES = ["low", "high"] as const;
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export type TaskDuration = (typeof TASK_DURATIONS)[number];
 export type TaskEnergy = (typeof TASK_ENERGIES)[number];
-
-/**
- * Pomodoro-Schätzung (à 25 Min) aus der GTD-Dauer. Die Kapazitätsplanung nutzt
- * sie nur, wenn keine Pomodoros eingetragen sind – so braucht es keine
- * doppelte Aufwandsschätzung.
- */
-export const DURATION_POMODOROS: Record<TaskDuration, number> = {
-  under_2_min: 0,
-  "15_min": 1,
-  "30_min": 1,
-  "60_min": 2,
-  long: 4,
-};
-
-export function estimatedPomodoros(task: { pomodoros: number | null; duration: string | null }): number {
-  if (task.pomodoros != null) return task.pomodoros;
-  return task.duration && task.duration in DURATION_POMODOROS
-    ? DURATION_POMODOROS[task.duration as TaskDuration]
-    : 0;
-}
 
 export const taskStatusSchema = z.enum(TASK_STATUSES);
 export const taskDurationSchema = z.enum(TASK_DURATIONS);
@@ -63,8 +42,6 @@ export const createTaskSchema = z.object({
   contextIds: z.array(z.string()).default([]),
   parentId: z.string().nullable().optional(),
   plannedDate: z.string().nullable().optional(),
-  /** Ziel (nur eigene Ziele); null löst die Verknüpfung. */
-  goalId: z.string().nullable().optional(),
   forceDueDate: z.boolean().optional(),
   resolveDueDateConflicts: z.boolean().optional(),
 });
@@ -89,8 +66,6 @@ export const updateTaskSchema = z.object({
   contextIds: z.array(z.string()).optional(),
   parentId: z.string().nullable().optional(),
   plannedDate: z.string().nullable().optional(),
-  /** Ziel (nur eigene Ziele); null löst die Verknüpfung. */
-  goalId: z.string().nullable().optional(),
   forceUpdateRecurrence: z.boolean().optional(),
   forceDueDate: z.boolean().optional(),
   resolveDueDateConflicts: z.boolean().optional(),

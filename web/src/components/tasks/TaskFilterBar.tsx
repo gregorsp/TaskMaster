@@ -9,8 +9,8 @@ import { useMediaQuery } from "@mui/material";
 import type { Category } from "../../api/categoriesApi";
 import type { TaskContext } from "../../api/contextsApi";
 import type { UserPickerItem } from "../../api/usersApi";
-import type { TaskDuration, TaskEnergy, TaskStatus } from "../../api/tasksApi";
-import { DURATION_LABELS, ENERGY_LABELS, STATUS_LABELS, labelEntries } from "./gtd";
+import type { TaskStatus } from "../../api/tasksApi";
+import { STATUS_LABELS, labelEntries } from "./gtd";
 
 export type PriorityFilter = "" | "important" | "urgent" | "both";
 
@@ -18,10 +18,6 @@ export interface TaskFilterState {
   search: string;
   status: "all" | "open" | "done";
   gtdStatus: "" | TaskStatus;
-  /** Verfügbare Zeit: Aufgaben, die höchstens so lange dauern. */
-  maxDuration: "" | TaskDuration;
-  /** Verfügbare Energie: Aufgaben, die höchstens so viel Energie brauchen. */
-  maxEnergy: "" | TaskEnergy;
   priority: PriorityFilter;
   categoryId: string;
   contextId: string;
@@ -39,8 +35,6 @@ export function createDefaultTaskFilterState(): TaskFilterState {
     search: "",
     status: "open",
     gtdStatus: "",
-    maxDuration: "",
-    maxEnergy: "",
     priority: "",
     categoryId: "",
     contextId: "",
@@ -63,7 +57,7 @@ interface TaskFilterBarProps {
   showSort?: boolean;
   showStatus?: boolean;
   showGtdStatus?: boolean;
-  /** GTD „Erledigen“-Filter: @Kontext, verfügbare Zeit, Energie, Priorität. */
+  /** GTD „Erledigen“-Filter: Priorität und Kontext. */
   showEngage?: boolean;
   showHabits?: boolean;
   showPlanned?: boolean;
@@ -87,8 +81,6 @@ export function TaskFilterBar({
     value.search.trim() !== "",
     showStatus && value.status !== "open",
     showGtdStatus && value.gtdStatus !== "",
-    showEngage && value.maxDuration !== "",
-    showEngage && value.maxEnergy !== "",
     showEngage && value.priority !== "",
     value.categoryId !== "",
     showEngage && value.contextId !== "",
@@ -157,30 +149,6 @@ export function TaskFilterBar({
 
           {showEngage && (
             <>
-              <FormControl size="small" sx={{ minWidth: 160 }}>
-                <InputLabel>Verfügbare Zeit</InputLabel>
-                <Select
-                  value={value.maxDuration}
-                  label="Verfügbare Zeit"
-                  onChange={(e) => update({ maxDuration: e.target.value as TaskFilterState["maxDuration"] })}
-                >
-                  <MenuItem value="">Beliebig</MenuItem>
-                  {labelEntries(DURATION_LABELS).map(([v, label]) => <MenuItem key={v} value={v}>bis {label}</MenuItem>)}
-                </Select>
-              </FormControl>
-
-              <FormControl size="small" sx={{ minWidth: 150 }}>
-                <InputLabel>Meine Energie</InputLabel>
-                <Select
-                  value={value.maxEnergy}
-                  label="Meine Energie"
-                  onChange={(e) => update({ maxEnergy: e.target.value as TaskFilterState["maxEnergy"] })}
-                >
-                  <MenuItem value="">Beliebig</MenuItem>
-                  {labelEntries(ENERGY_LABELS).map(([v, label]) => <MenuItem key={v} value={v}>{label}</MenuItem>)}
-                </Select>
-              </FormControl>
-
               <FormControl size="small" sx={{ minWidth: 150 }}>
                 <InputLabel>Priorität</InputLabel>
                 <Select

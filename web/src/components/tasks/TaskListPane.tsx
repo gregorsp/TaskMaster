@@ -5,7 +5,7 @@ import {
   Stack, Button, Pagination, Alert, Paper,
 } from "@mui/material";
 import { Add as AddIcon, FilterList as ReviewIcon, Checklist as ClarifyIcon } from "@mui/icons-material";
-import { listTasks, type Task, type TaskDuration, type TaskEnergy, type TaskStatus } from "../../api/tasksApi";
+import { listTasks, type Task, type TaskStatus } from "../../api/tasksApi";
 import { fetchPlanning } from "../../api/planningApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listContexts, type TaskContext } from "../../api/contextsApi";
@@ -14,7 +14,7 @@ import { TaskListView } from "./TaskListView";
 import { TaskForm } from "./TaskForm";
 import { TaskFilterBar, createDefaultTaskFilterState, type TaskFilterState } from "./TaskFilterBar";
 import { useNotify } from "../../context/NotifyContext";
-import { DURATION_LABELS, ENERGY_LABELS, STATUS_LABELS } from "./gtd";
+import { STATUS_LABELS } from "./gtd";
 import { QuickCapture } from "./QuickCapture";
 import { InboxClarifyDialog } from "./InboxClarifyDialog";
 import { WeeklyReviewDialog } from "./WeeklyReviewDialog";
@@ -86,23 +86,15 @@ export function TaskListPane({ title = "Aufgaben", showGtdTabs = false, showWeek
   const selectTab = (next: GtdTab) => { setTab(next); setPage(1); };
 
   /**
-   * Einmalige Vorgaben per Link (z. B. „Jetzt“ aus den Zeitblöcken):
-   * ?tab=next&maxDuration=60_min&maxEnergy=high. Sie werden übernommen und
-   * danach aus der URL entfernt, damit spätere Filteränderungen frei bleiben.
+   * Tab per Link vorwählen (z. B. „Zum Eingangskorb“ aus der Schnellerfassung:
+   * ?tab=inbox). Der Parameter wird danach aus der URL entfernt.
    */
   useEffect(() => {
     const tabParam = searchParams.get("tab");
-    const md = searchParams.get("maxDuration");
-    const me = searchParams.get("maxEnergy");
-    if (tabParam === null && md === null && me === null) return;
-    if (showGtdTabs && tabParam !== null && isGtdTab(tabParam)) selectTab(tabParam);
-    setFilters((prev) => ({
-      ...prev,
-      maxDuration: md && md in DURATION_LABELS ? (md as TaskDuration) : "",
-      maxEnergy: me && me in ENERGY_LABELS ? (me as TaskEnergy) : "",
-    }));
+    if (tabParam === null) return;
+    if (showGtdTabs && isGtdTab(tabParam)) selectTab(tabParam);
     const rest = new URLSearchParams(searchParams);
-    ["tab", "maxDuration", "maxEnergy"].forEach((key) => rest.delete(key));
+    rest.delete("tab");
     setSearchParams(rest, { replace: true });
   }, [searchParams]);
 
@@ -129,8 +121,6 @@ export function TaskListPane({ title = "Aufgaben", showGtdTabs = false, showWeek
         categoryId: filters.categoryId || undefined,
         contextId: filters.contextId || undefined,
         status: isStatusTab(tab) ? tab : (filters.gtdStatus || undefined),
-        maxDuration: filters.maxDuration || undefined,
-        maxEnergy: filters.maxEnergy || undefined,
         important: filters.priority === "important" || filters.priority === "both" || undefined,
         urgent: filters.priority === "urgent" || filters.priority === "both" || undefined,
         isProject: tab === "project" ? true : undefined,

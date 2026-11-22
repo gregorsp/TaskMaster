@@ -23,10 +23,9 @@ export interface TaskContextRef {
 
 // Werte spiegeln server/src/modules/tasks/tasks.schema.ts; Labels in components/tasks/gtd.ts.
 export type TaskStatus = "next" | "waiting" | "someday";
-/** Aufsteigend: „verfügbare Zeit“ filtert über `maxDuration`. */
-export type TaskDuration = "under_2_min" | "15_min" | "30_min" | "60_min" | "long";
-/** Aufsteigend: „verfügbare Energie“ filtert über `maxEnergy`. */
-export type TaskEnergy = "low" | "medium" | "high";
+/** Dauer und Energie werden nicht mehr in der Oberfläche gepflegt, kommen aber weiter vom Server. */
+export type TaskDuration = "under_2_min" | "15_min";
+export type TaskEnergy = "low" | "high";
 
 export interface Task {
   id: string;
@@ -55,7 +54,6 @@ export interface Task {
   recurrenceRule: string | null;
   parentId: string | null;
   plannedDate: string | null;
-  goalId: string | null;
   createdById: string;
   createdAt: string;
   assignees: TaskAssignee[];
@@ -100,10 +98,6 @@ export interface TaskFilters {
   status?: TaskStatus | "none";
   duration?: TaskDuration | "none";
   energy?: TaskEnergy | "none";
-  /** Höchstens so lange (Aufgaben ohne Dauer bleiben sichtbar). */
-  maxDuration?: TaskDuration;
-  /** Höchstens so viel Energie (Aufgaben ohne Angabe bleiben sichtbar). */
-  maxEnergy?: TaskEnergy;
   isProject?: boolean;
   search?: string;
   hidePlanned?: boolean;
@@ -133,7 +127,6 @@ export interface CreateTaskInput {
   contextIds?: string[];
   parentId?: string | null;
   plannedDate?: string | null;
-  goalId?: string | null;
   forceDueDate?: boolean;
   resolveDueDateConflicts?: boolean;
 }
@@ -180,7 +173,6 @@ export interface UpdateTaskInput {
   contextIds?: string[];
   parentId?: string | null;
   plannedDate?: string | null;
-  goalId?: string | null;
   forceUpdateRecurrence?: boolean;
   forceDueDate?: boolean;
   resolveDueDateConflicts?: boolean;
@@ -194,8 +186,6 @@ export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResp
   if (filters.status) params.set("status", filters.status);
   if (filters.duration) params.set("duration", filters.duration);
   if (filters.energy) params.set("energy", filters.energy);
-  if (filters.maxDuration) params.set("maxDuration", filters.maxDuration);
-  if (filters.maxEnergy) params.set("maxEnergy", filters.maxEnergy);
   if (filters.isProject !== undefined) params.set("isProject", String(filters.isProject));
   if (filters.uncategorized) params.set("uncategorized", "true");
   if (filters.assigneeId) params.set("assigneeId", filters.assigneeId);
@@ -218,8 +208,6 @@ export async function listTasks(filters: TaskFilters = {}): Promise<TaskListResp
 export interface WeeklyReview {
   inboxCount: number;
   somedayCount: number;
-  /** Offene Ziele ohne offene, verknüpfte Aufgabe. */
-  idleGoals: { id: string; title: string }[];
   /** Offene Projekte ohne offenen Nächsten Schritt. */
   stalledProjects: Task[];
   /** „Warten auf“-Einträge, älteste zuerst. */

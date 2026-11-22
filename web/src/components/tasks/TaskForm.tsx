@@ -8,10 +8,9 @@ import {
 import {
   createTask, updateTask, listTasks, generateTaskDescriptionAi,
   type CreateTaskInput, type UpdateTaskInput, type TaskWithRelations,
-  type TaskStatus, type TaskDuration, type TaskEnergy,
+  type TaskStatus,
 } from "../../api/tasksApi";
 import { GtdFields } from "./GtdFields";
-import { goalsApi, type Goal } from "../../api/horizonsApi";
 import { listCategories, type Category } from "../../api/categoriesApi";
 import { listContexts, type TaskContext } from "../../api/contextsApi";
 import { listUsersPicker, type UserPickerItem } from "../../api/usersApi";
@@ -110,13 +109,9 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
   const [selectedContexts, setSelectedContexts] = useState<TaskContext[]>([]);
   const [contextOptions, setContextOptions] = useState<TaskContext[]>([]);
   const [status, setStatus] = useState<TaskStatus | null>(null);
-  const [duration, setDuration] = useState<TaskDuration | null>(null);
-  const [energy, setEnergy] = useState<TaskEnergy | null>(null);
   const [selectedAssignees, setSelectedAssignees] = useState<UserPickerItem[]>([]);
   const [parentTask, setParentTask] = useState<TaskWithRelations | null>(null);
   const [parentOptions, setParentOptions] = useState<TaskWithRelations[]>([]);
-  const [goalId, setGoalId] = useState("");
-  const [goalOptions, setGoalOptions] = useState<Goal[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<UserPickerItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -133,7 +128,6 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
     if (open) {
       listCategories().then(setCategories).catch(() => []);
       listContexts().then(setContextOptions).catch(() => []);
-      goalsApi.list().then((all) => setGoalOptions(all.filter((g) => !g.achievedAt))).catch(() => []);
       listUsersPicker().then((all) => {
         setUsers(all);
         if (!task && currentUser) {
@@ -163,9 +157,6 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
         setSelectedCategories((task.categories || []) as Category[]);
         setSelectedContexts((task.contexts || []) as TaskContext[]);
         setStatus(task.status ?? null);
-        setDuration(task.duration ?? null);
-        setEnergy(task.energy ?? null);
-        setGoalId(task.goalId ?? "");
         setSelectedAssignees(task.assignees || []);
         if (task.parentId) {
           import("../../api/tasksApi").then(({ getTask: gt }) => {
@@ -192,7 +183,7 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
       setIsImportant(false); setPomodoros(null); setUrgencyMode("before_days"); setUrgencyValue(3); setRecurrenceType("none");
       setFreq("WEEKLY"); setInterval(1); setSelectedDays([]);
       setMonthDay(""); setUseNthWeekday(false); setSelectedCategories([]); setSelectedContexts([]);
-      setStatus(null); setDuration(null); setEnergy(null); setGoalId("");
+      setStatus(null);
       setParentTask(null);
       const me = users.find((u) => u.id === currentUser?.id);
       setSelectedAssignees(me ? [me] : []);
@@ -258,15 +249,12 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           isImportant, isPrivate, pomodoros, urgencyMode, urgencyValue,
           isHabit,
           status: isHabit ? null : status,
-          duration: isHabit ? null : duration,
-          energy: isHabit ? null : energy,
           recurrenceType: isHabit ? "none" : recurrenceType,
           recurrenceRule: isHabit ? null : (ruleStr || null),
           categoryIds: selectedCategories.map((c) => c.id),
           contextIds: isHabit ? [] : selectedContexts.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
           parentId: isHabit ? null : (parentTask?.id || null),
-          goalId: isHabit || parentTask ? null : (goalId || null),
           plannedDate: isHabit ? null : (plannedDate ? new Date(plannedDate).toISOString() : null),
           forceUpdateRecurrence: forceRecurrence,
           forceDueDate: forceDue,
@@ -282,15 +270,12 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           isImportant, isPrivate, pomodoros, urgencyMode, urgencyValue,
           isHabit,
           status: isHabit ? null : status,
-          duration: isHabit ? null : duration,
-          energy: isHabit ? null : energy,
           recurrenceType: isHabit ? "none" : recurrenceType,
           recurrenceRule: isHabit ? undefined : ruleStr,
           categoryIds: selectedCategories.map((c) => c.id),
           contextIds: isHabit ? [] : selectedContexts.map((c) => c.id),
           assigneeIds: selectedAssignees.map((u) => u.id),
           parentId: isHabit ? null : (parentTask?.id || null),
-          goalId: isHabit || parentTask ? null : (goalId || null),
           plannedDate: isHabit ? undefined : (plannedDate ? new Date(plannedDate).toISOString() : undefined),
           forceDueDate: forceDue,
           resolveDueDateConflicts: resolveDue,
@@ -350,8 +335,6 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
     try {
       const suggestion = await generateTaskDescriptionAi(title.trim(), description.trim() || undefined);
       setDescription(suggestion.description);
-      if (suggestion.duration) setDuration(suggestion.duration);
-      if (suggestion.energy) setEnergy(suggestion.energy);
       if (suggestion.status) setStatus(suggestion.status);
       if (suggestion.context) {
         const match = contextOptions.find((c) => c.name.toLowerCase() === suggestion.context!.toLowerCase());
@@ -387,26 +370,13 @@ export function TaskForm({ open, onClose, onCreated, task, parentId }: Props) {
           </Stack>
           {recurrenceType !== "habit" && (
             <GtdFields
-              value={{ status, duration, energy, contexts: selectedContexts }}
+              value={{ status, contexts: selectedContexts }}
               onChange={(patch) => {
                 if (patch.status !== undefined) setStatus(patch.status);
-                if (patch.duration !== undefined) setDuration(patch.duration);
-                if (patch.energy !== undefined) setEnergy(patch.energy);
                 if (patch.contexts !== undefined) setSelectedContexts(patch.contexts);
               }}
               contextOptions={contextOptions}
             />
-          )}
-          {recurrenceType !== "habit" && !parentTask && (goalOptions.length > 0 || goalId) && (
-            <TextField
-              select size="small" label="Ziel" value={goalId}
-              onChange={(e) => setGoalId(e.target.value)}
-              helperText="Wofür? Verknüpfte Aufgaben erscheinen unter GTD → Ziele."
-            >
-              <MenuItem value="">Kein Ziel</MenuItem>
-              {goalId && !goalOptions.some((g) => g.id === goalId) && <MenuItem value={goalId}>(fremdes oder erreichtes Ziel)</MenuItem>}
-              {goalOptions.map((g) => <MenuItem key={g.id} value={g.id}>{g.title}</MenuItem>)}
-            </TextField>
           )}
           <Stack direction="row" spacing={1} alignItems="flex-start">
             <TextField

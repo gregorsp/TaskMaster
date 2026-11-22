@@ -1,28 +1,13 @@
-import type { TaskDuration, TaskEnergy, TaskStatus } from "../../api/tasksApi";
+import type { TaskStatus } from "../../api/tasksApi";
 
 /**
  * Einzige Stelle für die deutschen GTD-Bezeichnungen (Formular, Karte,
- * Filter, Tabs, Assistent, Review). Die Reihenfolge der Einträge ist die
- * Anzeigereihenfolge; bei Dauer und Energie ist sie zugleich aufsteigend.
+ * Filter, Tabs, Assistent, Review). Die Reihenfolge ist die Anzeigereihenfolge.
  */
 export const STATUS_LABELS: Record<TaskStatus, string> = {
   next: "Nächster Schritt",
   waiting: "Warten auf",
   someday: "Irgendwann/Vielleicht",
-};
-
-export const DURATION_LABELS: Record<TaskDuration, string> = {
-  under_2_min: "unter 2 Min",
-  "15_min": "15 Min",
-  "30_min": "30 Min",
-  "60_min": "1 Std",
-  long: "über 1 Std",
-};
-
-export const ENERGY_LABELS: Record<TaskEnergy, string> = {
-  low: "niedrig",
-  medium: "mittel",
-  high: "hoch",
 };
 
 /** Label-Map → geordnete `[wert, label]`-Paare für Auswahllisten. */

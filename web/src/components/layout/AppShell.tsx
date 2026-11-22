@@ -46,8 +46,6 @@ import {
   SelfImprovement as MeditationIcon,
   DarkMode as DarkModeIcon,
   LightMode as LightModeIcon,
-  Flag as GoalIcon,
-  Schedule as BlocksIcon,
   MoveToInbox as CaptureIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../../context/AuthContext";
@@ -55,6 +53,7 @@ import { useThemeMode } from "../../context/ThemeContext";
 import { TranscriptionIndicator } from "../transcription/TranscriptionIndicator";
 import { startTranscriptionRunner, stopTranscriptionRunner } from "../../asr/runner";
 import { QuickCapture } from "../tasks/QuickCapture";
+import { PomodoroWidget } from "../../pomodoro/PomodoroWidget";
 
 const DRAWER_WIDTH = 240;
 
@@ -73,8 +72,6 @@ interface NavItem {
   icon: React.ReactNode;
   badge?: number;
   adminOnly?: boolean;
-  /** Unterpunkte, eingerückt unter dem Eintrag (z. B. GTD → Ziele, Zeitblöcke). */
-  children?: NavItem[];
 }
 
 export function AppShell() {
@@ -105,13 +102,7 @@ export function AppShell() {
     { path: "/categories", label: "Kategorien", icon: <LabelIcon /> },
     { path: "/contexts", label: "Kontexte", icon: <ContextIcon /> },
     { path: "/brainstorming", label: "Brainstorming", icon: <LightbulbIcon /> },
-    {
-      path: "/gtd", label: "GTD", icon: <GtdIcon />,
-      children: [
-        { path: "/gtd/goals", label: "Ziele", icon: <GoalIcon fontSize="small" /> },
-        { path: "/gtd/blocks", label: "Zeitblöcke", icon: <BlocksIcon fontSize="small" /> },
-      ],
-    },
+    { path: "/gtd", label: "GTD", icon: <GtdIcon /> },
   ];
 
   const go = (path: string) => {
@@ -119,10 +110,9 @@ export function AppShell() {
     if (isMobile) setDrawerOpen(false);
   };
 
-  const renderNavItem = (item: NavItem, nested = false) => (
+  const renderNavItem = (item: NavItem) => (
     <ListItemButton
       key={item.path}
-      sx={nested ? { pl: 4, py: 0.5 } : undefined}
       selected={
         item.path === "/"
           ? location.pathname === "/" || location.pathname.startsWith("/t/")
@@ -130,8 +120,8 @@ export function AppShell() {
       }
       onClick={() => go(item.path)}
     >
-      <ListItemIcon sx={nested ? { minWidth: 36 } : undefined}>{item.icon}</ListItemIcon>
-      <ListItemText primary={item.label} primaryTypographyProps={nested ? { variant: "body2" } : undefined} />
+      <ListItemIcon>{item.icon}</ListItemIcon>
+      <ListItemText primary={item.label} />
       {item.badge ? <Badge badgeContent={item.badge} color="error" sx={{ mr: 1 }} /> : null}
     </ListItemButton>
   );
@@ -147,10 +137,7 @@ export function AppShell() {
       </Toolbar>
       <Divider />
       <List>
-        {filteredNav.flatMap((item) => [
-          renderNavItem(item),
-          ...(item.children ?? []).map((child) => renderNavItem(child, true)),
-        ])}
+        {filteredNav.map(renderNavItem)}
       </List>
     </Box>
   );
@@ -160,15 +147,16 @@ export function AppShell() {
       <AppBar position="fixed" sx={{ zIndex: theme.zIndex.drawer + 1 }}>
         <Toolbar>
           {isMobile && (
-            <IconButton color="inherit" edge="start" onClick={() => setDrawerOpen(true)} sx={{ mr: 2 }}>
+            <IconButton color="inherit" edge="start" onClick={() => setDrawerOpen(true)} sx={{ mr: { xs: 1, sm: 2 } }}>
               <MenuIcon />
             </IconButton>
           )}
-          <Typography variant="h6" fontWeight={700} sx={{ flexGrow: 1 }}>
+          <Typography variant="h6" fontWeight={700} noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
             TaskMaster
           </Typography>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: { xs: 0, sm: 1 }, flexShrink: 0 }}>
             <TranscriptionIndicator />
+            <PomodoroWidget />
             <Tooltip title="Gedanken erfassen (Eingangskorb)">
               <IconButton color="inherit" onClick={() => { setCapturedCount(0); setCaptureOpen(true); }}>
                 <CaptureIcon />

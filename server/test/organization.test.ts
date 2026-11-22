@@ -260,27 +260,6 @@ describe("GTD: Klären, Erledigen, Reflektieren", () => {
     return res.json().items.map((t: { id: string }) => t.id) as string[];
   }
 
-  it("filtert nach verfügbarer Zeit und Energie als Obergrenze", async () => {
-    const quick = await createTask(ownerToken, { title: "Zeit kurz", isPrivate: true, duration: "under_2_min", energy: "low" });
-    const half = await createTask(ownerToken, { title: "Zeit mittel", isPrivate: true, duration: "30_min", energy: "medium" });
-    const long = await createTask(ownerToken, { title: "Zeit lang", isPrivate: true, duration: "long", energy: "high" });
-    const unknown = await createTask(ownerToken, { title: "Zeit unbekannt", isPrivate: true });
-
-    const byTime = await listIds(ownerToken, "search=Zeit&maxDuration=30_min");
-    expect(byTime).toEqual(expect.arrayContaining([quick.id, half.id]));
-    expect(byTime).not.toContain(long.id);
-    expect(byTime).toContain(unknown.id); // ohne Angabe bleibt sichtbar
-
-    const byEnergy = await listIds(ownerToken, "search=Zeit&maxEnergy=medium");
-    expect(byEnergy).toEqual(expect.arrayContaining([quick.id, half.id]));
-    expect(byEnergy).not.toContain(long.id);
-
-    const invalid = await app.inject({
-      method: "POST", url: "/api/tasks", headers: headers(ownerToken), payload: { title: "x", duration: "3_tage" },
-    });
-    expect(invalid.statusCode).toBe(400);
-  });
-
   it("filtert „dringend“ nach der berechneten Dringlichkeit", async () => {
     const always = await createTask(ownerToken, { title: "Prio immer", isPrivate: true, urgencyMode: "always" });
     const never = await createTask(ownerToken, { title: "Prio nie", isPrivate: true, urgencyMode: "never" });

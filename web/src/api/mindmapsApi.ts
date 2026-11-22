@@ -1,4 +1,4 @@
-import { crudApi } from "./crud";
+import client from "./client";
 
 export interface MindNode {
   id: string;
@@ -24,4 +24,11 @@ export interface MindMapBoard {
   extraEdges: MindEdge[];
 }
 
-export const mindmapsApi = crudApi<MindMapBoard, Omit<MindMapBoard, "id">>("/mindmaps");
+type BoardContent = Omit<MindMapBoard, "id">;
+
+export const mindmapsApi = {
+  list: async () => (await client.get<MindMapBoard[]>("/mindmaps")).data,
+  create: async (input: BoardContent) => (await client.post<MindMapBoard>("/mindmaps", input)).data,
+  update: async (id: string, input: Partial<BoardContent>) => (await client.put<MindMapBoard>(`/mindmaps/${id}`, input)).data,
+  remove: async (id: string) => { await client.delete(`/mindmaps/${id}`); },
+};

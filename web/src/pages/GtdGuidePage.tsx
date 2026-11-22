@@ -19,19 +19,15 @@ const STEPS = [
   },
   {
     title: "3. Organisieren (Organize)",
-    desc: "Nächste Schritte bekommen eine Dauer, den Energiebedarf und bei Bedarf einen Kontext (wo/womit). Projekte sind Aufgaben mit Unteraufgaben – sie entstehen automatisch, sobald ein erster Schritt angehängt wird. Schreib die Schritte einfach der Reihe nach als Unteraufgaben auf: Der erste wird Nächster Schritt, und sobald er erledigt ist, rückt der nächste automatisch nach.",
+    desc: "Nächste Schritte bekommen bei Bedarf einen Kontext (wo/womit) und eine Schätzung in Pomodoros. Projekte sind Aufgaben mit Unteraufgaben – sie entstehen automatisch, sobald ein erster Schritt angehängt wird. Schreib die Schritte einfach der Reihe nach als Unteraufgaben auf: Der erste wird Nächster Schritt, und sobald er erledigt ist, rückt der nächste automatisch nach.",
   },
   {
     title: "4. Reflektieren (Weekly Review)",
-    desc: `Einmal pro Woche „Weekly Review“ öffnen: Eingangskorb leeren, festgefahrenen Projekten direkt einen Nächsten Schritt geben, „${STATUS_LABELS.waiting}“ abhaken oder nachfassen, Ziele ohne Bewegung prüfen, ${STATUS_LABELS.someday} durchsehen und die nächste Woche im Planungsraster verteilen.`,
+    desc: `Einmal pro Woche „Weekly Review“ öffnen: Eingangskorb leeren, festgefahrenen Projekten direkt einen Nächsten Schritt geben, „${STATUS_LABELS.waiting}“ abhaken oder nachfassen, ${STATUS_LABELS.someday} durchsehen und die nächste Woche mit Pomodoros in der Planung verteilen.`,
   },
   {
     title: "5. Erledigen (Engage)",
-    desc: "Filtere oben nach verfügbarer Zeit, deiner Energie und der Priorität, bei Bedarf auch nach Kontext – übrig bleiben genau die Schritte, die jetzt passen. Mit Zeitblöcken (GTD → Zeitblöcke) geht das auf Knopfdruck: „Passende Schritte“ filtert automatisch für den laufenden Block.",
-  },
-  {
-    title: "Ziele (Horizont über den Projekten)",
-    desc: "Unter GTD → Ziele legst du fest, wofür du arbeitest. Hänge Projekte an ein Ziel (Feld „Ziel“ in der Aufgabe oder direkt auf der Ziel-Seite) – dort siehst du Fortschritt und Nächsten Schritt jedes Projekts.",
+    desc: "Nimm dir einen Nächsten Schritt (bei Bedarf nach Priorität oder Kontext gefiltert) und starte einen Pomodoro – in der Aufgabe oder oben über das Uhr-Symbol. Die Kopfzeile zeigt live, woran du arbeitest; am Ende klingelt es, dann folgt die Pause. Ist der Schritt erledigt, schlägt der Timer direkt den nächsten Schritt des Projekts vor.",
   },
   {
     title: "Brainstorming & Mindmaps",

@@ -11,6 +11,7 @@ import { deleteTask, type Task } from "../../api/tasksApi";
 import { AssigneeAvatars } from "./AssigneeAvatars";
 import { useNotify } from "../../context/NotifyContext";
 import { useModalStack } from "./ModalStackProvider";
+import { usePomodoro } from "../../pomodoro/PomodoroContext";
 
 const formatDate = (d: string | null) => {
   if (!d) return "";
@@ -29,10 +30,10 @@ function renderPriorityChip(task: Task) {
   return <Chip size="small" label={label} color={color} variant="outlined" />;
 }
 
-function renderPomodoroChip(task: Task) {
+function renderPomodoroChip(task: Task, workMinutes: number) {
   if (task.pomodoros == null || task.pomodoros <= 0) return null;
   return (
-    <Tooltip title={`${task.pomodoros} Pomodoro${task.pomodoros > 1 ? "s" : ""} ≈ ${task.pomodoros * 25} Minuten`}>
+    <Tooltip title={`${task.pomodoros} Pomodoro${task.pomodoros > 1 ? "s" : ""} ≈ ${task.pomodoros * workMinutes} Minuten`}>
       <Chip size="small" label={`${task.pomodoros} Pomo`} color="secondary" />
     </Tooltip>
   );
@@ -69,6 +70,7 @@ interface Props {
 export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extraBadge }: Props) {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const notify = useNotify();
+  const { workMinutes } = usePomodoro().settings;
   const { push, setOnRootUpdated } = useModalStack();
 
   useEffect(() => {
@@ -169,7 +171,7 @@ export function TaskListView({ tasks, onUpdated, loading, error, emptyText, extr
                         <Typography variant="body2" sx={{ overflowWrap: "anywhere", textDecoration: task.isCompleted ? "line-through" : undefined }}>{task.title}</Typography>
                         <AssigneeAvatars assignees={task.assignees} />
                         {renderPriorityChip(task)}
-                        {renderPomodoroChip(task)}
+                        {renderPomodoroChip(task, workMinutes)}
                       </Stack>
                       {renderNextStep(task)}
                     </TableCell>

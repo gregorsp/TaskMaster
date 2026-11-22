@@ -105,7 +105,7 @@ export async function generateGtdDescription(
     '{"description": "...", "context": "Telefon", "duration": "under_2_min", "energy": "low", "status": "next"}',
     "Erlaubte Werte:",
     `- context: ${quoted(CONTEXT_NAMES)} oder null`,
-    `- duration: ${quoted(TASK_DURATIONS)} oder null ("long" = über eine Stunde)`,
+    `- duration: ${quoted(TASK_DURATIONS)} oder null`,
     `- energy: ${quoted(TASK_ENERGIES)} oder null`,
     '- status: "next" (konkreter nächster Schritt), "waiting" (jemand anderes muss liefern), "someday" (vage Idee) oder null',
     "",

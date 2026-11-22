@@ -148,6 +148,13 @@
       "when": 1794100000000,
       "tag": "0020_goals_timeblocks_mindmaps",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1794200000000,
+      "tag": "0021_pomodoro_settings",
+      "breakpoints": true
     }
   ]
 }

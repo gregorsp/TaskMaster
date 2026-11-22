@@ -18,13 +18,13 @@ import { STATUS_LABELS } from "./gtd";
 
 type Step = "actionable" | "not_actionable" | "how" | "next" | "waiting" | "project";
 
-const EMPTY_GTD: GtdValues = { status: null, duration: null, energy: null, contexts: [] };
+const EMPTY_GTD: GtdValues = { status: null, contexts: [] };
 
 const QUESTIONS: Record<Step, string> = {
   actionable: "Ist es umsetzbar?",
   not_actionable: "Nicht umsetzbar – wohin damit?",
   how: "Was ist der nächste physische Schritt?",
-  next: "Nächster Schritt: Wo, wie lange, mit welcher Energie?",
+  next: "Nächster Schritt – braucht es einen bestimmten Ort oder ein Werkzeug? (optional)",
   waiting: "Delegieren: Auf wen oder was wartest du?",
   project: "Mehr als ein Schritt – also ein Projekt. Was ist der erste Schritt?",
 };
@@ -93,8 +93,6 @@ export function InboxClarifyDialog({ open, onClose, onChanged }: Props) {
   };
 
   const gtdPatch = () => ({
-    duration: gtd.duration,
-    energy: gtd.energy,
     contextIds: gtd.contexts.map((c) => c.id),
   });
   const cleanTitle = title.trim() || current?.title || "";

@@ -6,6 +6,7 @@ import { users } from "../../db/schema.js";
 import type { RegisterInput } from "./auth.schema.js";
 import { getProfilePictureUrl } from "./profile.service.js";
 import { parseCapacity, serializeCapacity, type Capacity } from "../../lib/capacity.js";
+import { parsePomodoroSettings, type PomodoroSettings } from "../../lib/pomodoro.js";
 import { seedDefaultContexts } from "../contexts/contexts.service.js";
 import { decryptSecret } from "../../lib/secrets.js";
 
@@ -39,6 +40,7 @@ function userToResponse(user: typeof users.$inferSelect) {
     isAdmin: user.isAdmin,
     profilePicture: getProfilePictureUrl(user.profilePicture),
     capacity: parseCapacity(user.capacity),
+    pomodoroSettings: parsePomodoroSettings(user.pomodoroSettings),
     confirmHabitCompletion: user.confirmHabitCompletion,
     transcriptionLanguage: user.transcriptionLanguage,
     defaultPrivate: user.defaultPrivate,
@@ -192,6 +194,16 @@ export async function updateCurrentUserHabitConfirm(id: string, confirmHabitComp
   db.update(users).set({ confirmHabitCompletion }).where(eq(users.id, id)).run();
   const updated = db.select().from(users).where(eq(users.id, id)).get()!;
   return userToResponse(updated);
+}
+
+export function updateCurrentUserPomodoroSettings(id: string, settings: PomodoroSettings) {
+  const db = getDb();
+  const existing = db.select({ id: users.id }).from(users).where(eq(users.id, id)).get();
+  if (!existing) {
+    throw Object.assign(new Error("User not found"), { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+  db.update(users).set({ pomodoroSettings: JSON.stringify(settings) }).where(eq(users.id, id)).run();
+  return userToResponse(db.select().from(users).where(eq(users.id, id)).get()!);
 }
 
 export function updateCurrentUserTranscriptionLanguage(id: string, language: string) {

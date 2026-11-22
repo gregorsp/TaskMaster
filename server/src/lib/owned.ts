@@ -8,8 +8,7 @@ export function notFound(what: string) {
 }
 
 /**
- * Lädt einen Datensatz, der genau einem Nutzer gehört (Ziele, Zeitblöcke,
- * Mindmaps). Fremde und unbekannte IDs sind gleichermaßen 404 – so lässt sich
+ * Lädt einen Datensatz, der genau einem Nutzer gehört (z. B. Mindmaps). Fremde und unbekannte IDs sind gleichermaßen 404 – so lässt sich
  * nicht erraten, welche IDs existieren.
  */
 export function findOwned<T extends SQLiteTableWithColumns<any> & { id: SQLiteColumn; userId: SQLiteColumn }>(

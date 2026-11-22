@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { getDb } from "../../db/client.js";
 import {
   tasks, taskAssignees, taskCategories, taskEvents, taskLinks, taskOccurrences,
-  users, categories, contexts, taskContexts, goals,
+  users, categories, contexts, taskContexts,
 } from "../../db/schema.js";
 import { visibilityFilter, isVisibleToUserSync } from "../../middleware/visibility.js";
 import { categoryIdsWithSameName } from "../categories/categories.service.js";
@@ -234,20 +234,6 @@ function selectVisibleTasks(userId: string, ...extra: (SQL | undefined)[]) {
     .map((r) => r.tasks);
 }
 
-/** Sichtbare Aufgaben, angereichert wie in der Liste (für andere Module, z. B. Ziele). */
-export function listVisibleTasks(userId: string, ...extra: (SQL | undefined)[]) {
-  return withRelations(selectVisibleTasks(userId, ...extra).map(enrichTask));
-}
-
-/** Ein Ziel darf nur sein Besitzer an Aufgaben hängen. */
-function assertOwnGoal(goalId: string | null | undefined, userId: string) {
-  if (!goalId) return;
-  const goal = getDb().select({ userId: goals.userId }).from(goals).where(eq(goals.id, goalId)).get();
-  if (!goal || goal.userId !== userId) {
-    throw Object.assign(new Error("Goal not found"), { statusCode: 400, code: "INVALID_GOAL" });
-  }
-}
-
 /**
  * Einmaliger Abgleich (beim Serverstart): jedes offene Projekt ohne Schritt mit
  * Status `next` bekommt seinen Nächsten Schritt – für Projekte aus der Zeit vor
@@ -271,16 +257,6 @@ function exactFilter(column: Column, value: unknown, allowed: readonly string[])
   return allowed.includes(v) ? eq(column, v) : undefined;
 }
 
-/**
- * „Höchstens“-Filter über eine aufsteigend sortierte Werteliste
- * (verfügbare Zeit / verfügbare Energie). Ausgeblendet wird nur, was
- * nachweislich nicht passt – Aufgaben ohne Angabe bleiben sichtbar.
- */
-function upToFilter(column: Column, value: unknown, ordered: readonly string[]): SQL | undefined {
-  const idx = value === undefined ? -1 : ordered.indexOf(String(value));
-  return idx < 0 ? undefined : (or(isNull(column), inArray(column, ordered.slice(0, idx + 1))) as SQL);
-}
-
 const isTrue = (value: unknown) => value === true || value === "true";
 
 export function listTasks(
@@ -302,8 +278,6 @@ export function listTasks(
     exactFilter(tasks.status, query.status, TASK_STATUSES),
     exactFilter(tasks.duration, query.duration, TASK_DURATIONS),
     exactFilter(tasks.energy, query.energy, TASK_ENERGIES),
-    upToFilter(tasks.duration, query.maxDuration, TASK_DURATIONS),
-    upToFilter(tasks.energy, query.maxEnergy, TASK_ENERGIES),
   );
 
   if (query.search) {
@@ -319,7 +293,7 @@ export function listTasks(
     conditions.push(inArray(tasks.id, projectIds));
   }
 
-  // Eingangskorb: ungeklärte Einträge = oberste Ebene, kein Projekt, keine Kategorie, kein Status, kein Ziel.
+  // Eingangskorb: ungeklärte Einträge = oberste Ebene, kein Projekt, keine Kategorie, kein Status.
   // Unteraufgaben und Projekte gelten als bereits organisiert. Nur eigene bzw. mir zugewiesene
   // Einträge (der Ersteller ist immer zugewiesen) – öffentliche Aufgaben anderer gehören nicht hinein.
   if (isTrue(query.uncategorized)) {
@@ -330,14 +304,12 @@ export function listTasks(
       db.select({ taskId: taskAssignees.taskId }).from(taskAssignees).where(eq(taskAssignees.userId, userId)).all().map((r) => r.taskId)
     );
     const projects = projectTaskIds();
-    const ids = db.select({ id: tasks.id, status: tasks.status, parentId: tasks.parentId, goalId: tasks.goalId }).from(tasks).all()
-      .filter((row) => mine.has(row.id) && !withCategory.has(row.id) && !row.status && !row.parentId && !row.goalId && !projects.has(row.id))
+    const ids = db.select({ id: tasks.id, status: tasks.status, parentId: tasks.parentId }).from(tasks).all()
+      .filter((row) => mine.has(row.id) && !withCategory.has(row.id) && !row.status && !row.parentId && !projects.has(row.id))
       .map((row) => row.id);
     if (ids.length === 0) return paginate([], 0, paging);
     conditions.push(inArray(tasks.id, ids));
   }
-
-  if (query.goalId) conditions.push(eq(tasks.goalId, String(query.goalId)));
 
   if (query.categoryId) {
     const sameNameIds = categoryIdsWithSameName(String(query.categoryId));
@@ -445,15 +417,8 @@ export function getWeeklyReview(userId: string) {
   const projects = open.filter((t) => projectIds.has(t.id)).sort(byCreated);
   const waiting = open.filter((t) => t.status === "waiting").sort(byCreated);
 
-  // Ziele ohne offene, verknüpfte Aufgabe – dort passiert gerade nichts.
-  const activeGoalIds = new Set(open.map((t) => t.goalId).filter(Boolean));
-  const idleGoals = getDb().select({ id: goals.id, title: goals.title }).from(goals)
-    .where(and(eq(goals.userId, userId), isNull(goals.achievedAt))).all()
-    .filter((g) => !activeGoalIds.has(g.id));
-
   return {
     inboxCount,
-    idleGoals,
     somedayCount: open.filter((t) => t.status === "someday").length,
     stalledProjects: withRelations(projects.map(enrichTask)).filter((p) => !p.nextStep),
     waiting: withRelations(waiting.map(enrichTask)),
@@ -639,8 +604,6 @@ export function createTask(input: CreateTaskInput, createdById: string): (typeof
   // sonst gilt die Nutzer-Voreinstellung (Standard: privat).
   const isPrivate = isHabit ? true : parent ? parent.isPrivate : (input.isPrivate ?? defaultPrivate);
 
-  if (!isHabit) assertOwnGoal(input.goalId, createdById);
-
   const task = {
     id: uuid(),
     slug: generateUniqueTaskSlug(),
@@ -669,7 +632,6 @@ export function createTask(input: CreateTaskInput, createdById: string): (typeof
     recurrenceRule: isHabit ? null : (input.recurrenceRule || null),
     parentId: isHabit ? null : (input.parentId || null),
     plannedDate: isHabit ? null : (input.plannedDate ? new Date(input.plannedDate) : null),
-    goalId: isHabit ? null : (input.goalId ?? null),
     createdById,
     createdAt: new Date(),
   };
@@ -743,7 +705,6 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
     updates.status = null;
     updates.duration = null;
     updates.energy = null;
-    updates.goalId = null;
     updates.plannedDate = null;
     updates.dueAt = null;
     updates.baseDate = null;
@@ -793,11 +754,6 @@ export async function updateTask(id: string, input: UpdateTaskInput, userId: str
   }
 
   if (input.plannedDate !== undefined && !isHabit) updates.plannedDate = input.plannedDate ? new Date(input.plannedDate) : null;
-  // Nur eine geänderte Verknüpfung prüfen – Mitbearbeiter dürfen das Ziel des Erstellers stehen lassen.
-  if (input.goalId !== undefined && !isHabit && input.goalId !== existing.goalId) {
-    assertOwnGoal(input.goalId, userId);
-    updates.goalId = input.goalId;
-  }
 
   if (input.dueAt !== undefined && !isHabit) {
     if (input.recurrenceType === "rrule" || existing.recurrenceType === "rrule") {

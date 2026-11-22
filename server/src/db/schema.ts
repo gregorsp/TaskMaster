@@ -9,6 +9,8 @@ export const users = sqliteTable("users", {
   isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
   profilePicture: text("profile_picture"),
   capacity: text("capacity"),
+  /** Pomodoro-Längen, Pausen und Ton als JSON (siehe lib/pomodoro.ts); NULL = Standard. */
+  pomodoroSettings: text("pomodoro_settings"),
   confirmHabitCompletion: integer("confirm_habit_completion", { mode: "boolean" }).notNull().default(true),
   transcriptionLanguage: text("transcription_language").notNull().default("de"),
   /**
@@ -64,8 +66,6 @@ export const tasks = sqliteTable("tasks", {
   duration: text("duration"),
   /** Energiebedarf, Werte siehe `TASK_ENERGIES` in tasks.schema.ts (oder NULL). */
   energy: text("energy"),
-  /** Optionales Ziel (GTD-Horizont über den Projekten); gehört dem Ersteller des Ziels. */
-  goalId: text("goal_id"),
   recurrenceType: text("recurrence_type").notNull().default("none"),
   recurrenceRule: text("recurrence_rule"),
   parentId: text("parent_id"),
@@ -362,41 +362,6 @@ export const meditationComments = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [index("idx_meditation_comments_session").on(table.sessionId, table.createdAt)]
-);
-
-/** Ziele: Horizont über den Projekten. Aufgaben/Projekte verweisen per `tasks.goal_id`. */
-export const goals = sqliteTable(
-  "goals",
-  {
-    id: text("id").primaryKey(),
-    userId: text("user_id").notNull().references(() => users.id),
-    title: text("title").notNull(),
-    description: text("description"),
-    targetDate: integer("target_date", { mode: "timestamp_ms" }),
-    achievedAt: integer("achieved_at", { mode: "timestamp_ms" }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  },
-  (table) => [index("idx_goals_user").on(table.userId)]
-);
-
-/**
- * Feste, wöchentlich wiederkehrende Zeitblöcke (Time-Blocking). Minuten seit
- * Mitternacht in Ortszeit; Kontext/Energie dienen als Filtervorgabe für „Jetzt“.
- */
-export const timeBlocks = sqliteTable(
-  "time_blocks",
-  {
-    id: text("id").primaryKey(),
-    userId: text("user_id").notNull().references(() => users.id),
-    weekday: text("weekday").notNull(),
-    startMinute: integer("start_minute").notNull(),
-    endMinute: integer("end_minute").notNull(),
-    title: text("title").notNull(),
-    contextId: text("context_id"),
-    energy: text("energy"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  },
-  (table) => [index("idx_time_blocks_user").on(table.userId, table.weekday)]
 );
 
 /** Brainstorming-Mindmaps (vorher nur im localStorage des Browsers). `nodes` = JSON. */
